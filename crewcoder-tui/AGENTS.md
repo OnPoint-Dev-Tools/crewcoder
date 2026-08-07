@@ -2,7 +2,7 @@
 
 ## Project
 
-This package is `@crewcode/crewcoder-tui`.
+This package is `@onpoint-dev-tools/crewcoder-tui`.
 
 It is the custom terminal UI for CrewCoder.
 
@@ -340,8 +340,8 @@ Tool results can carry images too. A tool declaring `ToolResult.details.images[]
 Run from the monorepo root:
 
 ```bash
-npm run typecheck -w @crewcode/crewcoder-tui
-npm test -w @crewcode/crewcoder-tui
+npm run typecheck -w @onpoint-dev-tools/crewcoder-tui
+npm test -w @onpoint-dev-tools/crewcoder-tui
 ```
 
 Regression tests that protect recent behavior:

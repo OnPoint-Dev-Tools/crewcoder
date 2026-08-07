@@ -10,7 +10,7 @@ import {
   type WorkerHandoffResult,
   type WorkerTeam,
   type WorkerTeamsManifest
-} from "@crewcode/crewcoder-agent";
+} from "@onpoint-dev-tools/crewcoder-agent";
 
 export type CrewCoderOrchestratorOptions = Omit<CrewCoderWorkerRuntimeOptions, "emit">;
 export type CrewCoderOrchestratorEventListener = (event: AgentEvent) => Promise<void> | void;

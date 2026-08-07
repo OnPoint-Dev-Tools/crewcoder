@@ -4,14 +4,14 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@crewcode/crewcoder-agent": ["./crewcoder-agent/src/index.ts"],
-      "@crewcode/crewcoder-agent/*": ["./crewcoder-agent/src/*"],
+      "@onpoint-dev-tools/crewcoder-agent": ["./crewcoder-agent/src/index.ts"],
+      "@onpoint-dev-tools/crewcoder-agent/*": ["./crewcoder-agent/src/*"],
       "@onpoint-dev-tools/crewcoder-sdk": ["./crewcoder-sdk/src/index.ts"],
       "@onpoint-dev-tools/crewcoder-sdk/*": ["./crewcoder-sdk/src/*"],
       "@onpoint-dev-tools/crewcoder-client": ["./crewcoder-client/src/index.ts"],
       "@onpoint-dev-tools/crewcoder-client/*": ["./crewcoder-client/src/*"],
-      "@crewcode/crewcoder-tui": ["./crewcoder-tui/src/cli.ts"],
-      "@crewcode/crewcoder-tui/*": ["./crewcoder-tui/src/*"]
+      "@onpoint-dev-tools/crewcoder-tui": ["./crewcoder-tui/src/cli.ts"],
+      "@onpoint-dev-tools/crewcoder-tui/*": ["./crewcoder-tui/src/*"]
     }
   },
   "include": ["crewcoder-*/src/**/*.ts"],

@@ -40,7 +40,7 @@ Use `AGENTS.md` for rules that belong to the project itself.
 Good examples:
 
 ```md
-Run `npm run typecheck -w @crewcode/crewcoder-agent` after backend changes.
+Run `npm run typecheck -w @onpoint-dev-tools/crewcoder-agent` after backend changes.
 Do not remove provider thinking streams without replacing the behavior and tests.
 Update `crewcoder-agent/docs/*` when adding user-facing backend features.
 ```

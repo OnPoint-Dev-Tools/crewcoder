@@ -252,5 +252,5 @@ crewcoder/
 - Crew task sidebar labels are session-local presentation numbers that restart at `1` and remain stable across status sorting. Crew task tools and persisted dependency edges must continue using project-wide durable task IDs.
 - CI transports (`action.yml`, the GitLab template, and `scripts/run-ci.sh`) must preserve `run --ci` stdout JSON and exit codes. `crewcoder hook install` may only update its managed marker block, must back up unrelated hooks before an explicit force replacement, and must refuse shared/global hook paths outside the repository.
 - Validate provider stream changes with package-local checks using isolated env:
-  `CREWCODER_HOME=/tmp/.crewcoder npm run typecheck -w @crewcode/crewcoder-agent`
-  `env -u OPENCODE_API_KEY CREWCODER_HOME=/tmp/.crewcoder npm test -w @crewcode/crewcoder-agent`
+  `CREWCODER_HOME=/tmp/.crewcoder npm run typecheck -w @onpoint-dev-tools/crewcoder-agent`
+  `env -u OPENCODE_API_KEY CREWCODER_HOME=/tmp/.crewcoder npm test -w @onpoint-dev-tools/crewcoder-agent`

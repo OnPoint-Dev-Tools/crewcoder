@@ -1,8 +1,15 @@
 {
-   "name": "@crewcode/crewcoder-agent",
+   "name": "@onpoint-dev-tools/crewcoder-agent",
    "version": "0.6.0",
    "description": "CrewCoder coding agent runtime and CLI",
    "license": "Apache-2.0",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git",
+      "directory": "crewcoder-agent"
+   },
+   "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+   "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
    "type": "module",
    "types": "./dist/index.d.ts",
    "files": [

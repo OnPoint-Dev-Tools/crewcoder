@@ -305,7 +305,7 @@ in-flight request.
 Regression tests (run from the monorepo root):
 
 ```bash
-npm test -w @crewcode/crewcoder-tui
+npm test -w @onpoint-dev-tools/crewcoder-tui
 ```
 
 Relevant suites:

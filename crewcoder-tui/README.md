@@ -177,8 +177,8 @@ npm run dev
 For normal use, link both workspace packages once, then launch from any directory:
 
 ```bash
-npm link -w @crewcode/crewcoder-agent
-npm link -w @crewcode/crewcoder-tui
+npm link -w @onpoint-dev-tools/crewcoder-agent
+npm link -w @onpoint-dev-tools/crewcoder-tui
 crewcoder
 ```
 
@@ -225,7 +225,7 @@ CREWCODER_BIN=/absolute/path/to/crewcoder npm run dev
 
 ```fish
 set CREWCODER_BIN /home/aura/my-cmd/CrewCoder-Mono/crewcoder/crewcoder-agent/dist/cli.js.
-npm run dev -w @crewcode/crewcoder-tui --prefix /home/aura/my-cmd/CrewCoder-Mono/crewcoder
+npm run dev -w @onpoint-dev-tools/crewcoder-tui --prefix /home/aura/my-cmd/CrewCoder-Mono/crewcoder
 ```
 
 ## Extension Live UI Components

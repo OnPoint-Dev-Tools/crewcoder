@@ -690,8 +690,8 @@ crewcoder doctor
 Prefer package-local validation from the monorepo root:
 
 ```bash
-CREWCODER_HOME=/tmp/.crewcoder npm run typecheck -w @crewcode/crewcoder-agent
-env -u OPENCODE_API_KEY CREWCODER_HOME=/tmp/.crewcoder npm test -w @crewcode/crewcoder-agent
+CREWCODER_HOME=/tmp/.crewcoder npm run typecheck -w @onpoint-dev-tools/crewcoder-agent
+env -u OPENCODE_API_KEY CREWCODER_HOME=/tmp/.crewcoder npm test -w @onpoint-dev-tools/crewcoder-agent
 ```
 
 Unset `OPENCODE_API_KEY` for provider-registry tests unless the test explicitly needs live auth. Use a `CREWCODER_HOME` value ending in `.crewcoder` when tests assert CrewCoder home paths.
@@ -785,7 +785,7 @@ attempts are denied.
 ## Supported TypeScript SDK
 
 `@onpoint-dev-tools/crewcoder-sdk` is the supported in-process embedding API. Keep it as a
-separate package from `@crewcode/crewcoder-agent`; the SDK may depend on the agent,
+separate package from `@onpoint-dev-tools/crewcoder-agent`; the SDK may depend on the agent,
 but it must consume only explicit agent exports. `src/sdk-runtime.ts` is the narrow
 adapter for provider resolution, loop execution, durable resume, in-memory
 continuation, events, approvals, follow-ups, extension UI, and cancellation. Do not

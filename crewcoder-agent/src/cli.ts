@@ -1971,7 +1971,7 @@ function launchTui(): Promise<void> {
     const child = spawn("crewcoder-tui", [], { stdio: "inherit" });
     child.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
-        reject(new Error("CrewCoder TUI is not installed. Run: npm link -w @crewcode/crewcoder-tui"));
+        reject(new Error("CrewCoder TUI is not installed. Run: npm link -w @onpoint-dev-tools/crewcoder-tui"));
         return;
       }
       reject(error);

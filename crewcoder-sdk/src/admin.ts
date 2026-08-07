@@ -61,7 +61,7 @@ import {
   type SessionSummary,
   type TrustTier,
   type UninstallResult
-} from "@crewcode/crewcoder-agent";
+} from "@onpoint-dev-tools/crewcoder-agent";
 
 export type CrewCoderAdminOptions = {
   /** Project root used for project-scoped profile settings. Defaults to process.cwd(). */

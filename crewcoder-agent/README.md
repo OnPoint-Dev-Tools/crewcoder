@@ -274,7 +274,7 @@ crewcoder deploy user@host
 Build and deploy a standalone Linux x64 executable when the VPS has no Node.js/npm:
 
 ```bash
-npm run build:standalone -w @crewcode/crewcoder-agent
+npm run build:standalone -w @onpoint-dev-tools/crewcoder-agent
 crewcoder deploy user@host \
   --binary crewcoder-agent/dist-bin/crewcoder-linux-x64 \
   --execute

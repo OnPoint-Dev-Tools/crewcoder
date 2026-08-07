@@ -5,7 +5,7 @@
 ## Boundary
 
 - Keep the SDK narrower and more stable than `crewcoder-agent/src`.
-- Integrate with the agent only through exports from `@crewcode/crewcoder-agent`; never import relative agent source files.
+- Integrate with the agent only through exports from `@onpoint-dev-tools/crewcoder-agent`; never import relative agent source files.
 - Add runtime capabilities through `crewcoder-agent/src/sdk-runtime.ts` rather than reimplementing provider, session, approval, or event behavior.
 - Keep `CrewCoderAdmin` local and Node-only. Configuration uses the agent's validated config contract; project profile writes must preserve unrelated `crewcoder.json` fields.
 - Session administration must validate IDs before filesystem access. Deletion must reject traversal and symlink targets and must never remove workspace files.

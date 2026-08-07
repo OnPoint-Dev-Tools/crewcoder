@@ -89,7 +89,7 @@ Capability checklist:
 A module extension exports a default factory function that receives `CrewCoderExtAPI`:
 
 ```ts
-import type { CrewCoderExtAPI } from "@crewcode/crewcoder-agent";
+import type { CrewCoderExtAPI } from "@onpoint-dev-tools/crewcoder-agent";
 
 export default function (crew: CrewCoderExtAPI) {
   crew.handleEvent("context", async () => ({

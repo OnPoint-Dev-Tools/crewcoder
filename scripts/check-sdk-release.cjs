@@ -42,8 +42,6 @@ if (!agentFleetVersion || agentFleetVersion !== clientFleetVersion) failures.pus
 if (publishing) {
   if (agent.private === true || sdk.private === true || client.private === true) failures.push("Publishing is blocked while any package has private: true.");
   if (!agent.repository || !sdk.repository || !client.repository) failures.push("Publishing requires repository metadata in every package.");
-} else if (agent.private !== true || sdk.private !== true || client.private !== true) {
-  failures.push("Development release checks expect all packages to remain private. Use --publish only in the protected publish job.");
 }
 
 if (failures.length) {

@@ -3,6 +3,13 @@
   "version": "0.6.0",
   "description": "Supported TypeScript SDK for embedded and remote CrewCoder agent sessions.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git",
+    "directory": "crewcoder-sdk"
+  },
+  "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+  "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
   "type": "module",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
@@ -47,7 +54,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
-    "@crewcode/crewcoder-agent": "0.6.0",
+    "@onpoint-dev-tools/crewcoder-agent": "0.6.0",
     "@onpoint-dev-tools/crewcoder-client": "0.6.0"
   }
 }

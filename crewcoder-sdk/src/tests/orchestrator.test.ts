@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWorker } from "@crewcode/crewcoder-agent";
+import { createWorker } from "@onpoint-dev-tools/crewcoder-agent";
 import { createCrewCoderOrchestrator, createCrewCoderSession, type AgentEvent, type ModelClient } from "../index.js";
 
 let root = "";

@@ -33,7 +33,7 @@ This complete example builds CrewCoder, deploys it to a Linux x64 VPS, opens an 
 On the development machine:
 
 ```sh
-npm run build:standalone -w @crewcode/crewcoder-agent
+npm run build:standalone -w @onpoint-dev-tools/crewcoder-agent
 
 crewcoder deploy user@vps \
   --binary crewcoder-agent/dist-bin/crewcoder-linux-x64 \
@@ -114,7 +114,7 @@ Use the private curl configuration from the five-minute example or construct `Cr
 The build machine needs Bun. The resulting Linux x64 baseline executable embeds the Bun runtime; the VPS does not need Node.js, npm, or Bun.
 
 ```sh
-npm run build:standalone -w @crewcode/crewcoder-agent
+npm run build:standalone -w @onpoint-dev-tools/crewcoder-agent
 ls -lh crewcoder-agent/dist-bin/crewcoder-linux-x64
 ```
 
@@ -523,7 +523,7 @@ crewcoder deploy user@vps
 crewcoder deploy user@vps --execute
 ```
 
-It packs `@crewcode/crewcoder-agent`, uploads the tarball, and installs it globally with npm on the remote host. It uses the same private deployment state directory and mandatory fleet token. Use standalone binary deployment when Node/npm are unavailable.
+It packs `@onpoint-dev-tools/crewcoder-agent`, uploads the tarball, and installs it globally with npm on the remote host. It uses the same private deployment state directory and mandatory fleet token. Use standalone binary deployment when Node/npm are unavailable.
 
 ## Troubleshooting
 

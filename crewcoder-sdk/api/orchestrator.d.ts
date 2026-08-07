@@ -1,4 +1,4 @@
-import { type AgentEvent, type CrewCoderWorkerRuntimeOptions, type WorkerCrewRunResult, type WorkerHandoffResult, type WorkerTeam, type WorkerTeamsManifest } from "@crewcode/crewcoder-agent";
+import { type AgentEvent, type CrewCoderWorkerRuntimeOptions, type WorkerCrewRunResult, type WorkerHandoffResult, type WorkerTeam, type WorkerTeamsManifest } from "@onpoint-dev-tools/crewcoder-agent";
 export type CrewCoderOrchestratorOptions = Omit<CrewCoderWorkerRuntimeOptions, "emit">;
 export type CrewCoderOrchestratorEventListener = (event: AgentEvent) => Promise<void> | void;
 export type CrewCoderCrewInput = {

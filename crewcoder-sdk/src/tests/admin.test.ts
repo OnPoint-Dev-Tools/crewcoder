@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGoal, createSessionCheckpoint, saveGoal } from "@crewcode/crewcoder-agent";
+import { createGoal, createSessionCheckpoint, saveGoal } from "@onpoint-dev-tools/crewcoder-agent";
 import { CrewCoderAdmin, createCrewCoderSession, type CrewCoderRewindOptions, type IntegrationProfile } from "../index.js";
 
 let root = "";

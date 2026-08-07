@@ -38,7 +38,7 @@ The remote machine does not need Node.js when using CrewCoder's standalone Linux
 Build and deploy from the local development machine:
 
 ```sh
-npm run build:standalone -w @crewcode/crewcoder-agent
+npm run build:standalone -w @onpoint-dev-tools/crewcoder-agent
 
 crewcoder deploy user@vps \
   --binary crewcoder-agent/dist-bin/crewcoder-linux-x64 \

@@ -1,6 +1,6 @@
 # SDK Release and Compatibility Policy
 
-This document defines release readiness for `@crewcode/crewcoder-agent` and `@onpoint-dev-tools/crewcoder-sdk`. Both packages remain private until an explicit release decision removes their `private` package gates. Running release checks never publishes packages.
+This document defines release readiness for `@onpoint-dev-tools/crewcoder-agent` and `@onpoint-dev-tools/crewcoder-sdk`. Both packages remain private until an explicit release decision removes their `private` package gates. Running release checks never publishes packages.
 
 ## Distribution model
 
@@ -8,7 +8,7 @@ The agent runtime and SDK are released as matching versions:
 
 ```txt
 @onpoint-dev-tools/crewcoder-sdk
-  -> dependency: @crewcode/crewcoder-agent <same version>
+  -> dependency: @onpoint-dev-tools/crewcoder-agent <same version>
 ```
 
 Publish the agent first, verify it is available from npm, then publish the SDK. Do not bundle a second copy of the agent runtime into the SDK.
@@ -17,7 +17,7 @@ Both packages use Apache-2.0 and require Node.js 22 or newer.
 
 ## Public API boundary
 
-The supported SDK boundary is the root export of `@onpoint-dev-tools/crewcoder-sdk`. Files under `src/`, package-internal paths, generated `dist/` subpaths, and `@crewcode/crewcoder-agent` internals are not SDK API.
+The supported SDK boundary is the root export of `@onpoint-dev-tools/crewcoder-sdk`. Files under `src/`, package-internal paths, generated `dist/` subpaths, and `@onpoint-dev-tools/crewcoder-agent` internals are not SDK API.
 
 Stable public areas:
 

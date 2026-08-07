@@ -329,7 +329,7 @@ Needs \`main\` plus \`allowExtensionModules=true\` and the \`trusted\` tier. Mod
 cannot be sandboxed as subprocesses, so \`sandboxed\` is not enough.
 
 \`\`\`ts
-import type { CrewCoderExtAPI } from "@crewcode/crewcoder-agent";
+import type { CrewCoderExtAPI } from "@onpoint-dev-tools/crewcoder-agent";
 
 export default function (crew: CrewCoderExtAPI) {
   crew.defineTool({
@@ -742,7 +742,7 @@ Manifest prompt commands work at the **prompt-only** tier — no trust needed.
 Needs \`main\`, \`allowExtensionModules=true\`, and the \`trusted\` tier.
 
 \`\`\`ts
-import type { CrewCoderExtAPI } from "@crewcode/crewcoder-agent";
+import type { CrewCoderExtAPI } from "@onpoint-dev-tools/crewcoder-agent";
 
 export default function (crew: CrewCoderExtAPI) {
   crew.defineCommand("branch-report", {
@@ -812,7 +812,7 @@ A module extension declares \`main\` and default-exports a factory. Requires
 \`\`\`
 
 \`\`\`ts
-import type { CrewCoderExtAPI } from "@crewcode/crewcoder-agent";
+import type { CrewCoderExtAPI } from "@onpoint-dev-tools/crewcoder-agent";
 
 export default function (crew: CrewCoderExtAPI) {
   // ...

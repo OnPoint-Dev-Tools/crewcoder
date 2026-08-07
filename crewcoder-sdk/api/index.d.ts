@@ -1,12 +1,12 @@
 export { createCrewCoderProcess, CrewCoderProcess, type CrewCoderProcessEventListener, type CrewCoderProcessOptions, type CrewCoderProcessPromptOptions } from "./process-client.js";
 export { CrewCoderError, CrewCoderFleetProtocolError, CrewCoderFleetRequestError, type CrewCoderErrorCode } from "./errors.js";
 export { createCrewCoderOrchestrator, CrewCoderOrchestrator, type CrewCoderCrewInput, type CrewCoderHandoffInput, type CrewCoderOrchestratorEventListener, type CrewCoderOrchestratorOptions, type CrewCoderTeamInput } from "./orchestrator.js";
-export type { WorkerCrewRunResult, WorkerHandoffResult, WorkerTeam, WorkerTeamRole, WorkerTeamsManifest } from "@crewcode/crewcoder-agent";
+export type { WorkerCrewRunResult, WorkerHandoffResult, WorkerTeam, WorkerTeamRole, WorkerTeamsManifest } from "@onpoint-dev-tools/crewcoder-agent";
 export { CrewCoderAdmin, CrewCoderConfigAdmin, CrewCoderExtensionAdmin, CrewCoderGoalAdmin, CrewCoderMemoryAdmin, CrewCoderProfileAdmin, CrewCoderSessionAdmin, type CrewCoderAdminOptions, type CrewCoderGoalStartOptions, type CrewCoderMemoryStatus, type CrewCoderProfileScope, type CrewCoderRewindOptions, type CrewCoderProfileState } from "./admin.js";
-export type { CrewCoderConfig, CrewCoderConfigSetKey, GoalCheckResult, GoalPendingApproval, GoalProgress, GoalRecord, GoalStatus, ExtensionInstallResult, InstallExtensionOptions, LoadedCrewCoderExtension, RegistrySearchOptions, RegistrySearchResult, TrustTier, UninstallResult, IntegrationProfile, MemoryEntry, SessionCheckpoint, SessionCheckpointDiff, SessionCheckpointPreview, SessionCheckpointRestore, SessionListOptions, SessionRecord, SessionRewindResult, SessionSummary } from "@crewcode/crewcoder-agent";
+export type { CrewCoderConfig, CrewCoderConfigSetKey, GoalCheckResult, GoalPendingApproval, GoalProgress, GoalRecord, GoalStatus, ExtensionInstallResult, InstallExtensionOptions, LoadedCrewCoderExtension, RegistrySearchOptions, RegistrySearchResult, TrustTier, UninstallResult, IntegrationProfile, MemoryEntry, SessionCheckpoint, SessionCheckpointDiff, SessionCheckpointPreview, SessionCheckpointRestore, SessionListOptions, SessionRecord, SessionRewindResult, SessionSummary } from "@onpoint-dev-tools/crewcoder-agent";
 export { CREWCODER_MINIMUM_NODE_VERSION, CREWCODER_SDK_API_VERSION, CREWCODER_SDK_VERSION } from "./version.js";
 export { CREWCODER_FLEET_PROTOCOL_VERSION, CrewCoderFleetClient, type CrewCoderFleetClientOptions, type CrewCoderFleetControl, type CrewCoderFleetEvent, type CrewCoderFleetEventStreamOptions, type CrewCoderFleetHealth, type CrewCoderFleetReconnectOptions, type CrewCoderFleetProtocolEvent, type CrewCoderFleetRunCreated, type CrewCoderFleetRunRequest, type CrewCoderFleetRunStatus, type CrewCoderFleetRunSummary, type CrewCoderFleetWaitOptions } from "./fleet-client.js";
-import { type AgentEvent, type AgentLoopResult, type AgentMessage, type AgentMode, type ApprovalMode, type ModelClient, type TextFileHost, type ToolDefinition } from "@crewcode/crewcoder-agent";
+import { type AgentEvent, type AgentLoopResult, type AgentMessage, type AgentMode, type ApprovalMode, type ModelClient, type TextFileHost, type ToolDefinition } from "@onpoint-dev-tools/crewcoder-agent";
 export type CrewCoderEventListener = (event: AgentEvent) => Promise<void> | void;
 export type CrewCoderRunResult = AgentLoopResult;
 export type CrewCoderTool<TArgs extends Record<string, unknown> = Record<string, unknown>> = ToolDefinition<TArgs>;
@@ -64,5 +64,5 @@ export declare class CrewCoderSession {
     private assertUsable;
 }
 export declare function createCrewCoderSession(options?: CrewCoderSessionOptions): CrewCoderSession;
-export type { AgentEvent, AgentMessage, AgentMode, ApprovalMode, ModelClient, TextFileHost, ToolDefinition } from "@crewcode/crewcoder-agent";
+export type { AgentEvent, AgentMessage, AgentMode, ApprovalMode, ModelClient, TextFileHost, ToolDefinition } from "@onpoint-dev-tools/crewcoder-agent";
 //# sourceMappingURL=index.d.ts.map

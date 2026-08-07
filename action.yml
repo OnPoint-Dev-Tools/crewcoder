@@ -57,7 +57,7 @@ runs:
       working-directory: ${{ github.action_path }}
       run: |
         npm install --ignore-scripts --no-audit --no-fund
-        npm run build -w @crewcode/crewcoder-agent
+        npm run build -w @onpoint-dev-tools/crewcoder-agent
 
     - name: Run CrewCoder
       id: run

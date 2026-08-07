@@ -14,7 +14,7 @@ All three preserve the structured exit codes and JSON summary documented in
 
 The repository-root action builds CrewCoder from the tagged action checkout, then
 runs it in `github.workspace`. This source build is intentional while
-`@crewcode/crewcoder-agent` remains private and unpublished.
+`@onpoint-dev-tools/crewcoder-agent` remains private and unpublished.
 
 ```yaml
 name: CrewCoder

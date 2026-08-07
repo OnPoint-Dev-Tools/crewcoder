@@ -39,13 +39,28 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run build -w @crewcode/crewcoder-agent
+      - run: npm run build -w @onpoint-dev-tools/crewcoder-agent
+      - run: npm run build -w @onpoint-dev-tools/crewcoder-client
       - run: npm run build -w @onpoint-dev-tools/crewcoder-sdk
       - name: Verify explicit publish gates
         run: node scripts/check-sdk-release.cjs --publish
+      # Publish order is dependency order: the SDK depends on exact versions of
+      # both the agent and the client, so those must exist on the registry first.
       - name: Publish agent runtime
-        run: npm publish -w @crewcode/crewcoder-agent --access public --provenance
+        run: npm publish -w @onpoint-dev-tools/crewcoder-agent --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify published agent runtime
-        run: npm view "@crewcode/crewcoder-agent@$(node -p "require('./crewcoder-agent/package.json').version")" version
+        run: npm view "@onpoint-dev-tools/crewcoder-agent@$(node -p "require('./crewcoder-agent/package.json').version")" version
+      - name: Publish browser client
+        run: npm publish -w @onpoint-dev-tools/crewcoder-client --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify published browser client
+        run: npm view "@onpoint-dev-tools/crewcoder-client@$(node -p "require('./crewcoder-client/package.json').version")" version
       - name: Publish SDK
         run: npm publish -w @onpoint-dev-tools/crewcoder-sdk --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify published SDK
+        run: npm view "@onpoint-dev-tools/crewcoder-sdk@$(node -p "require('./crewcoder-sdk/package.json').version")" version

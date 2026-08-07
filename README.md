@@ -20,9 +20,9 @@ This directory is an npm-workspaces monorepo for the CrewCoder Packages, a priva
 
 **CrewCoder is an extensible, security-conscious coding-agent platform designed for interactive development, multi-worker orchestration, durable sessions, detached goals, and remote execution. Can also be used for the CrewCode ecosystem.**
 
-- `crewcoder-agent` — `@crewcode/crewcoder-agent`
+- `crewcoder-agent` — `@onpoint-dev-tools/crewcoder-agent`
 - `crewcoder-sdk` — `@onpoint-dev-tools/crewcoder-sdk` (private supported in-process and authenticated fleet API)
-- `crewcoder-tui` — `@crewcode/crewcoder-tui`
+- `crewcoder-tui` — `@onpoint-dev-tools/crewcoder-tui`
 
 ## CLI launch
 
@@ -41,9 +41,9 @@ npm run check
 Run one workspace directly:
 
 ```sh
-npm run dev -w @crewcode/crewcoder-agent
+npm run dev -w @onpoint-dev-tools/crewcoder-agent
 npm run typecheck -w @onpoint-dev-tools/crewcoder-sdk
-npm run dev -w @crewcode/crewcoder-tui
+npm run dev -w @onpoint-dev-tools/crewcoder-tui
 ```
 
 ## TypeScript SDK
@@ -67,7 +67,7 @@ The TUI exposes the same workflow through `/goal`. Goals survive closing the TUI
 Build a Linux x64 executable that does not require Node.js on the VPS:
 
 ```sh
-npm run build:standalone -w @crewcode/crewcoder-agent
+npm run build:standalone -w @onpoint-dev-tools/crewcoder-agent
 crewcoder deploy user@vps --binary crewcoder-agent/dist-bin/crewcoder-linux-x64 --execute
 ssh -N -L 8787:127.0.0.1:8787 user@vps
 ```
@@ -100,5 +100,5 @@ See `crewcoder-agent/docs/CI_INTEGRATIONS.md`.
 
 ## Debugging
 
-CREWCODER_TUI_SYSTEM_LOGS=1 npm run dev -w @crewcode/crewcoder-tui
-CREWCODER_DUMP_MODEL_INPUT=1 npm run dev -w @crewcode/crewcoder-tui
+CREWCODER_TUI_SYSTEM_LOGS=1 npm run dev -w @onpoint-dev-tools/crewcoder-tui
+CREWCODER_DUMP_MODEL_INPUT=1 npm run dev -w @onpoint-dev-tools/crewcoder-tui

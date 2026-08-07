@@ -3,6 +3,13 @@
   "version": "0.6.0",
   "description": "Browser-safe TypeScript client for authenticated CrewCoder runners.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git",
+    "directory": "crewcoder-client"
+  },
+  "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+  "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
   "type": "module",
   "types": "./dist/index.d.ts",
   "sideEffects": false,

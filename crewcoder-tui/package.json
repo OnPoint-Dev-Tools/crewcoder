@@ -1,6 +1,7 @@
 {
-   "name": "@crewcode/crewcoder-tui",
+   "name": "@onpoint-dev-tools/crewcoder-tui",
    "version": "0.5.0",
+   "private": false,
    "description": "CrewCoder custom terminal UI connected to crewcoder-agent with wired backend process bridge.",
    "type": "module",
    "bin": {

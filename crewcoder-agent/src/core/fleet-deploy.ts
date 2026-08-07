@@ -54,7 +54,7 @@ export function createFleetDeployPlan(target: string, options: FleetDeployOption
     format: "npm",
     tokenPath,
     commands: [
-      `npm pack --silent --workspace @crewcode/crewcoder-agent`,
+      `npm pack --silent --workspace @onpoint-dev-tools/crewcoder-agent`,
       `ssh ${trimmed} 'mkdir -p ${quoteShell(remoteDir)} ${quoteShell(`${remoteDir}/.crewcoder`)} && chmod 700 ${quoteShell(`${remoteDir}/.crewcoder`)}'`,
       `scp ${archiveName} ${trimmed}:${remoteDir}/${archiveName}`,
       `ssh ${trimmed} 'cd ${quoteShell(remoteDir)} && npm install -g ./${archiveName}'`,

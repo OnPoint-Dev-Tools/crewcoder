@@ -20,7 +20,7 @@ export {
   type CrewCoderOrchestratorOptions,
   type CrewCoderTeamInput
 } from "./orchestrator.js";
-export type { WorkerCrewRunResult, WorkerHandoffResult, WorkerTeam, WorkerTeamRole, WorkerTeamsManifest } from "@crewcode/crewcoder-agent";
+export type { WorkerCrewRunResult, WorkerHandoffResult, WorkerTeam, WorkerTeamRole, WorkerTeamsManifest } from "@onpoint-dev-tools/crewcoder-agent";
 export {
   CrewCoderAdmin,
   CrewCoderConfigAdmin,
@@ -61,7 +61,7 @@ export type {
   SessionRecord,
   SessionRewindResult,
   SessionSummary
-} from "@crewcode/crewcoder-agent";
+} from "@onpoint-dev-tools/crewcoder-agent";
 export {
   CREWCODER_MINIMUM_NODE_VERSION,
   CREWCODER_SDK_API_VERSION,
@@ -95,7 +95,7 @@ import {
   type ModelClient,
   type TextFileHost,
   type ToolDefinition
-} from "@crewcode/crewcoder-agent";
+} from "@onpoint-dev-tools/crewcoder-agent";
 import { CrewCoderError } from "./errors.js";
 
 export type CrewCoderEventListener = (event: AgentEvent) => Promise<void> | void;
@@ -258,4 +258,4 @@ export type {
   ModelClient,
   TextFileHost,
   ToolDefinition
-} from "@crewcode/crewcoder-agent";
+} from "@onpoint-dev-tools/crewcoder-agent";

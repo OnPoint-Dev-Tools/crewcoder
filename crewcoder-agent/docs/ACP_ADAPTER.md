@@ -188,7 +188,7 @@ speaking raw JSON-RPC — the real wire, framing included, with no subprocess.
 this works; keep it that way rather than reaching for `process.stdin` internally.
 
 ```bash
-env -u OPENCODE_API_KEY CREWCODER_HOME=/tmp/.crewcoder npm test -w @crewcode/crewcoder-agent
+env -u OPENCODE_API_KEY CREWCODER_HOME=/tmp/.crewcoder npm test -w @onpoint-dev-tools/crewcoder-agent
 ```
 
 ## Session loading

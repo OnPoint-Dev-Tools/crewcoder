@@ -1,6 +1,7 @@
 {
    "name": "crewcoder",
    "version": "0.5.0",
+   "private": false,
    "license": "Apache-2.0",
    "type": "module",
    "packageManager": "npm@11.8.0",
@@ -13,11 +14,11 @@
       "typecheck": "npm run typecheck --workspaces --if-present",
       "test": "npm run test --workspaces --if-present",
       "check": "npm run typecheck && npm run test",
-      "dev:agent": "npm run dev -w @crewcode/crewcoder-agent",
-      "dev:tui": "npm run dev -w @crewcode/crewcoder-tui",
-      "start:agent": "npm run start -w @crewcode/crewcoder-agent",
-      "start:tui": "npm run start -w @crewcode/crewcoder-tui",
-      "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check -w @crewcode/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
+      "dev:agent": "npm run dev -w @onpoint-dev-tools/crewcoder-agent",
+      "dev:tui": "npm run dev -w @onpoint-dev-tools/crewcoder-tui",
+      "start:agent": "npm run start -w @onpoint-dev-tools/crewcoder-agent",
+      "start:tui": "npm run start -w @onpoint-dev-tools/crewcoder-tui",
+      "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
    },
    "devDependencies": {
       "@types/fs-extra": "^11.0.4",
