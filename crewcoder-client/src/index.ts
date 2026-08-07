@@ -1,0 +1,27 @@
+export {
+  CrewCoderError,
+  CrewCoderFleetProtocolError,
+  CrewCoderFleetRequestError,
+  type CrewCoderErrorCode
+} from "./errors.js";
+export {
+  CREWCODER_FLEET_PROTOCOL_VERSION,
+  CrewCoderClient,
+  CrewCoderFleetClient,
+  type CrewCoderAgentMode,
+  type CrewCoderApprovalMode,
+  type CrewCoderFleetClientOptions,
+  type CrewCoderFleetControl,
+  type CrewCoderFleetEvent,
+  type CrewCoderFleetEventStreamOptions,
+  type CrewCoderFleetHealth,
+  type CrewCoderFleetReconnectOptions,
+  type CrewCoderFleetProtocolEvent,
+  type CrewCoderFleetRunCreated,
+  type CrewCoderFleetRunRequest,
+  type CrewCoderFleetRunStatus,
+  type CrewCoderFleetRunSummary,
+  type CrewCoderFleetWaitOptions,
+  type CrewCoderRemoteAgentEvent
+} from "./client.js";
+export { CREWCODER_CLIENT_API_VERSION, CREWCODER_CLIENT_VERSION } from "./version.js";

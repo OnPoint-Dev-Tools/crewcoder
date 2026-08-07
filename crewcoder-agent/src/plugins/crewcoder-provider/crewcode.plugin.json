@@ -1,0 +1,22 @@
+{
+  "$schema": "../../schemas/crewcode.plugin.schema.json",
+  "id": "crewcoder-provider",
+  "name": "CrewCoder Provider",
+  "version": "0.1.0",
+  "crewcode": {
+    "apiVersion": "0.1"
+  },
+  "permissions": ["agent:provider", "terminal:spawn"],
+  "contributes": {
+    "agentProviders": [
+      {
+        "id": "crewcoder",
+        "title": "CrewCoder",
+        "runtime": "exec",
+        "command": "crewcoder",
+        "args": ["run", "--mode", "{{model}}", "{{prompt}}"],
+        "models": ["auto", "general", "plugin"]
+      }
+    ]
+  }
+}

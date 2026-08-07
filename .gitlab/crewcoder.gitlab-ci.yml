@@ -1,0 +1,55 @@
+# Reusable CrewCoder job for GitLab CI.
+#
+# The runner must provide `crewcoder`, or set CREWCODER_INSTALL_COMMAND to a
+# trusted installation command and CREWCODER_BIN to the resulting executable.
+# Set CREWCODER_PROMPT in the including project or pipeline.
+
+crewcoder:
+  stage: test
+  image: node:22
+  variables:
+    CREWCODER_BIN: crewcoder
+    CREWCODER_APPROVAL: never
+    CREWCODER_SUMMARY_PATH: crewcoder-summary.json
+    CREWCODER_HOME: .crewcoder-ci
+  before_script:
+    - |
+      if ! command -v "$CREWCODER_BIN" >/dev/null 2>&1; then
+        if [ -z "${CREWCODER_INSTALL_COMMAND:-}" ]; then
+          echo "CrewCoder is not installed. Provide it on the runner or set CREWCODER_INSTALL_COMMAND." >&2
+          exit 1
+        fi
+        sh -c "$CREWCODER_INSTALL_COMMAND"
+        if ! command -v "$CREWCODER_BIN" >/dev/null 2>&1; then
+          echo "CREWCODER_INSTALL_COMMAND completed but $CREWCODER_BIN is still unavailable." >&2
+          exit 1
+        fi
+      fi
+  script:
+    - |
+      if [ -z "${CREWCODER_PROMPT:-}" ]; then
+        echo "CREWCODER_PROMPT is required." >&2
+        exit 1
+      fi
+
+      set -- run --ci --approval "${CREWCODER_APPROVAL:-never}"
+      [ -n "${CREWCODER_PROVIDER:-}" ] && set -- "$@" --provider "$CREWCODER_PROVIDER"
+      [ -n "${CREWCODER_MODEL:-}" ] && set -- "$@" --model "$CREWCODER_MODEL"
+      [ -n "${CREWCODER_EFFORT:-}" ] && set -- "$@" --effort "$CREWCODER_EFFORT"
+      [ -n "${CREWCODER_BUDGET:-}" ] && set -- "$@" --budget "$CREWCODER_BUDGET"
+
+      set +e
+      summary="$("$CREWCODER_BIN" "$@" "$CREWCODER_PROMPT")"
+      status=$?
+      set -e
+
+      printf '%s\n' "$summary"
+      printf '%s\n' "$summary" > "$CREWCODER_SUMMARY_PATH"
+      exit "$status"
+  artifacts:
+    when: always
+    paths:
+      - crewcoder-summary.json
+    expire_in: 7 days
+  rules:
+    - if: '$CREWCODER_PROMPT'

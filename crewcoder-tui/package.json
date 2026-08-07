@@ -1,0 +1,20 @@
+{
+   "name": "@crewcode/crewcoder-tui",
+   "version": "0.5.0",
+   "description": "CrewCoder custom terminal UI connected to crewcoder-agent with wired backend process bridge.",
+   "type": "module",
+   "bin": {
+      "crewcoder-tui": "./dist/cli.js"
+   },
+   "scripts": {
+      "clean": "rm -rf dist",
+      "dev": "tsx src/cli.ts",
+      "build": "tsc -p tsconfig.json",
+      "typecheck": "tsc -p tsconfig.json --noEmit",
+      "test": "vitest run",
+      "start": "node dist/cli.js"
+   },
+   "dependencies": {
+      "zod": "^3.23.8"
+   }
+}

@@ -1,0 +1,51 @@
+name: CrewCoder SDK release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish both npm packages after protected approval"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run release:check:sdk
+
+  publish:
+    if: inputs.publish
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build -w @crewcode/crewcoder-agent
+      - run: npm run build -w @onpoint-dev-tools/crewcoder-sdk
+      - name: Verify explicit publish gates
+        run: node scripts/check-sdk-release.cjs --publish
+      - name: Publish agent runtime
+        run: npm publish -w @crewcode/crewcoder-agent --access public --provenance
+      - name: Verify published agent runtime
+        run: npm view "@crewcode/crewcoder-agent@$(node -p "require('./crewcoder-agent/package.json').version")" version
+      - name: Publish SDK
+        run: npm publish -w @onpoint-dev-tools/crewcoder-sdk --access public --provenance

@@ -1,0 +1,77 @@
+name: CrewCoder CI
+description: Run CrewCoder headlessly with verification, JSON output, and structured exit codes.
+author: CrewCoder
+
+branding:
+  icon: terminal
+  color: purple
+
+inputs:
+  prompt:
+    description: Task for CrewCoder to perform.
+    required: true
+  provider:
+    description: CrewCoder provider id. Uses the configured default when omitted.
+    required: false
+    default: ""
+  model:
+    description: Provider model id. Uses the configured default when omitted.
+    required: false
+    default: ""
+  effort:
+    description: Reasoning effort (none, low, medium, high, xhigh).
+    required: false
+    default: ""
+  budget:
+    description: Token budget such as 100k. Unlimited when omitted.
+    required: false
+    default: ""
+  approval:
+    description: Approval mode (never, review, always, full-access, sandboxed).
+    required: false
+    default: never
+  crewcoder-command:
+    description: Preinstalled CrewCoder executable. When omitted, the action builds the tagged checkout from source.
+    required: false
+    default: ""
+
+outputs:
+  summary:
+    description: The versioned CrewCoder CI JSON summary.
+    value: ${{ steps.run.outputs.summary }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      if: ${{ inputs.crewcoder-command == '' }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/package-lock.json
+
+    - name: Build CrewCoder
+      if: ${{ inputs.crewcoder-command == '' }}
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm install --ignore-scripts --no-audit --no-fund
+        npm run build -w @crewcode/crewcoder-agent
+
+    - name: Run CrewCoder
+      id: run
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CREWCODER_BIN: ${{ inputs.crewcoder-command }}
+        CREWCODER_SOURCE_BIN: ${{ github.action_path }}/crewcoder-agent/dist/cli.js
+        CREWCODER_PROMPT: ${{ inputs.prompt }}
+        CREWCODER_PROVIDER: ${{ inputs.provider }}
+        CREWCODER_MODEL: ${{ inputs.model }}
+        CREWCODER_EFFORT: ${{ inputs.effort }}
+        CREWCODER_BUDGET: ${{ inputs.budget }}
+        CREWCODER_APPROVAL: ${{ inputs.approval }}
+        CREWCODER_HOME: ${{ runner.temp }}/.crewcoder
+        CREWCODER_SUMMARY_PATH: ${{ runner.temp }}/crewcoder-summary.json
+      run: bash "$GITHUB_ACTION_PATH/crewcoder-agent/scripts/run-ci.sh"

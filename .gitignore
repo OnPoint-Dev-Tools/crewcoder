@@ -1,0 +1,23 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+.DS_Store
+crewcoder-agent/dist/*
+crewcoder-agent/dist-bin/*
+crewcoder-agent/node_modules/
+developer.md
+crewcoder-tui/dist/*
+crewcoder-tui/node_modules/
+crewcoder-tui/.crewcoder/
+# crewcoder-tui/docs/
+# crewcoder-agent/docs/
+images/
+.crewcode
+.crewcoder
+.worktrees/
+handoff.md
+AGENT-DO-NOT-READ.md
+ROADMAP.md

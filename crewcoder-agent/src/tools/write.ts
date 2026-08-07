@@ -1,0 +1,6 @@
+import type { ToolDefinition } from "../core/tool-types.js";
+import { textResult } from "../core/tool-types.js";
+import { resolveInsideCwd, relativeToCwd } from "./path-utils.js";
+import { writeTextFile } from "./text-file-io.js";
+type Args = { path: string; content: string };
+export const writeTool: ToolDefinition<Args> = { name: "write", description: "Write a file in the workspace or a session external directory. Creates parent directories.", parameters: { type: "object", properties: { path: { type: "string", description: "Workspace-relative path, or an absolute path inside a session external directory." }, content: { type: "string", description: "Complete file contents to write." } }, required: ["path", "content"], additionalProperties: false }, executionMode: "sequential", isMutation: true, parse(args) { return { path: String(args.path ?? ""), content: String(args.content ?? "") }; }, async execute(args, context, signal) { if (signal?.aborted) throw new Error("Operation aborted"); const file = resolveInsideCwd(context.cwd, args.path, context.externalDirectories); await writeTextFile(context, file, args.content); const rel = relativeToCwd(context.cwd, file); context.mutationLog.push(rel); return textResult(`Wrote ${rel}`, { path: rel, bytes: Buffer.byteLength(args.content) }); } };

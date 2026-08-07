@@ -1,0 +1,36 @@
+name: CrewCoder SDK checks
+
+on:
+  pull_request:
+    paths:
+      - "crewcoder-agent/**"
+      - "crewcoder-sdk/**"
+      - "scripts/check-package.cjs"
+      - "scripts/check-sdk-release.cjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/sdk-*.yml"
+  push:
+    paths:
+      - "crewcoder-agent/**"
+      - "crewcoder-sdk/**"
+      - "scripts/check-package.cjs"
+      - "scripts/check-sdk-release.cjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/sdk-*.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  release-readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run release:check:sdk
