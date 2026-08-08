@@ -56,7 +56,7 @@ describe("Composer", () => {
     expect(stripAnsi(topBorder)).toMatch(/^  ▔+  $/);
     expect(inputLine.startsWith(`  ${bg(theme.backgroundAlt)}`)).toBe(true);
     expect(inputLine).toContain(`${fg(theme.borderStrong)}│`);
-    expect(stripAnsi(inputLine).startsWith("  │ General >")).toBe(true);
+    expect(stripAnsi(inputLine).startsWith("  │ General »")).toBe(true);
     expect(inputLine).toContain(`${reset()}${bg(theme.backgroundAlt)}`);
     expect(inputLine.endsWith(`${reset()}  `)).toBe(true);
     expect(bottomBorder.startsWith(`  ${bg(theme.backgroundAlt)}${fg(theme.border)}`)).toBe(true);
@@ -68,18 +68,18 @@ describe("Composer", () => {
     const state = createInitialState();
     const composer = new Composer(state, () => {});
 
-    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("General >");
+    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("General »");
 
     state.mode = "plugin";
-    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("Plugin >");
+    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("Plugin »");
 
     state.mode = "extension";
-    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("Extension >");
+    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("Extension »");
 
     state.worker = "scout";
     const workerPrompt = composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n");
-    expect(workerPrompt).toContain("Scout >");
-    expect(workerPrompt).not.toContain("Plugin >");
+    expect(workerPrompt).toContain("Scout »");
+    expect(workerPrompt).not.toContain("Plugin »");
   });
 
   it("renders context-window usage without pricing", () => {

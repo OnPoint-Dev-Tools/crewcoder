@@ -59,7 +59,7 @@ describe("App home screen", () => {
     const logoRow = lines.findIndex((line) => line.includes(bigCrewCodeLogoLines[0]!.trim().slice(0, 4)));
     expect(logoRow).toBeGreaterThan(0); // not pinned to the top — vertically centered
 
-    expect(lines.some((line) => line.includes("General >"))).toBe(true); // composer present
+    expect(lines.some((line) => line.includes("General »"))).toBe(true); // composer present
     expect(lines.some((line) => line.includes("ctrl+p") && line.includes("commands"))).toBe(true);
     expect(lines.some((line) => line.includes("Tip"))).toBe(true);
     expect(lines.some((line) => line.includes("CHANGES:"))).toBe(false);
@@ -188,8 +188,8 @@ describe("App home screen", () => {
     const app = new App(state);
     for (const event of [{ name: "/", sequence: "/", ctrl: false, meta: false, shift: false }]) app.handleInput(event);
     const lines = renderApp(app);
-    const composer = lines.findIndex((line) => line.includes("General >"));
-    const commands = lines.findIndex((line) => line.includes("Commands · fuzzy palette"));
+    const composer = lines.findIndex((line) => line.includes("General »"));
+    const commands = lines.findIndex((line) => line.includes("Commands") && line.includes("esc"));
     expect(commands).toBeGreaterThan(composer);
     expect(lines.slice(Math.max(0, commands - 2), commands + 3).some((line) => line.includes("╭") || line.includes("╮"))).toBe(false);
   });
