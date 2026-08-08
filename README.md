@@ -16,7 +16,7 @@
 
 # CrewCoder Monorepo
 
-This directory is an npm-workspaces monorepo for the CrewCoder Packages. The root package owns shared tooling, workspace scripts, and a single lockfile, while each package keeps its runtime dependencies and build entrypoints. For more thorough Documentation go here [CrewCoder Docs](https://crewcode-docs.cortex-ai.icu/crewcoder-agent/overview/)
+This directory is an npm-workspaces monorepo for the CrewCoder Packages. The root package owns shared tooling, workspace scripts, and a single lockfile, while each package keeps its runtime dependencies and build entrypoints. For more thorough Documentation go here [CrewCoder Docs](https://crewcode-docs.logixhub.icu/crewcoder-agent/overview/)
 
 ## CrewCoder
 
@@ -190,6 +190,11 @@ See [CI_INTEGRATIONS.md](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/mai
 CREWCODER_TUI_SYSTEM_LOGS=1 npm run dev -w @onpoint-dev-tools/crewcoder-tui
 CREWCODER_DUMP_MODEL_INPUT=1 npm run dev -w @onpoint-dev-tools/crewcoder-tui
 ```
+
+## Inspired By
+
+- Pi
+- Hermes
 
 ## Documentation
 
