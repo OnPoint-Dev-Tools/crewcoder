@@ -1,6 +1,6 @@
 # CrewCoder SDK
 
-Supported TypeScript SDK for embedding CrewCoder in trusted Node.js applications. Version `0.6.0` requires Node.js 22 or newer and remains private until CrewCoder's public release.
+Supported TypeScript SDK for embedding CrewCoder in trusted Node.js applications. Version `0.6.0` requires Node.js 22 or newer.
 
 Browser, renderer, webview, and thin frontend applications should use `@onpoint-dev-tools/crewcoder-client`. The SDK re-exports its remote client as `CrewCoderFleetClient` for backward compatibility, but new remote-only applications should import `CrewCoderClient` from the browser-safe package directly.
 

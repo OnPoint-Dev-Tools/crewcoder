@@ -193,7 +193,7 @@ await session.prompt("Explain the failing tests.");
 session.dispose();
 ```
 
-The SDK remains private during development. It includes an authenticated `CrewCoderFleetClient` for remote runners; a subprocess RPC client is not part of its contract. See `docs/SDK.md` for in-process and fleet client examples and `docs/contributor/SDK_RELEASE.md` for compatibility and release gates.
+It includes an authenticated `CrewCoderFleetClient` for remote runners; a subprocess RPC client is not part of its contract. See `docs/SDK.md` for in-process and fleet client examples and `docs/contributor/SDK_RELEASE.md` for compatibility and release gates.
 
 ## Practical connection choices
 

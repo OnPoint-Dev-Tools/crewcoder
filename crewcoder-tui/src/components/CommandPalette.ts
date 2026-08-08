@@ -120,7 +120,7 @@ export class CommandPalette implements Component {
     this.lastHeight = ctx.size.height;
     const rows = this.rows();
     return renderModalView(ctx, {
-      title: "Commands · fuzzy palette",
+      title: "Commands",
       search: this.searchTerm(),
       placeholder: "Search commands, workers, modes, extensions, sessions",
       rows,

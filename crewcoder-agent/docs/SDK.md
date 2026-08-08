@@ -1,6 +1,6 @@
 # CrewCoder SDK
 
-`@onpoint-dev-tools/crewcoder-sdk` is CrewCoder's supported TypeScript API for embedding the agent loop in a trusted Node.js process. `@onpoint-dev-tools/crewcoder-client` is the browser-safe companion for controlling authenticated runners from renderers, webviews, and web applications. The SDK keeps re-exporting the remote client for backward compatibility. Package version `0.6.0` requires Node.js 22 or newer and remains private while CrewCoder is under development. Its API is intentionally narrower than `crewcoder-agent/src` so internals can continue to evolve.
+`@onpoint-dev-tools/crewcoder-sdk` is CrewCoder's supported TypeScript API for embedding the agent loop in a trusted Node.js process. `@onpoint-dev-tools/crewcoder-client` is the browser-safe companion for controlling authenticated runners from renderers, webviews, and web applications. The SDK keeps re-exporting the remote client for backward compatibility. Package version `0.6.0` requires Node.js 22 or newer. Its API is intentionally narrower than `crewcoder-agent/src` so internals can continue to evolve.
 
 Version constants are available at runtime:
 

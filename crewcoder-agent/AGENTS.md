@@ -766,9 +766,9 @@ See `docs/CI_RUNS.md`.
 The root `action.yml`, `.gitlab/crewcoder.gitlab-ci.yml`, and
 `crewcoder-agent/scripts/run-ci.sh` are thin transports over `run --ci`; they must
 preserve its stdout JSON and process exit code. The GitHub action builds from its
-tagged source checkout while the npm package is private. The GitLab job must not
-claim an unpublished default installer: it requires a runner-provided binary or an
-explicit trusted `CREWCODER_INSTALL_COMMAND`. See `docs/CI_INTEGRATIONS.md`.
+tagged source checkout by default so it runs the exact tagged revision. The GitLab
+job requires a runner-provided binary or an explicit trusted
+`CREWCODER_INSTALL_COMMAND`. See `docs/CI_INTEGRATIONS.md`.
 
 Production builds use `tsconfig.build.json` and exclude `src/tests`; `typecheck`
 still uses `tsconfig.json` and checks runtime plus tests. Do not make action

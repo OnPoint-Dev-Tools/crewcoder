@@ -62,6 +62,10 @@ SDK
 
 - /home/aura/my-cmd/CrewCoder-Mono/crewcoder/crewcoder-sdk
 
+Browser Client
+
+- /home/aura/my-cmd/CrewCoder-Mono/crewcoder/crewcoder-client
+
 ## Project structure
 
 ```txt

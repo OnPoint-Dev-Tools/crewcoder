@@ -1,6 +1,6 @@
 # CrewCoder SDK Development Rules
 
-`@onpoint-dev-tools/crewcoder-sdk` is CrewCoder's supported Node.js/TypeScript embedding API. It is private during development and intended to become public with CrewCoder.
+`@onpoint-dev-tools/crewcoder-sdk` is CrewCoder's supported Node.js/TypeScript embedding API. It is published to npm alongside CrewCoder.
 
 ## Boundary
 
@@ -27,7 +27,7 @@
 - Reject overlapping `prompt()` calls; use `followUp()` for live queued input.
 - SDK-owned failures use stable `CrewCoderError` codes and typed fleet request/protocol subclasses. Host model, tool, callback, and listener errors may propagate unchanged.
 - New public exports require tests, an update to `crewcoder-agent/docs/SDK.md`, changelog review, and an intentional `npm run api:update` declaration-baseline update.
-- Agent and SDK package versions must match exactly. Both stay `private: true` until explicit release approval; checks, builds, API snapshots, and package dry runs must never publish.
+- Agent and SDK package versions must match exactly. Both publish publicly; checks, builds, API snapshots, and package dry runs must never publish.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 # SDK Release and Compatibility Policy
 
-This document defines release readiness for `@onpoint-dev-tools/crewcoder-agent` and `@onpoint-dev-tools/crewcoder-sdk`. Both packages remain private until an explicit release decision removes their `private` package gates. Running release checks never publishes packages.
+This document defines release readiness for `@onpoint-dev-tools/crewcoder-agent` and `@onpoint-dev-tools/crewcoder-sdk`. Both packages are published to npm under `publishConfig.access: public`. Running release checks never publishes packages.
 
 ## Distribution model
 
@@ -99,7 +99,7 @@ Review the declaration diff, apply the semantic-versioning policy, and update `c
 4. Update changelog and API baseline.
 5. Run `npm run release:check:sdk` in a clean checkout with Node.js 22.
 6. Review `npm pack --dry-run` contents for both packages.
-7. Remove `private: true` only after explicit release approval.
+7. Confirm neither package has reintroduced `private: true`.
 8. Run the protected npm release workflow in dry-run mode first.
 9. Publish agent, verify installation, then publish SDK with npm provenance.
 10. Restore or retain release protections according to the next development cycle policy.
@@ -109,7 +109,7 @@ Review the declaration diff, apply the semantic-versioning policy, and update `c
 The release workflow is manual and protected by the `npm-release` environment. Its default mode is dry-run. Publishing requires all of the following:
 
 - explicit workflow input disabling dry-run;
-- package `private` fields already removed in a reviewed change;
+- neither package carrying a `private` field;
 - matching agent/SDK versions;
 - an npm trusted publisher or scoped automation token;
 - environment approval.

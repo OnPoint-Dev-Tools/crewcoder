@@ -13,8 +13,8 @@ All three preserve the structured exit codes and JSON summary documented in
 ## GitHub composite action
 
 The repository-root action builds CrewCoder from the tagged action checkout, then
-runs it in `github.workspace`. This source build is intentional while
-`@onpoint-dev-tools/crewcoder-agent` remains private and unpublished.
+runs it in `github.workspace`. This source build is the default so the action
+always runs the exact tagged revision; pass a preinstalled executable to skip it.
 
 ```yaml
 name: CrewCoder
