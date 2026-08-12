@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish both npm packages after protected approval"
+        description: "Publish the agent, client, and SDK packages after protected approval"
         required: true
         default: false
         type: boolean
@@ -21,8 +21,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: npm
+      - name: Use the repository npm version
+        run: npm install --global npm@11.8.0
       - run: npm ci --ignore-scripts
       - run: npm run release:check:sdk
 
@@ -36,8 +37,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: npm
+      - name: Use the repository npm version
+        run: npm install --global npm@11.8.0
       - run: npm ci --ignore-scripts
       - run: npm run build -w @onpoint-dev-tools/crewcoder-agent
       - run: npm run build -w @onpoint-dev-tools/crewcoder-client
@@ -48,19 +50,13 @@ jobs:
       # both the agent and the client, so those must exist on the registry first.
       - name: Publish agent runtime
         run: npm publish -w @onpoint-dev-tools/crewcoder-agent --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify published agent runtime
         run: npm view "@onpoint-dev-tools/crewcoder-agent@$(node -p "require('./crewcoder-agent/package.json').version")" version
       - name: Publish browser client
         run: npm publish -w @onpoint-dev-tools/crewcoder-client --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify published browser client
         run: npm view "@onpoint-dev-tools/crewcoder-client@$(node -p "require('./crewcoder-client/package.json').version")" version
       - name: Publish SDK
         run: npm publish -w @onpoint-dev-tools/crewcoder-sdk --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify published SDK
         run: npm view "@onpoint-dev-tools/crewcoder-sdk@$(node -p "require('./crewcoder-sdk/package.json').version")" version
