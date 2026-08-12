@@ -19,8 +19,15 @@ import { validatePluginTool } from "./validate-plugin-tool.js";
 import { writeTool } from "./write.js";
 import { createCrewTaskTools } from "../crew-tasks/tools.js";
 import type { IntegrationProfile } from "../core/integration-profile.js";
-export function createToolRegistry(profile: IntegrationProfile = "standalone"): ToolDefinition[] {
-  const core = [listFilesTool, readTool, grepTool, writeTool, editTool, editSymbolTool, editTransactionTool, gitBlameTool, gitLogTool, gitDiffRangeTool, gitCherryPickTool, lspDefinitionTool, lspHoverTool, lspDiagnosticsTool, bashTool, backgroundJobTool, delegateWorkerTool, rememberTool, createExtensionTool, createDocsTool(profile), ...createCrewTaskTools()];
-  return profile === "crewcode" ? [...core, createPluginTool, validatePluginTool, listTemplatesTool] : core;
+import type { ResolvedAgentMode } from "../core/types.js";
+
+export function createToolRegistry(
+  profile: IntegrationProfile = "standalone",
+  mode: ResolvedAgentMode = "general",
+): ToolDefinition[] {
+  const core = [listFilesTool, readTool, grepTool, writeTool, editTool, editSymbolTool, editTransactionTool, gitBlameTool, gitLogTool, gitDiffRangeTool, gitCherryPickTool, lspDefinitionTool, lspHoverTool, lspDiagnosticsTool, bashTool, backgroundJobTool, delegateWorkerTool, rememberTool, ...createCrewTaskTools()];
+  if (mode === "extension") return [...core, createExtensionTool, createDocsTool(profile, mode)];
+  if (mode === "plugin" && profile === "crewcode") return [...core, createDocsTool(profile, mode), createPluginTool, validatePluginTool, listTemplatesTool];
+  return core;
 }
 export function findTool(name: string, tools: ToolDefinition[]): ToolDefinition | undefined { return tools.find((tool) => tool.name === name); }

@@ -464,6 +464,8 @@ The header is written once and never rewritten, so it records the provider/model
 
 `messageCount` is the only summary field absent from the header, so it is opt-in via `includeMessageCount` and `toSessionSummary` must not derive it from a header record — that would report a confident `0` instead of an honest "not loaded", the same class of bug as `$0.00` for an unpriced model. Keep the header as the first line of `session.jsonl`. See `docs/SESSION_LISTING.md`.
 
+`crewcoder session show <id>` is the human conversation viewer: readable Markdown by default, `--out <path>` for a file, and explicit `--json` for the complete internal record. Do not make users inspect JSONL or internal model-turn/event structures to find their conversation, and do not create an automatically maintained duplicate transcript beside every session. See `docs/SESSION_EXPORT.md`.
+
 `crewcoder session prune` (`src/core/session-prune.ts`) is the only sanctioned bulk deletion path for session data. It is **dry run unless `--apply`** and must never become automatic or gain an interactive prompt (a prompt breaks CI and trains reflexive `y`). `--artifacts` is the safe default because nothing it removes is reachable by any code path; `--checkpoints` and `--sessions` hard-error without `--older-than`, because a bare `--sessions` would otherwise wipe the store. Age comes from the header `startedAt`, never mtime — session files are rewritten on every save, so mtime measures last touch, not age. Targets are re-validated at delete time (inside the sessions dir, not the dir itself, not a symlink) because the plan is a mutable plain object; symlinks are refused, not followed. Failures are per-target so one bad path never abandons the rest. See `docs/SESSION_PRUNE.md`.
 
 ## Reproducible runs and searchable history
@@ -630,13 +632,22 @@ the matcher missed. `selectDocs()` now returns the whole catalog for the mode an
 asserts ids-only rendering, a token budget on the section, and that an on-topic and an
 off-topic prompt produce an identical catalog.
 
-`src/tools/docs.ts` serves the bodies and is **mode-scoped** — plugin mode sees only plugin
-docs, extension mode only extension docs, general mode both. That scoping is what stops a
-`crewcode.plugin.json` reference leaking into an extension task. Keep `content` grounded in
-`src/extensions/types.ts`, `src/extensions/api.ts`, `docs/EXTENSION_*.md`, and the real
-`/CrewCode/examples/plugins` templates so it stays re-derivable rather than invented.
-Guarded by `src/tests/docs-tool.test.ts`, which requires every doc to carry a real body and
-asserts neither set mentions the other's manifest filename.
+`src/tools/docs.ts` serves the bodies and is **authoring-mode scoped** — plugin mode sees
+only plugin docs, extension mode only extension docs, and general-mode agents do not receive
+the docs tool at all. Direct `crewcoder docs query` remains a user CLI independent of agent
+mode. The built-in registry follows the same fail-closed boundary:
+
+```txt
+general    -> no docs/createCrewCoderExtension/createPlugin/validatePlugin/listPluginTemplates
+plugin     -> docs + createPlugin + validatePlugin + listPluginTemplates (CrewCode profile required)
+extension  -> docs + createCrewCoderExtension
+```
+
+Installed extension tools keep their separate enable/trust gates, and explicit host-supplied
+tools remain an embedding contract. Keep `content` grounded in `src/extensions/types.ts`,
+`src/extensions/api.ts`, `docs/EXTENSION_*.md`, and the real `/CrewCode/examples/plugins`
+templates so it stays re-derivable rather than invented. Guarded by
+`src/tests/docs-tool.test.ts` and `src/tests/integration-profile.test.ts`.
 
 ## CrewCode app plugin rules
 
@@ -678,6 +689,8 @@ crewcoder plugin test ./my-panel --workspace ~/code/some-repo
 crewcoder plugin list-templates
 crewcoder plugin create my-panel --kind static-panel
 crewcoder sessions
+crewcoder session show <id>
+crewcoder session show <id> --out conversation.md
 crewcoder session why <id>
 crewcoder diff-models "explain generics" --models codex:gpt-5.6,opencode:claude-sonnet-4-6
 crewcoder cost --today --by-model
@@ -687,7 +700,7 @@ crewcoder doctor
 
 ## Verification notes
 
-Prefer package-local validation from the monorepo root:
+Prefer package-local validation from the monorepo root. Vitest centrally assigns every test file a private temporary `.crewcoder` home through `src/tests/test-home-setup.ts`; never remove that isolation or let tests fall through to the operator's real session/config/extension store.
 
 ```bash
 CREWCODER_HOME=/tmp/.crewcoder npm run typecheck -w @onpoint-dev-tools/crewcoder-agent

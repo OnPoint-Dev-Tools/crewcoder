@@ -1,16 +1,33 @@
-# Session → HTML Export
+# Session Conversation & HTML Export
 
-Export a durable session as a single, self-contained HTML document — no external assets, safe to
-open or share offline.
+CrewCoder keeps its authoritative durable record as append-only JSONL, but users should not need to
+read that internal format to find a conversation. `session show` renders only the human conversation
+and relevant tool activity as readable Markdown. The existing HTML export remains available for a
+styled, self-contained archive.
 
-## Command
+## Read or save a conversation
+
+```bash
+crewcoder sessions                                      # find the session id
+crewcoder session show <id>                             # readable conversation on stdout
+crewcoder session show <id> --out conversation.md       # write a Markdown file
+crewcoder session show <id> --json                      # complete internal record for machines/debugging
+```
+
+`--out` and `--json` are mutually exclusive. Markdown output includes session metadata, user and
+assistant messages, tool calls, and tool results. It deliberately excludes internal events,
+model-input snapshots, checkpoint metadata, and other audit structures that make raw JSON difficult
+to read. Raw HTML from conversation text is escaped, and tool data uses fences long enough not to
+be terminated by backticks inside the content.
+
+## Styled HTML export
 
 ```bash
 crewcoder session export <id> --html                 # write HTML to stdout
 crewcoder session export <id> --html --out <path>    # write HTML to a file (creates parent dirs)
 ```
 
-`--html` is the default (and currently only) format. TUI: `/export [path]` writes
+`--html` is the default (and currently only) export format. TUI: `/export [path]` writes
 `<sessionId>.html` (or the given path) and logs the location.
 
 ## What the document contains

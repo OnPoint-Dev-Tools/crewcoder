@@ -106,20 +106,26 @@ assistant_delta       -> agent_message_chunk
 thinking_delta        -> agent_thought_chunk
 tool_execution_start  -> tool_call        (kind, status, rawInput, locations, title)
 tool_delta            -> tool_call_update (in_progress, content)
-tool_execution_end    -> tool_call_update (completed | failed, rawOutput)
+tool_execution_end          -> tool_call_update (completed | failed, rawOutput)
+session_compaction_progress -> _crewcoder/compaction_update (started | completed | failed)
+session_compacted           -> _crewcoder/compaction_update (completed)
 ```
 
 Field names matter: CrewCode reads `rawInput`, `rawOutput`, `status`, and `title`
 specifically. Get them wrong and tool rows render empty.
 
+Compaction has no standard ACP lifecycle shape, so CrewCoder uses the additive
+`_crewcoder/compaction_update` session-update kind. It carries `status`,
+`automatic`, `percent`, `message`, and optional phase/count/id metadata. The
+compacted summary body stays in CrewCoder's durable session and is deliberately
+not broadcast to the client. CrewCode understands this extension; standard-only
+ACP clients safely ignore the unknown update kind.
+
 Everything else returns `undefined` and is dropped. CrewCoder's richer vocabulary —
 checkpoints, cost ledger, durable goals, compaction preview, token budget,
-verification, background jobs — has **no standard ACP representation**. Forcing it
-into a standard update would be lossy and wrong. The future home for it is a
-namespaced `_crewcoder/*` ext channel via `extMethod`/`extNotification`, which
-degrades cleanly because ACP clients ignore unknown `sessionUpdate` kinds. That is
-deliberately deferred; retrofitting the namespace later is the expensive part, so
-add it before shipping any of that data.
+verification, background jobs — still has **no standard ACP representation** and
+must not be forced into a lossy standard update. Future additions belong on the
+same namespaced `_crewcoder/*` extension channel.
 
 `src/acp/tool-kind.ts` maps tool names onto the ACP `ToolKind` vocabulary. An
 unmapped tool degrades to `other` rather than throwing — extension tools are

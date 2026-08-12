@@ -1,11 +1,10 @@
 /**
  * Translates CrewCoder `AgentEvent`s into ACP `session/update` payloads.
  *
- * Only events with a faithful ACP representation are translated; everything
- * else returns `undefined` and is dropped. CrewCoder's richer vocabulary
- * (checkpoints, cost ledger, goals, compaction) has no standard ACP shape and
- * is deferred to a future `_meta`/ext channel rather than being forced into a
- * lossy standard update.
+ * Standard events use ACP's portable update vocabulary. Compaction lifecycle
+ * events use an additive `_crewcoder/*` update kind so capable hosts can render
+ * truthful progress while other ACP clients safely ignore the unknown kind.
+ * Everything else without a faithful representation returns `undefined`.
  */
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { AgentEvent } from "../core/events.js";
@@ -14,7 +13,21 @@ import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
 
 export type SessionUpdate = SessionNotification["update"];
 
-export function translateEvent(event: AgentEvent): SessionUpdate | undefined {
+export interface CrewCoderCompactionUpdate {
+  sessionUpdate: "_crewcoder/compaction_update";
+  status: "started" | "completed" | "failed";
+  automatic: true;
+  phase?: "requested" | "summarizing" | "saving" | "skipped" | "failed";
+  percent?: number;
+  message: string;
+  compactionId?: string;
+  originalMessageCount?: number;
+  retainedMessageCount?: number;
+}
+
+export type CrewCoderSessionUpdate = SessionUpdate | CrewCoderCompactionUpdate;
+
+export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | undefined {
   if (event.type === "assistant_delta") {
     if (!event.text) return undefined;
     return { sessionUpdate: "agent_message_chunk", content: { type: "text", text: event.text } };
@@ -55,6 +68,32 @@ export function translateEvent(event: AgentEvent): SessionUpdate | undefined {
       status: event.isError ? "failed" : "completed",
       rawOutput: { output, isError: event.isError },
       content: output ? [{ type: "content", content: { type: "text", text: output } }] : undefined
+    };
+  }
+
+  if (event.type === "session_compaction_progress") {
+    return {
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: event.phase === "failed" ? "failed" : event.phase === "skipped" ? "completed" : "started",
+      automatic: true,
+      phase: event.phase,
+      percent: event.percent,
+      message: event.message,
+      originalMessageCount: event.originalMessageCount,
+      retainedMessageCount: event.retainedMessageCount
+    };
+  }
+
+  if (event.type === "session_compacted") {
+    return {
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: "completed",
+      automatic: true,
+      percent: 100,
+      message: "Context compacted. Continuing with the retained recent messages and summary.",
+      compactionId: event.compactionId,
+      originalMessageCount: event.originalMessageCount,
+      retainedMessageCount: event.retainedMessageCount
     };
   }
 

@@ -40,7 +40,7 @@ import type { ApprovalControlDecision } from "../core/stdin-control.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
 import { listBuiltinProviderModels, resolveModel } from "../providers/model-registry.js";
 import { createClientTextFileHost } from "./client-files.js";
-import { translateEvent } from "./event-translator.js";
+import { translateEvent, type SessionUpdate } from "./event-translator.js";
 import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
 
 export type AcpAgentOptions = {
@@ -243,7 +243,10 @@ export class CrewCoderAcpAgent implements Agent {
       }
       if (event.type === "tool_execution_start") session.announced.add(event.toolCallId);
       const update = translateEvent(event);
-      if (update) await this.conn.sessionUpdate({ sessionId: session.sessionId, update });
+      // ACP v1 has no standard compaction lifecycle update. CrewCoder's additive
+      // namespaced kind is intentionally passed through for capable clients;
+      // clients that only know the standard union ignore the unknown kind.
+      if (update) await this.conn.sessionUpdate({ sessionId: session.sessionId, update: update as unknown as SessionUpdate });
     };
 
     const contextWindow = (await resolveModel(session.providerId, session.model))?.metadata?.contextWindow;

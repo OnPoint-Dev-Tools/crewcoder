@@ -16,7 +16,7 @@ import { loadSession } from "./core/session-loader.js";
 import { branchSession } from "./core/session-branch.js";
 import { whenSessionWritesSettle } from "./core/session-store.js";
 import { prepareLiveCompaction, applyCompactionProposal } from "./core/session-compaction.js";
-import { renderSessionHtml } from "./core/session-export.js";
+import { renderSessionHtml, renderSessionMarkdown } from "./core/session-export.js";
 import { attachStdinControlListener, type CompactionPreviewDecision } from "./core/stdin-control.js";
 import { runAcpStdioServer } from "./acp/acp-server.js";
 import { createExtensionUiBridge } from "./core/extension-ui-bridge.js";
@@ -404,7 +404,28 @@ goalCommand.command("worker", { hidden: true }).argument("<id>").action(async (i
 
 const session = program.command("session").description("Session commands for resume, branch, and TUI backends.");
 session.command("list").option("--json", "Output raw JSON").action(async (options: { json?: boolean }) => printSessions(options.json));
-session.command("show").argument("<id>").action(async (id: string) => console.log(JSON.stringify(await loadSession(id), null, 2)));
+session.command("show")
+  .argument("<id>")
+  .option("--out <path>", "Write a readable Markdown conversation to this file instead of stdout.")
+  .option("--json", "Output the complete machine-readable session record.")
+  .description("Show a readable conversation transcript. Use --json for the complete internal record.")
+  .action(async (id: string, options: { out?: string; json?: boolean }) => {
+    const record = await loadSession(id);
+    if (options.json) {
+      if (options.out) throw new Error("--out cannot be combined with --json");
+      console.log(JSON.stringify(record, null, 2));
+      return;
+    }
+    const markdown = renderSessionMarkdown(record);
+    if (!options.out) {
+      process.stdout.write(markdown);
+      return;
+    }
+    const outPath = path.resolve(options.out);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, markdown, "utf8");
+    console.log(pc.green(`Wrote conversation ${id} to ${outPath}`));
+  });
 session.command("prune")
   .description("Report or reclaim disk used by the session store. Dry run unless --apply.")
   .option("--artifacts", "Leftover files in session directories (default when no category is given)")
@@ -1885,6 +1906,8 @@ async function printSessions(json = false) {
     console.log(`  mode: ${s.resolvedMode} provider: ${s.provider ?? "(none)"}`);
     console.log(`  prompt: ${s.prompt.slice(0, 100)}`);
   }
+  console.log(pc.gray("\nRead one: crewcoder session show <session-id>"));
+  console.log(pc.gray("Save one: crewcoder session show <session-id> --out conversation.md"));
 }
 
 function formatUsage(usage: Awaited<ReturnType<typeof runAgentLoop>>["usage"]): string {

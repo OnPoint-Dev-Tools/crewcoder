@@ -92,6 +92,102 @@ describe("Claude Agent SDK provider", () => {
     expect(decision).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Approach?": "Safe" } } });
   });
 
+  it("collects every Claude question sequentially and preserves existing answers", async () => {
+    queryMock.mockImplementation(() => ({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } }));
+    const requestQuestion = vi.fn()
+      .mockResolvedValueOnce("safe-id")
+      .mockResolvedValueOnce("Explain the trade-offs");
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn(), requestQuestion }
+    });
+    const decision = await queryMock.mock.calls[0][0].options.canUseTool("AskUserQuestion", {
+      questions: [
+        { question: "Approach?", options: [{ label: "Safe", value: "safe-id", description: "Prefer safety" }] },
+        { question: "Anything else?" }
+      ],
+      answers: { "Already answered?": "Yes" }
+    });
+
+    expect(requestQuestion).toHaveBeenNthCalledWith(1, {
+      title: "Approach?",
+      options: [{ label: "Safe", value: "safe-id", description: "Prefer safety" }],
+      placeholder: "reply to Claude…"
+    });
+    expect(requestQuestion).toHaveBeenNthCalledWith(2, {
+      title: "Anything else?",
+      options: undefined,
+      placeholder: "reply to Claude…"
+    });
+    expect(decision).toEqual({
+      behavior: "allow",
+      updatedInput: {
+        questions: [
+          { question: "Approach?", options: [{ label: "Safe", value: "safe-id", description: "Prefer safety" }] },
+          { question: "Anything else?" }
+        ],
+        answers: { "Already answered?": "Yes", "Approach?": "safe-id", "Anything else?": "Explain the trade-offs" }
+      }
+    });
+  });
+
+  it("does not ask Claude questions that already have answers", async () => {
+    queryMock.mockImplementation(() => ({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } }));
+    const requestQuestion = vi.fn(async () => "Dark");
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn(), requestQuestion }
+    });
+    const decision = await queryMock.mock.calls[0][0].options.canUseTool("AskUserQuestion", {
+      questions: [{ question: "Approach?" }, { question: "Theme?" }],
+      answers: { "Approach?": "Safe" }
+    });
+
+    expect(requestQuestion).toHaveBeenCalledOnce();
+    expect(requestQuestion).toHaveBeenCalledWith(expect.objectContaining({ title: "Theme?" }));
+    expect(decision).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Approach?": "Safe", "Theme?": "Dark" } } });
+  });
+
+  it("denies the whole Claude question call when any question is cancelled", async () => {
+    queryMock.mockImplementation(() => ({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } }));
+    const requestQuestion = vi.fn().mockResolvedValueOnce("Safe").mockResolvedValueOnce(undefined);
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn(), requestQuestion }
+    });
+    const decision = await queryMock.mock.calls[0][0].options.canUseTool("AskUserQuestion", {
+      questions: [{ question: "Approach?" }, { question: "Theme?" }]
+    });
+
+    expect(requestQuestion).toHaveBeenCalledTimes(2);
+    expect(decision).toEqual({ behavior: "deny", message: "Question cancelled" });
+  });
+
+  it("fails closed for malformed or unavailable Claude questions", async () => {
+    queryMock.mockImplementation(() => ({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } }));
+    const requestQuestion = vi.fn(async () => "answer");
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn(), requestQuestion }
+    });
+    const malformed = await queryMock.mock.calls[0][0].options.canUseTool("AskUserQuestion", { questions: [{ header: "Missing question" }] });
+    expect(malformed).toEqual({ behavior: "deny", message: "Interactive question unavailable" });
+    expect(requestQuestion).not.toHaveBeenCalled();
+
+    queryMock.mockClear();
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn() }
+    });
+    const unavailable = await queryMock.mock.calls[0][0].options.canUseTool("AskUserQuestion", { questions: [{ question: "Approach?" }] });
+    expect(unavailable).toEqual({ behavior: "deny", message: "Interactive question unavailable" });
+  });
+
   it("forwards completed thinking blocks when partial events are unavailable", async () => {
     queryMock.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {

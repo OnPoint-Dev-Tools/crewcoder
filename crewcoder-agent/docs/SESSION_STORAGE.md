@@ -7,6 +7,9 @@ CrewCoder stores conversation sessions as append-only JSONL logs under CrewCoder
 ```
 
 Each line is one session entry. Legacy `session.json` snapshots are still loaded and migrated on read.
+The JSONL is an internal durable/audit format, not the recommended conversation viewer. Use
+`crewcoder sessions` to find an id, then `crewcoder session show <id>` to read the conversation or
+`crewcoder session show <id> --out conversation.md` to create an ordinary Markdown file.
 
 ## What stays global
 

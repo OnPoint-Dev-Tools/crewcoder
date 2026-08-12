@@ -51,12 +51,26 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
 
   const canUseTool: CanUseTool = async (toolName, toolInput) => {
     if (!isAskUserQuestion(toolName)) return { behavior: "allow", updatedInput: toolInput };
-    const question = firstQuestion(toolInput);
-    if (!question || !input.stream?.requestQuestion) return { behavior: "deny", message: "Interactive question unavailable" };
-    const answer = await input.stream.requestQuestion(question);
-    if (answer === undefined) return { behavior: "deny", message: "Question cancelled" };
+    const questions = claudeQuestions(toolInput);
+    if (questions.length === 0) return { behavior: "deny", message: "Interactive question unavailable" };
     const existingAnswers = isRecord(toolInput.answers) ? toolInput.answers : {};
-    return { behavior: "allow", updatedInput: { ...toolInput, answers: { ...existingAnswers, [question.title]: answer } } } satisfies PermissionResult;
+    const requestQuestion = input.stream?.requestQuestion;
+    const hasAnswer = (question: ClaudeQuestion) => Object.hasOwn(existingAnswers, question.title) && typeof existingAnswers[question.title] === "string";
+    if (!requestQuestion) {
+      if (questions.some((question) => !hasAnswer(question))) return { behavior: "deny", message: "Interactive question unavailable" };
+      return { behavior: "allow", updatedInput: { ...toolInput, answers: { ...existingAnswers } } };
+    }
+
+    const answers: Record<string, unknown> = { ...existingAnswers };
+    for (const question of questions) {
+      if (typeof answers[question.title] === "string") continue;
+      const answer = await requestQuestion(question);
+      // Permission applies to the complete AskUserQuestion call. Do not return
+      // partially collected answers if the user cancels any question.
+      if (answer === undefined) return { behavior: "deny", message: "Question cancelled" };
+      answers[question.title] = answer;
+    }
+    return { behavior: "allow", updatedInput: { ...toolInput, answers } } satisfies PermissionResult;
   };
 
   try {
@@ -287,11 +301,24 @@ function zodValue(schema: JsonSchema): z.ZodType {
   return z.unknown();
 }
 
-function firstQuestion(input: Record<string, unknown>): { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string } | undefined {
-  const raw = Array.isArray(input.questions) ? input.questions.find(isRecord) : undefined;
-  if (!raw || typeof raw.question !== "string") return undefined;
-  const options = Array.isArray(raw.options) ? raw.options.flatMap((option) => isRecord(option) && typeof option.label === "string" ? [{ label: option.label, value: option.label, description: typeof option.description === "string" ? option.description : undefined }] : []) : undefined;
-  return { title: raw.question, options: options?.length ? options : undefined, placeholder: "reply to Claude…" };
+type ClaudeQuestion = { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string };
+
+function claudeQuestions(input: Record<string, unknown>): ClaudeQuestion[] {
+  if (!Array.isArray(input.questions)) return [];
+  return input.questions.flatMap((candidate) => {
+    if (!isRecord(candidate) || typeof candidate.question !== "string" || !candidate.question.trim()) return [];
+    const options = Array.isArray(candidate.options)
+      ? candidate.options.flatMap((option) => {
+          if (!isRecord(option) || typeof option.label !== "string" || !option.label.trim()) return [];
+          return [{
+            label: option.label,
+            value: typeof option.value === "string" ? option.value : option.label,
+            description: typeof option.description === "string" ? option.description : undefined
+          }];
+        })
+      : undefined;
+    return [{ title: candidate.question, options: options?.length ? options : undefined, placeholder: "reply to Claude…" }];
+  });
 }
 
 function isAskUserQuestion(name: string): boolean { return name.replace(/[^a-z]/gi, "").toLowerCase() === "askuserquestion"; }

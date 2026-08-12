@@ -37,7 +37,10 @@ off, CrewCoder still performs provider-neutral safety compaction at 80%. Both ch
 tool turns and before the first request of a resumed
 session. If a provider does not report usage or its model has no context-window metadata, enable
 `autoCompact` and set a conservative explicit threshold. Claude's SDK-native auto-compaction is
-also enabled as defense in depth for its opaque resumed session. Codex app-server durable threads
+also enabled as defense in depth for its opaque resumed session. While running as an ACP agent,
+CrewCoder publishes its own compaction lifecycle on the additive
+`_crewcoder/compaction_update` session-update kind so capable hosts can show progress before the
+next usage snapshot arrives. Codex app-server durable threads
 avoid repeatedly uploading full context across restarts, but they do not change the
 model's context-window limit; see
 [`CODEX_TRANSPORT.md`](./CODEX_TRANSPORT.md).

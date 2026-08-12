@@ -208,7 +208,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   let budgetWarningEmitted = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).warningReached;
   let budgetDownshiftRequested = false;
   let budgetExceeded = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).exceeded;
-  const builtInTools = options.tools ?? createToolRegistry(integrationProfile);
+  const builtInTools = options.tools ?? createToolRegistry(integrationProfile, mode);
   const tools = options.tools
     ? [...builtInTools, ...(options.additionalTools ?? [])]
     : [...builtInTools, ...(await loadTrustedExtensionTools()), ...(options.additionalTools ?? [])];

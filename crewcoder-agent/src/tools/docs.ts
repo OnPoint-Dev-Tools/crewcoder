@@ -66,12 +66,17 @@ function renderIndex(sets: DocSet[]): string {
   return lines.join("\n");
 }
 
-export function createDocsTool(profile: "standalone" | "crewcode" = "standalone"): ToolDefinition<Args> {
+export function createDocsTool(profile: "standalone" | "crewcode" = "standalone", mode?: ResolvedAgentMode): ToolDefinition<Args> {
+  const subject = mode === "plugin"
+    ? "CrewCode app plugin"
+    : mode === "extension"
+      ? "CrewCoder extension"
+      : profile === "crewcode"
+        ? "CrewCode app plugin and CrewCoder extension"
+        : "CrewCoder extension";
   return {
   name: "docs",
-  description: profile === "crewcode"
-    ? "Read the embedded CrewCode app plugin and CrewCoder extension references. Call with an id to get the full buildable doc, with a query to search, or with no arguments to list every available doc id."
-    : "Read embedded CrewCoder extension references. Call with an id to get the full buildable doc, with a query to search, or with no arguments to list every available doc id.",
+  description: `Read embedded ${subject} references. Call with an id to get the full buildable doc, with a query to search, or with no arguments to list every available doc id.`,
   parameters: {
     type: "object",
     properties: {

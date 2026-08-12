@@ -29,6 +29,21 @@ Fields:
 - `retainedMessageCount`
 - `summary`
 
+## ACP behavior
+
+`crewcoder acp` projects these events onto the additive
+`_crewcoder/compaction_update` `session/update` kind. Active phases map to
+`status: "started"`, failures to `"failed"`, and `session_compacted` to
+`"completed"`. A skipped no-op closes an already-open progress indicator with a
+completed lifecycle status while preserving the explicit skip message and phase.
+The payload is marked `automatic: true` because ACP currently exposes no native
+manual-compaction request; host-triggered manual compaction remains host-owned.
+The summary body is not sent over this notification channel.
+
+Standard-only ACP clients may ignore the unknown namespaced update. CrewCode
+parses it into its provider-neutral compaction meter and therefore does not infer
+a second event from the later context-usage drop.
+
 ## TUI behavior
 
 The TUI does not request manual compaction while a model response is running. Users run `/compact` after the response finishes, which compacts the saved session through the `session compact --json` CLI path. If the session is too small, the TUI displays a skipped compaction notification.

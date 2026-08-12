@@ -334,6 +334,14 @@ Sessions are saved under:
 /.crewcoder/sessions
 ```
 
+The JSONL files are durable internal records. Read or save the human conversation with:
+
+```bash
+crewcoder sessions
+crewcoder session show <session-id>
+crewcoder session show <session-id> --out conversation.md
+```
+
 ## Debugging model input
 
 To inspect exactly what CrewCoder injects into the model, enable model input dumps:

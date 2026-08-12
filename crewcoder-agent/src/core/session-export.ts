@@ -8,6 +8,41 @@ import type { ModelUsageBreakdown, UsageSummary } from "./usage.js";
  * reconstructed file diffs (from recorded write/edit tool calls), and a token
  * usage rollup. No external assets — inline CSS only — so the file is portable.
  */
+export function renderSessionMarkdown(record: SessionRecord): string {
+  const lines = [
+    "# CrewCoder Conversation",
+    "",
+    `- Session: ${record.id}`,
+    `- Started: ${record.startedAt}`,
+    `- Working directory: ${record.cwd}`,
+    `- Mode: ${record.requestedMode} → ${record.resolvedMode}`,
+    ...(record.provider ? [`- Provider: ${record.provider}`] : []),
+    ...(record.model ? [`- Model: ${record.model}`] : []),
+    "",
+  ];
+
+  for (const message of record.messages) {
+    if (message.role === "toolResult") {
+      lines.push(`## Tool result: ${message.toolName}${message.isError ? " (error)" : ""}`, "");
+      const output = message.content.map((part) => part.text).join("\n").trimEnd();
+      lines.push(output ? fencedBlock(output) : "_(no output)_", "");
+      continue;
+    }
+
+    lines.push(message.role === "user" ? "## User" : "## Assistant", "");
+    const text = getText(message).trimEnd();
+    lines.push(text ? escapeMarkdownHtml(text) : "_(no text)_", "");
+
+    if (message.role === "assistant") {
+      for (const call of message.content.filter((part): part is ToolCallPart => part.type === "toolCall")) {
+        lines.push(`### Tool call: ${call.name}`, "", fencedBlock(JSON.stringify(call.arguments ?? {}, null, 2), "json"), "");
+      }
+    }
+  }
+
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
 export function renderSessionHtml(record: SessionRecord): string {
   const title = `CrewCoder session ${record.id}`;
   const parts = [
@@ -137,6 +172,16 @@ function renderToolCalls(content: MessageContent[]): string {
     return `<details class="toolcall"><summary>${escapeHtml(call.name)}</summary><pre>${args}</pre></details>`;
   });
   return items.join("");
+}
+
+function escapeMarkdownHtml(text: string): string {
+  return text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function fencedBlock(text: string, language = "text"): string {
+  const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+  return `${fence}${language}\n${text}\n${fence}`;
 }
 
 function num(value: number | undefined): string {

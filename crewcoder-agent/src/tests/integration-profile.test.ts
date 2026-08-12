@@ -4,6 +4,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { detectCrewCodeProject, readProjectIntegrationProfile, resolveIntegrationProfile, setCrewCodeProfilePromptDismissed, setProjectIntegrationProfile } from "../core/integration-profile.js";
 import { createToolRegistry } from "../tools/index.js";
+import { runAgentLoop } from "../core/agent-loop.js";
+import { assistantText } from "../core/messages.js";
 
 const roots: string[] = [];
 function tempRepo(): string {
@@ -48,16 +50,44 @@ describe("integration profiles", () => {
     expect(detectCrewCodeProject(cwd)).toMatchObject({ hasProjectProfile: true, dismissed: false, shouldPrompt: false });
   });
 
-  it("omits CrewCode plugin tools in standalone mode", () => {
-    const standalone = createToolRegistry("standalone").map((tool) => tool.name);
-    const crewcode = createToolRegistry("crewcode").map((tool) => tool.name);
-    expect(standalone).not.toContain("createPlugin");
-    expect(standalone).not.toContain("validatePlugin");
-    expect(crewcode).toContain("createPlugin");
-    expect(crewcode).toContain("validatePlugin");
-    const standaloneDocs = createToolRegistry("standalone").find((tool) => tool.name === "docs")?.description;
-    expect(standaloneDocs).not.toContain("CrewCode app");
-    expect(standaloneDocs).not.toContain("crewcode.plugin.json");
-    expect(createToolRegistry("crewcode").find((tool) => tool.name === "docs")?.description).toContain("CrewCode app");
+  it("scopes built-in authoring tools by explicit mode and profile", () => {
+    const authoring = ["createCrewCoderExtension", "docs", "createPlugin", "validatePlugin", "listPluginTemplates"];
+    const general = createToolRegistry("crewcode", "general").map((tool) => tool.name);
+    const extension = createToolRegistry("standalone", "extension").map((tool) => tool.name);
+    const plugin = createToolRegistry("crewcode", "plugin").map((tool) => tool.name);
+    const unavailablePlugin = createToolRegistry("standalone", "plugin").map((tool) => tool.name);
+
+    expect(general.filter((name) => authoring.includes(name))).toEqual([]);
+    expect(extension.filter((name) => authoring.includes(name))).toEqual(["createCrewCoderExtension", "docs"]);
+    expect(plugin.filter((name) => authoring.includes(name))).toEqual(["docs", "createPlugin", "validatePlugin", "listPluginTemplates"]);
+    expect(unavailablePlugin.filter((name) => authoring.includes(name))).toEqual([]);
+    expect(createToolRegistry("standalone", "extension").find((tool) => tool.name === "docs")?.description).toContain("CrewCoder extension");
+    expect(createToolRegistry("crewcode", "plugin").find((tool) => tool.name === "docs")?.description).toContain("CrewCode app plugin");
+  });
+
+  it.each([
+    ["general", []],
+    ["plugin", ["docs", "createPlugin", "validatePlugin", "listPluginTemplates"]],
+    ["extension", ["createCrewCoderExtension", "docs"]],
+  ] as const)("sends only %s-mode authoring tools to the model", async (mode, expected) => {
+    const cwd = tempRepo();
+    let names: string[] = [];
+    await runAgentLoop(
+      { prompt: "inspect the available tools", requestedMode: mode, cwd },
+      {
+        integrationProfile: "crewcode",
+        persistSession: false,
+        maxIterations: 1,
+        modelClient: {
+          async complete(input) {
+            names = input.availableTools.map((tool) => tool.name);
+            return assistantText("done");
+          }
+        }
+      }
+    );
+
+    const authoring = new Set(["createCrewCoderExtension", "docs", "createPlugin", "validatePlugin", "listPluginTemplates"]);
+    expect(names.filter((name) => authoring.has(name))).toEqual([...expected]);
   });
 });

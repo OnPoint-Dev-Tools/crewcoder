@@ -122,6 +122,46 @@ describe("acp event translation", () => {
     expect(update).toMatchObject({ sessionUpdate: "tool_call_update", status: "failed" });
   });
 
+  it("publishes compaction progress on the namespaced ACP channel", () => {
+    expect(translateEvent({
+      type: "session_compaction_progress",
+      phase: "summarizing",
+      percent: 35,
+      message: "Summarizing older context…",
+      originalMessageCount: 24
+    })).toEqual({
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: "started",
+      automatic: true,
+      phase: "summarizing",
+      percent: 35,
+      message: "Summarizing older context…",
+      originalMessageCount: 24,
+      retainedMessageCount: undefined
+    });
+  });
+
+  it("publishes compaction completion without exposing the summary body", () => {
+    const update = translateEvent({
+      type: "session_compacted",
+      compactionId: "compact-1",
+      originalMessageCount: 24,
+      retainedMessageCount: 8,
+      summary: "private compacted session context"
+    });
+    expect(update).toEqual({
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: "completed",
+      automatic: true,
+      percent: 100,
+      message: "Context compacted. Continuing with the retained recent messages and summary.",
+      compactionId: "compact-1",
+      originalMessageCount: 24,
+      retainedMessageCount: 8
+    });
+    expect(update).not.toHaveProperty("summary");
+  });
+
   it("drops events with no faithful ACP representation", () => {
     const unmapped: AgentEvent = { type: "session_saved", sessionId: "s-1", path: "/tmp/s-1.json" };
     expect(translateEvent(unmapped)).toBeUndefined();

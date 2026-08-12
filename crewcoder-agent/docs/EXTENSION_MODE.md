@@ -118,12 +118,29 @@ docs({ query: "hooks" })        -> search; a single match returns the full body 
 docs({ id: "extension-hooks" }) -> full buildable reference
 ```
 
-It is **mode-scoped**: plugin mode reads only plugin docs, extension mode only
-extension docs, general mode both. That scoping is what stops the model pulling a
-`crewcode.plugin.json` reference into an extension task.
+It is **authoring-mode scoped** and is not sent to general-mode agents at all.
+Plugin mode receives the tool with only plugin docs; extension mode receives it
+with only extension docs. That both saves general-mode schema context and stops
+the model pulling a `crewcode.plugin.json` reference into an extension task.
+Direct user CLI queries through `crewcoder docs query` remain available regardless
+of the active agent mode.
 
 A fetched body stays in session history for later turns (~840 tokens for a typical
 doc). That is inherent to tool results, paid once, and only when the model asked.
+
+## Mode-scoped authoring tools
+
+The model-facing built-in registry fails closed:
+
+```txt
+general    -> no docs/createCrewCoderExtension/createPlugin/validatePlugin/listPluginTemplates
+plugin     -> docs + createPlugin + validatePlugin + listPluginTemplates (CrewCode profile required)
+extension  -> docs + createCrewCoderExtension
+```
+
+Installed extension-contributed tools remain governed by their separate enable,
+trust, and capability gates. Explicit host-supplied custom tools are also a
+separate embedding contract; this mode table governs CrewCoder's built-ins.
 
 ## Adding knowledge
 

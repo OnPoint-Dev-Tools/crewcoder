@@ -24,7 +24,9 @@ It hides and rejects CrewCode-specific functionality:
 
 ### `crewcode`
 
-Adds CrewCode desktop plugin development, plugin tools, manifests, validation, templates, constraints, and plugin-mode documentation.
+Adds CrewCode desktop plugin development, manifests, validation, templates, constraints, and plugin-mode documentation. The profile makes plugin mode available; it does **not** send plugin authoring tools to general-mode agents. `createPlugin`, `validatePlugin`, `listPluginTemplates`, and plugin `docs` appear only when the explicit resolved mode is `plugin`.
+
+Across both profiles, CrewCoder extension authoring is similarly explicit: `createCrewCoderExtension` and extension `docs` appear only in `extension` mode. General mode receives none of the built-in plugin/extension authoring schemas. Installed trusted extension tools use their separate trust gates.
 
 ## Configuration precedence
 

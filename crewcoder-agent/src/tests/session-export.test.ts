@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderSessionHtml } from "../core/session-export.js";
+import { renderSessionHtml, renderSessionMarkdown } from "../core/session-export.js";
 import type { SessionRecord } from "../core/session-store.js";
 import type { AgentMessage } from "../core/messages.js";
 
@@ -19,6 +19,34 @@ function baseRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
     ...overrides
   };
 }
+
+describe("renderSessionMarkdown", () => {
+  it("renders the human conversation without internal event or model-turn records", () => {
+    const messages: AgentMessage[] = [
+      textUser("Please inspect <unsafe>"),
+      {
+        role: "assistant",
+        stopReason: "tool_calls",
+        timestamp: 2,
+        content: [
+          { type: "text", text: "I will inspect it." },
+          { type: "toolCall", id: "tc-1", name: "read", arguments: { path: "README.md", note: "contains ```" } }
+        ]
+      },
+      { role: "toolResult", toolCallId: "tc-1", toolName: "read", content: [{ type: "text", text: "file contents" }], isError: false, timestamp: 3 }
+    ];
+    const markdown = renderSessionMarkdown(baseRecord({ messages, events: [{ type: "agent_start", sessionId: "hidden-event" }] }));
+
+    expect(markdown).toContain("# CrewCoder Conversation");
+    expect(markdown).toContain("## User");
+    expect(markdown).toContain("Please inspect &lt;unsafe&gt;");
+    expect(markdown).toContain("## Assistant");
+    expect(markdown).toContain("### Tool call: read");
+    expect(markdown).toContain("## Tool result: read");
+    expect(markdown).toContain("````json");
+    expect(markdown).not.toContain("hidden-event");
+  });
+});
 
 describe("renderSessionHtml", () => {
   it("produces a self-contained HTML document with no external assets", () => {
