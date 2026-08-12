@@ -2,7 +2,23 @@
 
 All notable changes to `@onpoint-dev-tools/crewcoder-sdk` are documented here. The project follows Semantic Versioning once the package reaches `1.0.0`.
 
-## 0.6.0 - Unreleased
+## 0.6.1 - 2026-08-12
+
+### Added
+
+- Readable Markdown conversations through `crewcoder session show <id>` and `--out`.
+- Namespaced ACP compaction lifecycle updates for capable clients.
+
+### Changed
+
+- Scope built-in plugin and extension authoring tools to their explicit agent modes.
+- Collect every question from Claude Agent SDK `AskUserQuestion` calls while preserving existing answers.
+
+### Fixed
+
+- Isolate agent tests from the operator's real CrewCoder home.
+
+## 0.6.0 - 2026-08-08
 
 ### Added
 

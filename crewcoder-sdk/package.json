@@ -1,6 +1,6 @@
 {
   "name": "@onpoint-dev-tools/crewcoder-sdk",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Supported TypeScript SDK for embedded and remote CrewCoder agent sessions.",
   "license": "Apache-2.0",
   "repository": {
@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
-    "@onpoint-dev-tools/crewcoder-agent": "0.6.0",
-    "@onpoint-dev-tools/crewcoder-client": "0.6.0"
+    "@onpoint-dev-tools/crewcoder-agent": "0.6.1",
+    "@onpoint-dev-tools/crewcoder-client": "0.6.1"
   }
 }

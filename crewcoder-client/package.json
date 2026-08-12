@@ -1,6 +1,6 @@
 {
   "name": "@onpoint-dev-tools/crewcoder-client",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Browser-safe TypeScript client for authenticated CrewCoder runners.",
   "license": "Apache-2.0",
   "repository": {

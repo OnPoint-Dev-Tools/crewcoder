@@ -1,6 +1,6 @@
 {
    "name": "@onpoint-dev-tools/crewcoder-agent",
-   "version": "0.6.0",
+   "version": "0.6.1",
    "description": "CrewCoder coding agent runtime and CLI",
    "license": "Apache-2.0",
    "repository": {
