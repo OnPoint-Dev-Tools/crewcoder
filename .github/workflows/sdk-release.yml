@@ -49,14 +49,53 @@ jobs:
       # Publish order is dependency order: the SDK depends on exact versions of
       # both the agent and the client, so those must exist on the registry first.
       - name: Publish agent runtime
-        run: npm publish -w @onpoint-dev-tools/crewcoder-agent --access public --provenance
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-agent/package.json').version")"
+          if npm view "@onpoint-dev-tools/crewcoder-agent@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "Agent ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish -w @onpoint-dev-tools/crewcoder-agent --access public --provenance
+          fi
       - name: Verify published agent runtime
-        run: npm view "@onpoint-dev-tools/crewcoder-agent@$(node -p "require('./crewcoder-agent/package.json').version")" version
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-agent/package.json').version")"
+          for attempt in {1..12}; do
+            npm view "@onpoint-dev-tools/crewcoder-agent@${PACKAGE_VERSION}" version && exit 0
+            echo "Waiting for npm registry propagation (${attempt}/12)…"
+            sleep 10
+          done
+          exit 1
       - name: Publish browser client
-        run: npm publish -w @onpoint-dev-tools/crewcoder-client --access public --provenance
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-client/package.json').version")"
+          if npm view "@onpoint-dev-tools/crewcoder-client@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "Client ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish -w @onpoint-dev-tools/crewcoder-client --access public --provenance
+          fi
       - name: Verify published browser client
-        run: npm view "@onpoint-dev-tools/crewcoder-client@$(node -p "require('./crewcoder-client/package.json').version")" version
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-client/package.json').version")"
+          for attempt in {1..12}; do
+            npm view "@onpoint-dev-tools/crewcoder-client@${PACKAGE_VERSION}" version && exit 0
+            echo "Waiting for npm registry propagation (${attempt}/12)…"
+            sleep 10
+          done
+          exit 1
       - name: Publish SDK
-        run: npm publish -w @onpoint-dev-tools/crewcoder-sdk --access public --provenance
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-sdk/package.json').version")"
+          if npm view "@onpoint-dev-tools/crewcoder-sdk@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "SDK ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish -w @onpoint-dev-tools/crewcoder-sdk --access public --provenance
+          fi
       - name: Verify published SDK
-        run: npm view "@onpoint-dev-tools/crewcoder-sdk@$(node -p "require('./crewcoder-sdk/package.json').version")" version
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-sdk/package.json').version")"
+          for attempt in {1..12}; do
+            npm view "@onpoint-dev-tools/crewcoder-sdk@${PACKAGE_VERSION}" version && exit 0
+            echo "Waiting for npm registry propagation (${attempt}/12)…"
+            sleep 10
+          done
+          exit 1
