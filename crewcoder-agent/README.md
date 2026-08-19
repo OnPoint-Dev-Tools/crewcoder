@@ -64,12 +64,21 @@ crewcoder
 cc
 ```
 
-The TUI package must also be installed or linked so `crewcoder-tui` is available on `PATH`. Agent commands remain explicit:
+The recommended `crewcoder` umbrella package installs both this agent and the TUI:
+
+```bash
+npx crewcoder                    # temporary npm-cached launch
+npm install --global crewcoder   # persistent install
+```
+
+Agent commands remain explicit and are forwarded through the umbrella launcher:
 
 ```bash
 crewcoder run "fix this bug"
 crewcoder providers
 ```
+
+The scoped agent and TUI packages can still be installed separately for development or custom packaging.
 
 ## Providers
 

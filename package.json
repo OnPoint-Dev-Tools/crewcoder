@@ -1,9 +1,36 @@
 {
    "name": "crewcoder",
-   "version": "0.6.0",
+   "version": "0.6.1",
+   "description": "One-command installer and launcher for the CrewCoder agent and terminal UI",
    "private": false,
    "license": "Apache-2.0",
    "type": "module",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git"
+   },
+   "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+   "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
+   "keywords": [
+      "ai",
+      "coding-agent",
+      "crewcoder",
+      "cli"
+   ],
+   "bin": {
+      "crewcoder": "./bin/crewcoder.js",
+      "cc": "./bin/crewcoder.js"
+   },
+   "files": [
+      "bin",
+      "lib",
+      "LICENSE",
+      "README.md"
+   ],
+   "publishConfig": {
+      "access": "public",
+      "provenance": true
+   },
    "packageManager": "npm@11.8.0",
    "workspaces": [
       "crewcoder-*"
@@ -12,19 +39,26 @@
       "clean": "npm run clean --workspaces --if-present",
       "build": "npm run build --workspaces --if-present",
       "typecheck": "npm run typecheck --workspaces --if-present",
-      "test": "npm run test --workspaces --if-present",
+      "test": "npm run test:launcher && npm run test --workspaces --if-present",
+      "test:launcher": "vitest run test/launcher.test.js",
+      "pack:check": "node scripts/check-crewcoder-package.cjs",
+      "release:check": "npm run test:launcher && npm run pack:check",
       "check": "npm run typecheck && npm run test",
       "dev:agent": "npm run dev -w @onpoint-dev-tools/crewcoder-agent",
       "dev:tui": "npm run dev -w @onpoint-dev-tools/crewcoder-tui",
       "start:agent": "npm run start -w @onpoint-dev-tools/crewcoder-agent",
       "start:tui": "npm run start -w @onpoint-dev-tools/crewcoder-tui",
-      "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
+      "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
+   },
+   "dependencies": {
+      "@onpoint-dev-tools/crewcoder-agent": "0.6.1",
+      "@onpoint-dev-tools/crewcoder-tui": "0.6.0",
+      "typescript": "^5.7.2"
    },
    "devDependencies": {
       "@types/fs-extra": "^11.0.4",
       "@types/node": "^22.10.1",
       "tsx": "^4.19.2",
-      "typescript": "^5.7.2",
       "vitest": "^2.1.8"
    },
    "engines": {

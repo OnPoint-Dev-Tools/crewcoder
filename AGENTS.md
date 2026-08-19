@@ -48,6 +48,12 @@ CrewCoder should become a best-in-class coding agent with:
 
 Update corresponding Docs `crewcoder-agent/docs/*`, `crewcoder-tui/docs/*`, and `AGENTS.md` when major changes were made and or every time i add a feature. Create or update a docs .md file for it.
 
+## CLI umbrella package
+
+The public root `crewcoder` package is the one-command installer and launcher for both scoped runtime packages. Its `crewcoder` and `cc` bins must open `@onpoint-dev-tools/crewcoder-tui` with no arguments and forward argument-bearing invocations to `@onpoint-dev-tools/crewcoder-agent`. Keep both runtime dependencies in the root package and publish the umbrella only after those exact versions exist on npm.
+
+The scoped agent package still provides `crewcoder`, `cc`, and `crewcoder-agent`; the scoped TUI package provides `crewcoder-tui` for independent development and packaging.
+
 ## MonoRepo DIR
 
 CODING AGENT

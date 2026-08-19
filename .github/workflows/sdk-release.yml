@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Publish the agent, client, and SDK packages after protected approval"
+        description: "Publish CrewCoder runtime, clients, SDK, and umbrella packages after protected approval"
         required: true
         default: false
         type: boolean
@@ -42,12 +42,13 @@ jobs:
         run: npm install --global npm@11.8.0
       - run: npm ci --ignore-scripts
       - run: npm run build -w @onpoint-dev-tools/crewcoder-agent
+      - run: npm run build -w @onpoint-dev-tools/crewcoder-tui
       - run: npm run build -w @onpoint-dev-tools/crewcoder-client
       - run: npm run build -w @onpoint-dev-tools/crewcoder-sdk
       - name: Verify explicit publish gates
         run: node scripts/check-sdk-release.cjs --publish
-      # Publish order is dependency order: the SDK depends on exact versions of
-      # both the agent and the client, so those must exist on the registry first.
+      # Publish order is dependency order: the SDK and umbrella package use exact
+      # runtime versions, so their dependencies must exist on the registry first.
       - name: Publish agent runtime
         run: |
           PACKAGE_VERSION="$(node -p "require('./crewcoder-agent/package.json').version")"
@@ -61,6 +62,23 @@ jobs:
           PACKAGE_VERSION="$(node -p "require('./crewcoder-agent/package.json').version")"
           for attempt in {1..12}; do
             npm view "@onpoint-dev-tools/crewcoder-agent@${PACKAGE_VERSION}" version && exit 0
+            echo "Waiting for npm registry propagation (${attempt}/12)…"
+            sleep 10
+          done
+          exit 1
+      - name: Publish terminal UI
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-tui/package.json').version")"
+          if npm view "@onpoint-dev-tools/crewcoder-tui@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "TUI ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish -w @onpoint-dev-tools/crewcoder-tui --access public --provenance
+          fi
+      - name: Verify published terminal UI
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-tui/package.json').version")"
+          for attempt in {1..12}; do
+            npm view "@onpoint-dev-tools/crewcoder-tui@${PACKAGE_VERSION}" version && exit 0
             echo "Waiting for npm registry propagation (${attempt}/12)…"
             sleep 10
           done
@@ -95,6 +113,23 @@ jobs:
           PACKAGE_VERSION="$(node -p "require('./crewcoder-sdk/package.json').version")"
           for attempt in {1..12}; do
             npm view "@onpoint-dev-tools/crewcoder-sdk@${PACKAGE_VERSION}" version && exit 0
+            echo "Waiting for npm registry propagation (${attempt}/12)…"
+            sleep 10
+          done
+          exit 1
+      - name: Publish CrewCoder umbrella
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "crewcoder@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "CrewCoder umbrella ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish --access public --provenance
+          fi
+      - name: Verify published CrewCoder umbrella
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          for attempt in {1..12}; do
+            npm view "crewcoder@${PACKAGE_VERSION}" version && exit 0
             echo "Waiting for npm registry propagation (${attempt}/12)…"
             sleep 10
           done

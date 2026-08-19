@@ -174,15 +174,15 @@ npm install
 npm run dev
 ```
 
-For normal use, link both workspace packages once, then launch from any directory:
+For normal use, install or temporarily run the public umbrella package, which includes both the agent and TUI:
 
 ```bash
-npm link -w @onpoint-dev-tools/crewcoder-agent
-npm link -w @onpoint-dev-tools/crewcoder-tui
+npx crewcoder                    # temporary npm-cached launch
+npm install --global crewcoder   # persistent install
 crewcoder
 ```
 
-`crewcoder` with no arguments launches this TUI. Use `crewcoder run ...` and other argument-bearing commands for the agent CLI.
+For monorepo development, continue linking both workspace packages separately. `crewcoder` with no arguments launches this TUI. Use `crewcoder run ...` and other argument-bearing commands for the agent CLI.
 
 ## Build
 

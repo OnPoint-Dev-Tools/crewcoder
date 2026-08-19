@@ -4,8 +4,13 @@ on:
   pull_request:
     paths:
       - "crewcoder-agent/**"
+      - "crewcoder-tui/**"
       - "crewcoder-sdk/**"
+      - "bin/**"
+      - "lib/**"
+      - "test/**"
       - "scripts/check-package.cjs"
+      - "scripts/check-crewcoder-package.cjs"
       - "scripts/check-sdk-release.cjs"
       - "package.json"
       - "package-lock.json"
@@ -13,8 +18,13 @@ on:
   push:
     paths:
       - "crewcoder-agent/**"
+      - "crewcoder-tui/**"
       - "crewcoder-sdk/**"
+      - "bin/**"
+      - "lib/**"
+      - "test/**"
       - "scripts/check-package.cjs"
+      - "scripts/check-crewcoder-package.cjs"
       - "scripts/check-sdk-release.cjs"
       - "package.json"
       - "package-lock.json"
