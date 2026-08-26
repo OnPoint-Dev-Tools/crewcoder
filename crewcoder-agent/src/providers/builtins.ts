@@ -19,6 +19,14 @@ export const builtinProviders: ProviderDefinition[] = [
     args: [],
     endpoint: process.env.CREWCODER_CODEX_ENDPOINT ?? "https://chatgpt.com/backend-api/codex/responses",
     models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+    modelCatalog: [
+      { id: "gpt-5.6-sol", contextWindow: 1_050_000 },
+      { id: "gpt-5.6-terra" },
+      { id: "gpt-5.6-luna" },
+      { id: "gpt-5.5" },
+      { id: "gpt-5.4" },
+      { id: "gpt-5.4-mini" }
+    ],
     defaultModel: "gpt-5.6-luna",
     capabilities: directCapabilities,
     transport: { channel: "process", continuation: "provider-session", fallback: "http-sse", replay: "never" },

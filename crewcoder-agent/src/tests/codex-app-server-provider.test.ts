@@ -25,7 +25,7 @@ describe("Codex app-server provider", () => {
 const fs=require('node:fs'),readline=require('node:readline');
 const log=${JSON.stringify(log)}; let turn=0;
 function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
-readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify(m)+'\\n');
+const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify(m)+'\\n');
  if(m.method==='initialize') send({id:m.id,result:{}});
  else if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'thread-durable'}}});
  else if(m.method==='thread/resume') send({id:m.id,result:{thread:{id:m.params.threadId}}});
@@ -39,7 +39,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
     const executed: string[] = [];
     const baseInput = {
       provider, prompt: "new prompt", cwd: home, model: "gpt-test",
-      modelInput: { systemPrompt: "system", messages: [textMessage("user", "old prompt"), textMessage("user", "new prompt")], availableTools: [{ name: "noop", description: "safe test tool", parameters: { type: "object" as const, properties: { value: { type: "string" as const } } } }], session: { sessionId: "crew", continuation: true } },
+      modelInput: { systemPrompt: "system", messages: [textMessage("user", "old prompt"), textMessage("user", "new prompt")], approvalMode: "never" as const, availableTools: [{ name: "noop", description: "safe test tool", parameters: { type: "object" as const, properties: { value: { type: "string" as const } } } }], session: { sessionId: "crew", continuation: true } },
       stream: {
         onProviderSessionId: (id: string) => { sessionId = id; },
         executeTool: async (call: ToolCallPart) => { executed.push(call.name); return { role: "toolResult" as const, toolCallId: "call-1", toolName: call.name, content: [{ type: "text" as const, text: "ok" }], isError: false, timestamp: Date.now() }; }
@@ -48,6 +48,12 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
     const first = await runCodexAppServerProvider(baseInput);
     expect(first?.exitCode).toBe(0);
     expect(sessionId).toContain("thread-durable");
+    const initialRequests = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const threadStart = initialRequests.find((request) => request.method === "thread/start") as { params: Record<string, unknown> };
+    expect(threadStart.params).not.toHaveProperty("baseInstructions");
+    expect(threadStart.params.approvalPolicy).toBe("never");
+    expect(threadStart.params.sandbox).toBe("workspace-write");
+    expect(threadStart.params.developerInstructions).toContain("system");
 
     fs.writeFileSync(log, "");
     const second = await runCodexAppServerProvider({ ...baseInput, modelInput: { ...baseInput.modelInput, session: { ...baseInput.modelInput.session, providerSessionId: sessionId } } });
@@ -55,9 +61,64 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
     expect(executed).toEqual(["noop", "noop"]);
     const requests = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(requests.some((request) => request.method === "thread/resume")).toBe(true);
-    const turn = requests.find((request) => request.method === "turn/start") as { params: { input: Array<{ text?: string }> } };
+    const turn = requests.find((request) => request.method === "turn/start") as { params: { input: Array<{ text?: string }>; summary?: string; approvalPolicy?: unknown; sandboxPolicy?: unknown } };
     expect(turn.params.input[0]?.text).toBe("new prompt");
     expect(turn.params.input[0]?.text).not.toContain("old prompt");
+    expect(turn.params.summary).toBe("none");
+    expect(turn.params.approvalPolicy).toBe("never");
+    expect(turn.params.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
+  });
+
+  it("routes commentary agent messages through thinking and keeps the final answer separate", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
+    const server = path.join(home, "fake-codex.cjs");
+    fs.writeFileSync(server, `#!/usr/bin/env node
+const readline=require('node:readline');
+function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
+const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{const m=JSON.parse(line);
+ if(m.method==='initialize') send({id:m.id,result:{}});
+ else if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'thread-commentary'}}});
+ else if(m.method==='turn/start'){
+  send({id:m.id,result:{turn:{id:'turn-1',status:'inProgress'}}});
+  send({id:901,method:'item/commandExecution/requestApproval',params:{reason:'Inspect the repository',command:'pwd'}});
+ }
+ else if(m.id===901&&m.result?.decision==='accept'){
+  send({method:'item/reasoning/summaryTextDelta',params:{delta:'**Planning repository inspection**'}});
+  send({method:'item/reasoning/textDelta',params:{itemId:'reasoning-1',delta:'Raw reasoning'}});
+  send({method:'item/completed',params:{item:{id:'reasoning-1',type:'reasoning',summary:['**Planning repository inspection**'],content:['Raw reasoning from content.']}}});
+  send({method:'item/started',params:{item:{id:'commentary-1',type:'agentMessage',text:'',phase:'commentary'}}});
+  send({method:'item/agentMessage/delta',params:{itemId:'commentary-1',delta:"I'll inspect the repository first."}});
+  send({method:'item/completed',params:{item:{id:'commentary-1',type:'agentMessage',text:"I'll inspect the repository first.",phase:'commentary'}}});
+  send({method:'item/started',params:{item:{id:'final-1',type:'agentMessage',text:'',phase:'final_answer'}}});
+  send({method:'item/agentMessage/delta',params:{itemId:'final-1',delta:'Inspection complete.'}});
+  send({method:'turn/completed',params:{turn:{status:'completed',error:null}}});
+ }
+});`, { mode: 0o755 });
+    process.env.CREWCODER_HOME = home;
+    process.env.CREWCODER_CODEX_PATH = server;
+    setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account", idToken: "id-token" });
+    const thinking: string[] = [];
+    const assistant: string[] = [];
+    const questions: string[] = [];
+
+    const result = await runCodexAppServerProvider({
+      provider,
+      prompt: "inspect",
+      cwd: home,
+      model: "gpt-test",
+      modelInput: { systemPrompt: "system", messages: [textMessage("user", "inspect")], availableTools: [] },
+      stream: {
+        onThinkingDelta: (text) => { thinking.push(text); },
+        onAssistantDelta: (text) => { assistant.push(text); },
+        requestQuestion: async (question) => { questions.push(question.title); return "accept"; }
+      }
+    });
+
+    expect(result?.exitCode).toBe(0);
+    expect(thinking).toEqual(["Raw reasoning", " from content.", "I'll inspect the repository first."]);
+    expect(assistant).toEqual(["Inspection complete."]);
+    expect(questions).toEqual(["Inspect the repository\npwd"]);
+    expect(JSON.parse(result?.text ?? "{}").content).toEqual([{ type: "text", text: "Inspection complete." }]);
   });
 
   it("falls back to the direct transport for legacy credentials without an id token", async () => {

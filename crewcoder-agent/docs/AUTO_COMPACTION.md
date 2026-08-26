@@ -13,30 +13,36 @@ summary** (with a deterministic fallback), and can be **triggered manually**.
 
 ## Configuration
 
-Two persisted keys in `~/.crewcoder/config.json`:
+Two supported keys in `~/.crewcoder/config.json` (the optional fallback is omitted by default):
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `autoCompact` | boolean | `true` | Compacts at 60% of a known context window, or the configured token threshold when that is earlier. When off, an 80% provider-neutral safety guard remains. |
-| `autoCompactThresholdTokens` | integer | `150000` | Absolute live-context threshold for automatic compaction. Clamped 10,000–2,000,000. |
+| `autoCompact` | boolean | `true` | Compacts at 60% of a known window when it is at least 1,000,000 tokens, or 50% for smaller known windows. When off, an 80% known-window safety guard remains. |
+| `autoCompactThresholdTokens` | optional integer | absent | Explicit fallback used only when the model context window is unknown. Clamped 10,000–2,000,000. |
 
 Set them from the CLI:
 
 ```bash
 crewcoder config show                                  # inspect current settings
 crewcoder config set autoCompact true
-crewcoder config set autoCompactThresholdTokens 120000
+crewcoder config set autoCompactThresholdTokens 120000  # unknown-model fallback only
 ```
 
 Per-run override (programmatic): `AgentLoopOptions.autoCompact` and
 `AgentLoopOptions.autoCompactThresholdTokens` take precedence over config.
 
-ACP respects these same persisted settings. With auto-compaction on, known models compact at 60%
-of their context window (or the configured absolute threshold, whichever comes first). When it is
-off, CrewCoder still performs provider-neutral safety compaction at 80%. Both checks run between
-tool turns and before the first request of a resumed
-session. If a provider does not report usage or its model has no context-window metadata, enable
-`autoCompact` and set a conservative explicit threshold. Claude's SDK-native auto-compaction is
+ACP respects these same persisted settings. With auto-compaction on, known model windows of at
+least 1,000,000 tokens compact at 60%; smaller known windows compact at 50%. An absolute threshold
+never overrides a known model window. When auto-compaction is off, CrewCoder still performs
+provider-neutral safety compaction at 80% of a known window. These checks run between
+tool turns, after a completed final-answer turn reports threshold-crossing usage, and before the
+first request of a resumed session. The compaction progress message
+reports the measured live-context tokens, the effective threshold, and whether it came from the
+configured absolute value or the model-window percentage. This makes an apparently early
+compaction diagnosable instead of showing only the configured cap. If a provider does not report
+usage or its model has no context-window metadata, enable `autoCompact` and optionally set a
+conservative explicit fallback. Without that explicit fallback, an unknown-window model does not
+auto-compact. Claude's SDK-native auto-compaction is
 also enabled as defense in depth for its opaque resumed session. While running as an ACP agent,
 CrewCoder publishes its own compaction lifecycle on the additive
 `_crewcoder/compaction_update` session-update kind so capable hosts can show progress before the
@@ -52,21 +58,38 @@ core tools follow Pi-proven 50 KB/2,000-line limits where applicable; `grep` add
 match line at 500 characters. Truncation notices are actionable rather than silent. See
 [`TOOL_OUTPUT_SAFETY.md`](./TOOL_OUTPUT_SAFETY.md).
 
+## Tiered known-window thresholds
+
+| Model context window | Automatic trigger |
+|----------------------|-------------------|
+| 1,050,000 | 630,000 (60%) |
+| 1,000,000 | 600,000 (60%) |
+| 400,000 | 200,000 (50%) |
+| 200,000 | 100,000 (50%) |
+
+`gpt-5.6-sol` declares a 1,050,000-token context window in the built-in Codex model catalog, so
+its automatic trigger resolves deterministically to 630,000 tokens.
+
 ## Trigger metric — live context size
 
 The threshold is compared against **provider-reported active context occupancy**, when available,
 or the most recent turn's input tokens as a fallback (`UsageSummary.lastInputTokens` via
-`currentContextTokens()`), not the cumulative lifetime total. Claude Agent SDK reports context
-occupancy separately from aggregate billing usage. This accurately reflects context-window pressure. After a compaction fires, `lastInputTokens` is reset to `0` so it does not
-re-fire before the next turn provides a fresh measurement.
+`currentContextTokens()`). For legacy/provider usage that has neither value, cumulative total tokens
+are the conservative last resort and the progress message labels them `cumulative fallback` rather
+than claiming they are live occupancy. Claude Agent SDK reports context occupancy separately from
+aggregate billing usage. This accurately reflects context-window pressure. After a compaction
+fires, `lastInputTokens` is reset to `0` so it does not re-fire before the next turn provides a fresh
+measurement.
 
 ## Summary generation
 
 When compaction fires, `compactLiveMessages()` (in `src/core/session-compaction.ts`):
 
 1. Keeps the most recent messages (default 8), snapped to a **tool-group boundary** (see below).
-2. Sends the older slice to the model with a focused summarization system prompt asking for goals,
-   decisions, files changed, findings/errors, and open threads.
+2. Sends the older slice plus a bounded view of the retained recent messages to the model. The
+   retained messages are marked authoritative for current status, so work completed or verified in
+   the recent tail is not revived as an open thread. Long transcript sections retain both their
+   beginning and end rather than dropping the latest status.
 3. Replaces the older slice with a single synthetic `user` background message holding the summary.
 4. **Falls back** to the deterministic transcript summary if the model call fails or returns empty,
    so compaction never blocks the loop.

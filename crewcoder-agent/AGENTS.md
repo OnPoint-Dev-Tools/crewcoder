@@ -522,10 +522,16 @@ Optional, token-aware mid-session compaction. See `docs/AUTO_COMPACTION.md` for 
 The LLM summarizer falls back to the deterministic transcript summary on any failure, and that fallback must never block the loop — but it must never be silent either. `summarizeWithModel` records a `fallbackReason` on all three failure paths (thrown error, `stopReason: "error"` response, empty text); it is surfaced as a `backend_debug` warn in the loop, a yellow line and a `fallbackReason` JSON field in `session compact`, and in the compaction-hook payload. Do not restore the bare `catch {}` — a degraded summary caused by expired auth is otherwise indistinguishable from a healthy one, and the only symptom is the agent quietly getting worse after long sessions.
 
 ```txt
-config keys:   autoCompact (default false), autoCompactThresholdTokens (default 150000, clamp 10k-2M)
-trigger:       currentContextTokens(usage) >= threshold, measured on the latest turn's input tokens
-                (live context-window size, NOT cumulative lifetime spend); reset to 0 after a compaction
-summary:       LLM-generated via the active model client, deterministic fallback if the call fails
+config keys:   autoCompact (default true), optional autoCompactThresholdTokens (no default, clamp 10k-2M)
+trigger:       known windows >=1M compact at 60%; smaller known windows compact at 50%. The optional
+                absolute threshold is used only when the model window is unknown and never caps a known
+                window. When disabled, a known-window 80% safety boundary remains. An 80% cumulative
+                token-budget warning can also request compaction. Check after final-answer turns too;
+                otherwise ACP sessions visibly cross the boundary but wait for another prompt. Progress
+                states measured/effective values.
+summary:       LLM-generated via the active model client, deterministic fallback if the call fails;
+                retained recent messages are authoritative for completion status and must be visible to
+                the summarizer so completed work is not revived as an open thread
 events:        reuses session_compacted + SessionCompaction[] (no event-stream/schema changes)
 manual:        crewcoder session compact <id>; TUI /compact, /compact on|off|status
 ```

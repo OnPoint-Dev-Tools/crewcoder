@@ -234,15 +234,29 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const checkpointsEnabled = runtimeConfig.checkpointsEnabled;
   const autoCompactEnabled = options.autoCompact ?? runtimeConfig.autoCompact;
   const configuredCompactThreshold = options.autoCompactThresholdTokens ?? runtimeConfig.autoCompactThresholdTokens;
-  // Normal automatic compaction leaves 40% headroom. If the user explicitly turns it
-  // off, retain an 80% emergency boundary so no known provider context is allowed to
-  // grow unchecked. The configured absolute threshold can only make auto-compaction earlier.
-  const contextCompactThreshold = typeof options.contextWindow === "number"
-    ? Math.floor(options.contextWindow * (autoCompactEnabled ? 0.6 : 0.8))
+  // Known model windows always use the model-relative policy: million-token models
+  // compact at 60%, smaller windows at 50%. The optional absolute threshold is only
+  // a fallback for models whose window is unknown. Turning auto-compaction off keeps
+  // the existing 80% safety boundary for known windows.
+  const contextCompactPercent = typeof options.contextWindow === "number"
+    ? autoCompactEnabled
+      ? (options.contextWindow >= 1_000_000 ? 0.6 : 0.5)
+      : 0.8
     : undefined;
-  const autoCompactThreshold = autoCompactEnabled
-    ? Math.min(configuredCompactThreshold, contextCompactThreshold ?? Number.POSITIVE_INFINITY)
-    : contextCompactThreshold;
+  const contextCompactThreshold = typeof options.contextWindow === "number" && contextCompactPercent !== undefined
+    ? Math.floor(options.contextWindow * contextCompactPercent)
+    : undefined;
+  const autoCompactThreshold = contextCompactThreshold ?? (autoCompactEnabled ? configuredCompactThreshold : undefined);
+  const automaticCompactionMessage = autoCompactThreshold === undefined
+    ? undefined
+    : describeAutomaticCompactionTrigger({
+        autoCompactEnabled,
+        contextWindow: options.contextWindow,
+        contextPercent: contextCompactPercent,
+        effectiveThreshold: autoCompactThreshold,
+        currentTokens: currentContextTokens(usageSummary),
+        measurement: usageSummary.lastInputTokens === undefined ? "cumulative fallback" : "live context"
+      });
   const compactionPreviewSignal = options.compactionPreviewSignal;
   const compactionPreviewEnabled = Boolean(compactionPreviewSignal) && (options.compactionPreview ?? runtimeConfig.compactionPreview);
   const approvalAuditContexts = new Map<string, { toolCallId: string; toolName: string; args: Record<string, unknown>; risk: string }>();
@@ -416,10 +430,84 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   let stallError: string | undefined;
   let iterationCapReached = false;
 
+  const compactAfterCompletedTurn = async (): Promise<void> => {
+    if (autoCompactThreshold === undefined || currentContextTokens(usageSummary) < autoCompactThreshold || messages.length <= 14) return;
+    const originalMessageCount = messages.length;
+    await emit({
+      type: "session_compaction_progress",
+      phase: "requested",
+      percent: 5,
+      message: describeAutomaticCompactionTrigger({
+        autoCompactEnabled,
+        contextWindow: options.contextWindow,
+        contextPercent: contextCompactPercent,
+        effectiveThreshold: autoCompactThreshold,
+        currentTokens: currentContextTokens(usageSummary),
+        measurement: usageSummary.lastInputTokens === undefined ? "cumulative fallback" : "live context"
+      }),
+      originalMessageCount,
+      retainedMessageCount: Math.min(8, originalMessageCount)
+    });
+    await emit({
+      type: "session_compaction_progress",
+      phase: "summarizing",
+      percent: 35,
+      message: "Summarizing older conversation context after the completed turn…",
+      originalMessageCount,
+      retainedMessageCount: Math.min(8, originalMessageCount)
+    });
+    let proposal = await prepareLiveCompaction(messages, { modelClient, signal: options.signal });
+    if (!proposal) {
+      await emit({ type: "session_compaction_progress", phase: "skipped", percent: 100, message: "Nothing to compact yet; the conversation is still small.", originalMessageCount, retainedMessageCount: originalMessageCount });
+      return;
+    }
+    if (proposal.fallbackReason) {
+      await emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "warn", source: "session-compaction", message: "Compaction fell back to the deterministic summary", details: { reason: proposal.fallbackReason } });
+    }
+    const hookOutcome = await runCompactionHooks(extensionHooks, {
+      summary: proposal.summary,
+      source: proposal.source,
+      fallbackReason: proposal.fallbackReason,
+      originalMessageCount: proposal.originalMessageCount,
+      retainedMessageCount: proposal.retainedMessageCount,
+      cwd: request.cwd,
+      sessionId
+    });
+    for (const note of hookOutcome.notes) await emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "info", source: "extension-hooks", message: "compaction context", details: { context: note } });
+    if (hookOutcome.summary !== proposal.summary) proposal = { ...proposal, summary: hookOutcome.summary };
+    let editedSummary: string | undefined;
+    if (compactionPreviewEnabled && compactionPreviewSignal) {
+      const previewId = `preview_${Date.now()}`;
+      await emit({ type: "session_compaction_preview", previewId, summary: proposal.summary, source: proposal.source, originalMessageCount: proposal.originalMessageCount, retainedMessageCount: proposal.retainedMessageCount });
+      const decision = await waitForCompactionPreviewDecision(previewId, compactionPreviewSignal, options.signal);
+      if (!decision.approved) {
+        await emit({ type: "session_compaction_progress", phase: "skipped", percent: 100, message: "Compaction preview cancelled; context left unchanged.", originalMessageCount, retainedMessageCount: originalMessageCount });
+        return;
+      }
+      editedSummary = decision.summary;
+    }
+    const applied = applyCompactionProposal(proposal, { editedSummary });
+    await emit({ type: "session_compaction_progress", phase: "saving", percent: 80, message: "Installing compacted context…", originalMessageCount: applied.compaction.originalMessageCount, retainedMessageCount: applied.compaction.retainedMessageCount });
+    messages = applied.messages;
+    compactions.push(applied.compaction);
+    for (const providerId of Object.keys(providerSessionIds)) delete providerSessionIds[providerId];
+    await modelClient.resetSessionContinuation?.(sessionId);
+    usageSummary = { ...usageSummary, lastInputTokens: 0 };
+    await emit({ type: "session_compacted", compactionId: applied.compaction.id, originalMessageCount: applied.compaction.originalMessageCount, retainedMessageCount: applied.compaction.retainedMessageCount, summary: applied.compaction.summary });
+  };
+
   // Resumed sessions commonly perform one conversational model turn per process. The
   // between-tool check below is never reached in that shape, so compact before the first
   // provider request when persisted usage already shows dangerous context occupancy.
   if (autoCompactThreshold !== undefined && currentContextTokens(usageSummary) >= autoCompactThreshold && messages.length > 14) {
+    await emit({
+      type: "session_compaction_progress",
+      phase: "requested",
+      percent: 5,
+      message: automaticCompactionMessage ?? "Automatic compaction threshold reached.",
+      originalMessageCount: messages.length,
+      retainedMessageCount: Math.min(8, messages.length)
+    });
     const proposal = await prepareLiveCompaction(messages, { modelClient, signal: options.signal });
     if (proposal) {
       const applied = applyCompactionProposal(proposal, { note: "This synthetic message preserves older session context after preflight safety compaction." });
@@ -468,6 +556,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           externalDirectories,
           // Provider-native filesystem tools cannot honor ACP/SDK virtual file hosts.
           useProviderNativeFileTools: options.textFiles === undefined,
+          approvalMode,
           availableTools: tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
           session: { sessionId, resumeFromSessionId: options.resumeFromSessionId, continuation: Boolean(options.initialMessages?.length), providerSessionId: options.providerId ? providerSessionIds[options.providerId] : undefined }
         };
@@ -568,6 +657,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       }
       if (toolCalls.length === 0 || assistant.stopReason !== "tool_calls") {
         await emit({ type: "turn_end", iteration, message: assistant, toolResults: [] });
+        await compactAfterCompletedTurn();
         const followUps = await drainFollowUps();
         if (followUps > 0 && iteration < maxIterations) continue;
         break;
@@ -625,7 +715,14 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           type: "session_compaction_progress",
           phase: "requested",
           percent: 5,
-          message: manualCompactRequested ? "Manual compaction requested." : budgetCompactRequested ? "Token budget reached 80%; compacting context before continuing." : "Auto-compaction threshold reached.",
+          message: manualCompactRequested ? "Manual compaction requested." : budgetCompactRequested ? "Token budget reached 80%; compacting context before continuing." : describeAutomaticCompactionTrigger({
+            autoCompactEnabled,
+            contextWindow: options.contextWindow,
+            contextPercent: contextCompactPercent,
+            effectiveThreshold: autoCompactThreshold,
+            currentTokens: currentContextTokens(usageSummary),
+            measurement: usageSummary.lastInputTokens === undefined ? "cumulative fallback" : "live context"
+          }),
           originalMessageCount,
           retainedMessageCount: Math.min(keepRecentMessages, originalMessageCount)
         });
@@ -809,6 +906,26 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     ...(approvalDenied ? { approvalDenied } : {}),
     verification
   };
+}
+
+function describeAutomaticCompactionTrigger(input: {
+  autoCompactEnabled: boolean;
+  contextWindow?: number;
+  contextPercent?: number;
+  effectiveThreshold?: number;
+  currentTokens: number;
+  measurement: "live context" | "cumulative fallback";
+}): string {
+  const current = `${input.currentTokens.toLocaleString("en-US")} ${input.measurement} tokens`;
+  if (input.effectiveThreshold === undefined) return `Automatic compaction reached ${current}.`;
+  const effective = input.effectiveThreshold.toLocaleString("en-US");
+  if (!input.autoCompactEnabled && input.contextWindow !== undefined) {
+    return `Context safety boundary reached: ${current} >= ${effective} (80% of ${input.contextWindow.toLocaleString("en-US")}; auto-compaction is disabled).`;
+  }
+  if (input.contextPercent !== undefined && input.contextWindow !== undefined) {
+    return `Auto-compaction reached ${current} >= ${effective} (${Math.round(input.contextPercent * 100)}% of ${input.contextWindow.toLocaleString("en-US")} model context).`;
+  }
+  return `Auto-compaction reached ${current} >= explicitly configured unknown-model fallback ${effective}.`;
 }
 
 async function executeToolCalls(

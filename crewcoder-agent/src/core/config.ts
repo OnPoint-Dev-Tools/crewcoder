@@ -59,7 +59,8 @@ export interface CrewCoderConfig {
   /** Create bounded filesystem snapshots before mutating tools. */
   checkpointsEnabled: boolean;
   autoCompact: boolean;
-  autoCompactThresholdTokens: number;
+  /** Optional fallback used only when the active model's context window is unknown. */
+  autoCompactThresholdTokens?: number;
   /** When true, live compaction pauses to preview (and allow editing) the summary before installing it. */
   compactionPreview: boolean;
   autoActivateExtensionSkills: boolean;
@@ -74,7 +75,6 @@ export interface CrewCoderConfig {
 
 const MIN_COMPACT_THRESHOLD = 10_000;
 const MAX_COMPACT_THRESHOLD = 2_000_000;
-const DEFAULT_COMPACT_THRESHOLD = 150_000;
 const MAX_ITERATION_CAP = 1_000;
 const MIN_GOAL_TURNS = 1;
 const MAX_GOAL_TURNS = 10_000;
@@ -107,7 +107,6 @@ const defaultConfig: CrewCoderConfig = {
   activeWorker: "Crew",
   checkpointsEnabled: true,
   autoCompact: true,
-  autoCompactThresholdTokens: DEFAULT_COMPACT_THRESHOLD,
   compactionPreview: false,
   autoActivateExtensionSkills: true,
   modelPricing: {},
@@ -284,9 +283,9 @@ function normalizeConfig(input: Partial<CrewCoderConfig>): CrewCoderConfig {
     activeWorker: typeof input.activeWorker === "string" && input.activeWorker.trim() ? input.activeWorker.trim() : defaultConfig.activeWorker,
     checkpointsEnabled: input.checkpointsEnabled !== false,
     autoCompact: input.autoCompact !== false,
-    autoCompactThresholdTokens: typeof input.autoCompactThresholdTokens === "number" && Number.isInteger(input.autoCompactThresholdTokens)
-      ? Math.min(Math.max(input.autoCompactThresholdTokens, MIN_COMPACT_THRESHOLD), MAX_COMPACT_THRESHOLD)
-      : defaultConfig.autoCompactThresholdTokens,
+    ...(typeof input.autoCompactThresholdTokens === "number" && Number.isInteger(input.autoCompactThresholdTokens)
+      ? { autoCompactThresholdTokens: Math.min(Math.max(input.autoCompactThresholdTokens, MIN_COMPACT_THRESHOLD), MAX_COMPACT_THRESHOLD) }
+      : {}),
     compactionPreview: input.compactionPreview === true,
     autoActivateExtensionSkills: input.autoActivateExtensionSkills !== false,
     modelPricing: normalizeModelPricing(input.modelPricing),

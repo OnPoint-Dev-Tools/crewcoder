@@ -137,7 +137,7 @@ function buildCodexHeaders(token: string, credential: CodexOAuthCredentials, ext
   return headers;
 }
 
-type CodexRequestBody = { [key: string]: unknown; model: string; instructions: string; input: unknown[]; tools?: unknown[]; tool_choice: "auto"; store: false; stream: true; parallel_tool_calls: true; text: { verbosity: "low" }; include: string[]; prompt_cache_key: string; client_metadata: Record<string, string>; reasoning?: { effort: string; summary: "auto" } };
+type CodexRequestBody = { [key: string]: unknown; model: string; instructions: string; input: unknown[]; tools?: unknown[]; tool_choice: "auto"; store: false; stream: true; parallel_tool_calls: true; text: { verbosity: "low" }; include: string[]; prompt_cache_key: string; client_metadata: Record<string, string>; reasoning?: { effort: string; summary: "none" } };
 
 function buildCodexBody(model: string, input: ProviderRunInput): CodexRequestBody {
   const modelInput = input.modelInput;
@@ -159,7 +159,7 @@ function buildCodexBody(model: string, input: ProviderRunInput): CodexRequestBod
       "thread-id": sessionId,
       "x-codex-window-id": sessionId
     },
-    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort, summary: "auto" } } : {})
+    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort, summary: "none" } } : {})
   };
 
   if (modelInput?.availableTools.length) {
@@ -319,9 +319,10 @@ async function readCodexStream(response: Response, signal: AbortSignal | undefin
   const toolCalls = new Map<string, { id: string; name: string; arguments: string }>();
   let completedResponse: unknown;
   let streamError: string | undefined;
-  let activeReasoningSummaryText = "";
   let emittedThinkingText = "";
-  const emittedReasoningSummaries = new Set<string>();
+  const messagePhasesByItemId = new Map<string, string>();
+  const messagePhasesByOutputIndex = new Map<number, string>();
+  const reasoningByItemId = new Map<string, string>();
 
   const emitThinking = async (delta: string) => {
     if (!delta) return;
@@ -329,13 +330,24 @@ async function readCodexStream(response: Response, signal: AbortSignal | undefin
     await stream?.onThinkingDelta?.(delta);
   };
 
-  const emitReasoningSummary = async (summary: string) => {
-    const normalized = normalizeReasoningText(summary);
-    if (!normalized) return;
-    const emitted = normalizeReasoningText(emittedThinkingText);
-    if (emitted.includes(normalized) || emittedReasoningSummaries.has(normalized)) return;
-    emittedReasoningSummaries.add(normalized);
-    await emitThinking(`${summary}\n\n`);
+  const emitCompletedThinking = async (completedText: string) => {
+    const normalized = normalizeReasoningText(completedText);
+    if (!normalized || normalizeReasoningText(emittedThinkingText).includes(normalized)) return;
+    await emitThinking(completedText);
+  };
+
+  const emitReasoningDelta = async (event: Record<string, unknown>, delta: string) => {
+    const itemId = reasoningItemId(event);
+    reasoningByItemId.set(itemId, `${reasoningByItemId.get(itemId) ?? ""}${delta}`);
+    await emitThinking(delta);
+  };
+
+  const emitReasoningItemContent = async (item: Record<string, unknown>) => {
+    const completedText = collectReasoningTextToString(item.content);
+    const itemId = typeof item.id === "string" ? item.id : "reasoning";
+    const remainder = unstreamedRemainder(reasoningByItemId.get(itemId) ?? "", completedText);
+    if (remainder) await emitThinking(remainder);
+    if (completedText) reasoningByItemId.set(itemId, completedText);
   };
 
   const processEvent = async (event: Record<string, unknown>) => {
@@ -348,53 +360,41 @@ async function readCodexStream(response: Response, signal: AbortSignal | undefin
     }
 
     if (type === "response.output_text.delta" && typeof event.delta === "string") {
+      if (responseMessagePhase(event, messagePhasesByItemId, messagePhasesByOutputIndex) === "commentary") {
+        await emitThinking(event.delta);
+        return;
+      }
       text += event.delta;
       await stream?.onAssistantDelta?.(event.delta);
       return;
     }
 
     if (type === "response.output_text.done" && typeof event.text === "string" && !text.trim()) {
+      if (responseMessagePhase(event, messagePhasesByItemId, messagePhasesByOutputIndex) === "commentary") {
+        await emitCompletedThinking(event.text);
+        return;
+      }
       text = event.text;
       return;
     }
 
-    if (type === "response.output_item.added" && isRecord(event.item) && event.item.type === "reasoning") {
-      activeReasoningSummaryText = "";
-      return;
-    }
-
-    if (type === "response.reasoning_summary_part.added") {
-      activeReasoningSummaryText = "";
+    if (type === "response.output_item.added" && isRecord(event.item)) {
+      if (event.item.type === "reasoning") return;
+      if (event.item.type === "message" && typeof event.item.phase === "string") {
+        if (typeof event.item.id === "string") messagePhasesByItemId.set(event.item.id, event.item.phase);
+        if (typeof event.output_index === "number") messagePhasesByOutputIndex.set(event.output_index, event.item.phase);
+      }
       return;
     }
 
     if (isThinkingDeltaEvent(type) && typeof event.delta === "string") {
-      activeReasoningSummaryText += event.delta;
-      await emitThinking(event.delta);
+      await emitReasoningDelta(event, event.delta);
       return;
     }
 
     if (isThinkingDeltaEvent(type) && isRecord(event.delta)) {
       const deltaText = collectReasoningTextToString(event.delta);
-      if (deltaText) {
-        activeReasoningSummaryText += deltaText;
-        await emitThinking(deltaText);
-      }
-      return;
-    }
-
-    if (isThinkingDoneEvent(type) && typeof event.text === "string") {
-      if (!activeReasoningSummaryText.trim()) await emitReasoningSummary(event.text);
-      activeReasoningSummaryText = "";
-      return;
-    }
-
-    if (type === "response.reasoning_summary_part.done") {
-      const part = isRecord(event.part) ? event.part : undefined;
-      const partText = part ? collectReasoningTextToString(part) : "";
-      if (partText && !activeReasoningSummaryText.trim()) await emitThinking(partText);
-      if ((partText || activeReasoningSummaryText).trim()) await emitThinking("\n\n");
-      activeReasoningSummaryText = "";
+      if (deltaText) await emitReasoningDelta(event, deltaText);
       return;
     }
 
@@ -409,16 +409,19 @@ async function readCodexStream(response: Response, signal: AbortSignal | undefin
     if (type === "response.output_item.done" && isRecord(event.item)) {
       const item = event.item;
       if (item.type === "reasoning") {
-        const summary = extractReasoningSummaryText({ output: [item] });
-        if (summary) await emitReasoningSummary(summary);
-        activeReasoningSummaryText = "";
+        await emitReasoningItemContent(item);
         return;
       }
       if (item.type === "function_call" && typeof item.name === "string") {
         const id = String(item.call_id ?? item.id ?? `tool_${Date.now()}`);
         toolCalls.set(id, { id, name: item.name, arguments: typeof item.arguments === "string" ? item.arguments : "{}" });
-      } else if (item.type === "message" && Array.isArray(item.content) && !text.trim()) {
-        text = textFromResponseContent(item.content);
+      } else if (item.type === "message" && Array.isArray(item.content)) {
+        const itemText = textFromResponseContent(item.content);
+        if (item.phase === "commentary") {
+          if (itemText) await emitCompletedThinking(itemText);
+        } else if (!text.trim()) {
+          text = itemText;
+        }
       }
       return;
     }
@@ -456,9 +459,12 @@ async function readCodexStream(response: Response, signal: AbortSignal | undefin
     try { reader.releaseLock(); } catch {}
   }
 
-  if (completedResponse) {
-    const finalThinking = extractReasoningSummaryText(completedResponse);
-    if (finalThinking) await emitReasoningSummary(finalThinking);
+  if (isRecord(completedResponse)) {
+    if (Array.isArray(completedResponse.output)) {
+      for (const item of completedResponse.output) {
+        if (isRecord(item) && item.type === "reasoning") await emitReasoningItemContent(item);
+      }
+    }
     const completedContent = assistantContentFromResponse(completedResponse);
     if (!text.trim()) text = completedContent.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
     for (const part of completedContent) {
@@ -572,7 +578,7 @@ function assistantContentFromResponse(response: unknown): AssistantMessage["cont
   if (!Array.isArray(response.output)) return content;
   for (const item of response.output) {
     if (!isRecord(item)) continue;
-    if (item.type === "message" && Array.isArray(item.content)) {
+    if (item.type === "message" && item.phase !== "commentary" && Array.isArray(item.content)) {
       const text = textFromResponseContent(item.content);
       if (text) content.push({ type: "text", text });
     }
@@ -609,16 +615,23 @@ function stringField(record: Record<string, unknown>, key: string): string | und
 function isThinkingDeltaEvent(type: string): boolean {
   return type === "response.reasoning_text.delta"
     || type === "response.reasoning.delta"
-    || type === "response.reasoning_summary.delta"
     || type === "response.thinking.delta"
-    || type === "response.reasoning_summary_text.delta"
     || type === "response.output_item.reasoning.delta";
 }
 
-function isThinkingDoneEvent(type: string): boolean {
-  return type === "response.reasoning_text.done"
-    || type === "response.reasoning_summary_text.done"
-    || type === "response.reasoning_summary.done";
+function responseMessagePhase(event: Record<string, unknown>, byItemId: Map<string, string>, byOutputIndex: Map<number, string>): string | undefined {
+  if (typeof event.item_id === "string") return byItemId.get(event.item_id);
+  if (typeof event.output_index === "number") return byOutputIndex.get(event.output_index);
+  return undefined;
+}
+
+function reasoningItemId(event: Record<string, unknown>): string {
+  return String(event.item_id ?? event.call_id ?? event.output_index ?? "reasoning");
+}
+
+function unstreamedRemainder(streamed: string, completed: string): string {
+  if (!completed || completed === streamed || streamed.includes(completed)) return "";
+  return completed.startsWith(streamed) ? completed.slice(streamed.length) : completed;
 }
 
 function codexReasoningEffort(requested?: string): string | undefined {
@@ -634,18 +647,6 @@ function parseJsonObject(text: string): Record<string, unknown> {
   try { const parsed = JSON.parse(text) as unknown; return isRecord(parsed) ? parsed : {}; } catch { return {}; }
 }
 
-function extractReasoningSummaryText(response: unknown): string {
-  if (!isRecord(response) || !Array.isArray(response.output)) return "";
-  const parts: string[] = [];
-  for (const item of response.output) {
-    if (!isRecord(item) || item.type !== "reasoning") continue;
-    collectReasoningText(item.summary, parts);
-    collectReasoningText(item.content, parts);
-    if (typeof item.text === "string") parts.push(item.text);
-  }
-  return [...new Set(parts.map((part) => part.trim()).filter(Boolean))].join("\n\n");
-}
-
 function collectReasoningText(value: unknown, parts: string[]): void {
   if (typeof value === "string") {
     parts.push(value);
@@ -657,7 +658,6 @@ function collectReasoningText(value: unknown, parts: string[]): void {
   }
   if (!isRecord(value)) return;
   if (typeof value.text === "string") parts.push(value.text);
-  if (typeof value.summary === "string") parts.push(value.summary);
 }
 
 function collectReasoningTextToString(value: unknown): string {

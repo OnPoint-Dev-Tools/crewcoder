@@ -19,6 +19,20 @@ For a new CrewCoder session, the provider:
 3. Calls `thread/start` and sends the current CrewCoder conversation context for the first turn.
 4. Persists an encoded native thread ID in `providerSessionIds.codex`.
 
+CrewCoder disables Codex reasoning summaries because they are short heading-like descriptions of
+the next action rather than the native thought/progress text shown by Codex clients. Raw
+`item/reasoning/textDelta` events and the authoritative completed reasoning item's `content` blocks
+are routed through `thinking_delta`; streamed text is deduplicated against the completed content.
+`commentary`-phase agent messages also remain visible in the thinking area, while `final_answer`
+messages remain assistant output.
+
+The app-server thread keeps the selected model's built-in Codex base instructions. CrewCoder's
+system prompt is supplied as developer instructions, so it extends rather than replaces Codex's
+native behavior. App-server approvals and sandboxing derive from CrewCoder's selected approval
+mode: normal modes retain a workspace-write boundary, `review`/`always` requests are bridged to
+CrewCoder's approval UI, and only `full-access` selects Codex's unrestricted sandbox. CrewCoder's
+dynamic tools continue through CrewCoder's own approval and safety-policy path.
+
 On later prompts—even in a new process—it calls `thread/resume` and sends only the latest user turn.
 If the native thread was pruned or cannot be resumed, CrewCoder starts a replacement thread and
 seeds it from the current compacted CrewCoder history.
@@ -52,8 +66,9 @@ must never be rendered as successful assistant text.
 ## Compaction still matters
 
 Durable threads avoid repeated uploads; they do not create unlimited model context. CrewCoder
-compacts at 60% of a known context window by default and retains an 80% emergency guard when normal
-auto-compaction is disabled. Applying compaction clears the Codex native thread and initializes a
-replacement from the compacted summary plus recent messages.
+compacts known million-token windows at 60% and smaller known windows at 50%, and retains an 80%
+emergency guard when normal auto-compaction is disabled. `gpt-5.6-sol` declares a 1,050,000-token
+window, so its normal trigger is 630,000 tokens. Applying compaction clears the Codex native
+thread and initializes a replacement from the compacted summary plus recent messages.
 
 See [`AUTO_COMPACTION.md`](./AUTO_COMPACTION.md).

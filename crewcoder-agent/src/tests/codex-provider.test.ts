@@ -46,7 +46,14 @@ describe("codex provider", () => {
     expect(headers.get("openai-beta")).toBeNull();
     expect(headers.get("session-id")).toBe("session-123");
     expect(headers.get("thread-id")).toBe("session-123");
-    expect(body).toMatchObject({ model: "gpt-5.6-luna", tool_choice: "auto", prompt_cache_key: "session-123", client_metadata: { "session-id": "session-123", "thread-id": "session-123", "x-codex-window-id": "session-123" } });
+    expect(body).toMatchObject({
+      model: "gpt-5.6-luna",
+      tool_choice: "auto",
+      reasoning: { effort: "low", summary: "none" },
+      prompt_cache_key: "session-123",
+      client_metadata: { "session-id": "session-123", "thread-id": "session-123", "x-codex-window-id": "session-123" }
+    });
+    expect(body.instructions).toBe("You are CrewCoder, a local coding agent CLI.");
   });
 
   // A tool result whose tool call was truncated away (compaction, branching, checkpoint
@@ -244,16 +251,17 @@ describe("codex provider", () => {
     expect(result.stderr).toContain("without assistant text, tool calls, or completion metadata");
   });
 
-  it("emits reasoning summaries from completed reasoning output items", async () => {
+  it("suppresses reasoning-summary placeholders while preserving reasoning text deltas", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-"));
     vi.stubEnv("CREWCODER_HOME", home);
     setAuthCredential("codex", { type: "oauth", access: "access-token", refresh: "refresh-token", expires: Date.now() + 600_000, accountId: "account-id" });
     const sse = [
       event({ type: "response.output_text.delta", delta: "Done" }),
-      event({ type: "response.reasoning_summary_text.delta", delta: "Checked Codex reasoning." }),
-      event({ type: "response.reasoning_summary_text.done", text: "Checked Codex reasoning." }),
-      event({ type: "response.output_item.done", item: { type: "reasoning", summary: [{ type: "summary_text", text: "Checked Codex reasoning." }] } }),
-      event({ type: "response.completed", response: { model: "gpt-5.4-mini", output: [{ type: "reasoning", summary: [{ type: "summary_text", text: "Checked Codex reasoning." }] }], usage: { input_tokens: 3, output_tokens: 5, output_tokens_details: { reasoning_tokens: 2 } } } })
+      event({ type: "response.reasoning_summary_text.delta", delta: "**Planning inspection**" }),
+      event({ type: "response.reasoning_summary_text.done", text: "**Planning inspection**" }),
+      event({ type: "response.reasoning_text.delta", item_id: "reasoning-1", delta: "Checked Codex" }),
+      event({ type: "response.output_item.done", item: { id: "reasoning-1", type: "reasoning", summary: [{ type: "summary_text", text: "**Planning inspection**" }], content: [{ type: "reasoning_text", text: "Checked Codex reasoning." }] } }),
+      event({ type: "response.completed", response: { model: "gpt-5.4-mini", output: [{ id: "reasoning-1", type: "reasoning", summary: [{ type: "summary_text", text: "**Planning inspection**" }], content: [{ type: "reasoning_text", text: "Checked Codex reasoning." }] }], usage: { input_tokens: 3, output_tokens: 5, output_tokens_details: { reasoning_tokens: 2 } } } })
     ].join("");
     vi.stubGlobal("fetch", vi.fn(async () => new Response(streamFromString(sse), { headers: { "content-type": "text/event-stream" } })));
     const thinkingDeltas: string[] = [];
@@ -268,8 +276,39 @@ describe("codex provider", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(thinkingDeltas).toEqual(["Checked Codex reasoning."]);
+    expect(thinkingDeltas).toEqual(["Checked Codex", " reasoning."]);
     expect(JSON.parse(result.text).content).toEqual([{ type: "text", text: "Done" }]);
+  });
+
+  it("routes commentary-phase messages to thinking without polluting the final answer", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-"));
+    vi.stubEnv("CREWCODER_HOME", home);
+    setAuthCredential("codex", { type: "oauth", access: "access-token", refresh: "refresh-token", expires: Date.now() + 600_000, accountId: "account-id" });
+    const sse = [
+      event({ type: "response.reasoning_summary_text.delta", delta: "**Planning repository inspection**" }),
+      event({ type: "response.output_item.added", output_index: 0, item: { id: "msg-commentary", type: "message", phase: "commentary" } }),
+      event({ type: "response.output_text.delta", item_id: "msg-commentary", output_index: 0, delta: "I'll inspect the repository first." }),
+      event({ type: "response.output_item.added", output_index: 1, item: { id: "msg-final", type: "message", phase: "final_answer" } }),
+      event({ type: "response.output_text.delta", item_id: "msg-final", output_index: 1, delta: "Inspection complete." })
+    ].join("");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(streamFromString(sse), { headers: { "content-type": "text/event-stream" } })));
+    const thinking: string[] = [];
+    const assistant: string[] = [];
+
+    const result = await runCodexProvider({
+      provider,
+      prompt: "inspect",
+      cwd: process.cwd(),
+      model: "gpt-5.6-sol",
+      stream: {
+        onThinkingDelta: (text) => { thinking.push(text); },
+        onAssistantDelta: (text) => { assistant.push(text); }
+      }
+    });
+
+    expect(thinking).toEqual(["I'll inspect the repository first."]);
+    expect(assistant).toEqual(["Inspection complete."]);
+    expect(JSON.parse(result.text).content).toEqual([{ type: "text", text: "Inspection complete." }]);
   });
 });
 

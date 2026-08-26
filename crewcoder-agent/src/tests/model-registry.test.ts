@@ -31,6 +31,17 @@ describe("model registry context windows", () => {
     expect(resolved?.metadata).toEqual({ id: "gpt-5.4-mini", contextWindow: 400_000 });
   });
 
+  it("uses the declared gpt-5.6-sol context window without catalog lookup", async () => {
+    await useTemporaryHome();
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const resolved = await resolveModel("codex", "gpt-5.6-sol");
+
+    expect(resolved?.metadata?.contextWindow).toBe(1_050_000);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("prefers provider-declared metadata without fetching OpenRouter", async () => {
     const home = await useTemporaryHome();
     const extensionDir = path.join(home, "extensions", "declared-provider");

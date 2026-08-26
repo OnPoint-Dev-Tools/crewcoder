@@ -43,14 +43,44 @@ describe("compactLiveMessages", () => {
     expect(result.messages.slice(1)).toEqual(messages.slice(-8));
   });
 
+  it("shows the summarizer retained messages so completed work is not revived as an open thread", async () => {
+    const messages = [
+      textMessage("user", "x".repeat(20_000)),
+      ...seedMessages(10),
+      assistantText("Latest compacted finding: migration prerequisites are ready"),
+      textMessage("user", "Implement the cache migration"),
+      assistantText("The cache migration is complete and tests passed"),
+      ...seedMessages(6)
+    ];
+    let summarizerPrompt = "";
+    let summarizerSystemPrompt = "";
+    const modelClient: ModelClient = {
+      async complete(input) {
+        summarizerPrompt = getText(input.messages[0]!);
+        summarizerSystemPrompt = input.systemPrompt;
+        return assistantText("- Status: cache migration completed and verified");
+      }
+    };
+
+    const result = await compactLiveMessages(messages, { modelClient, keepRecentMessages: 8, minMessages: 14 });
+
+    expect(summarizerPrompt).toContain("Recent messages retained verbatim");
+    expect(summarizerPrompt).toContain("Latest compacted finding: migration prerequisites are ready");
+    expect(summarizerPrompt).toContain("cache migration is complete and tests passed");
+    expect(summarizerSystemPrompt).toContain("Never describe work as open");
+    expect(result.compaction?.summary).toContain("completed and verified");
+  });
+
   it("falls back to a deterministic summary when the model call fails", async () => {
     const modelClient: ModelClient = { async complete() { throw new Error("provider unavailable"); } };
     const messages = seedMessages(20);
     const result = await compactLiveMessages(messages, { modelClient, keepRecentMessages: 8, minMessages: 14 });
 
     expect(result.compaction).toBeDefined();
-    // Deterministic fallback echoes the compacted transcript content.
+    // Deterministic fallback echoes the compacted transcript content and warns
+    // that the retained tail is authoritative for current completion status.
     expect(result.compaction?.summary).toContain("user message 0");
+    expect(result.compaction?.summary).toContain("do not repeat work they show as completed");
   });
 });
 

@@ -16,7 +16,9 @@ Context windows are resolved in this order:
 2. OpenRouter's public model catalog at `https://openrouter.ai/api/v1/models`.
 3. No context-window value; the TUI keeps its token-only fallback.
 
-Provider metadata wins because a provider-specific endpoint may expose less context than the underlying model supports.
+Provider metadata wins because a provider-specific endpoint may expose less context than the
+underlying model supports. The built-in Codex catalog declares `gpt-5.6-sol` at 1,050,000 tokens;
+its tiered auto-compaction trigger is therefore 630,000 tokens (60%).
 
 ## OpenRouter matching
 

@@ -35,6 +35,10 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     env: { ...process.env, CODEX_HOME: codexHome }
   });
   const rpc = new AppServerRpc(child.stdin, child.stdout);
+  const spawned = new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
   // Prevent an ENOENT/custom-path spawn failure from becoming an unhandled
   // EventEmitter error; stdout closure rejects the pending initialize request.
   child.on("error", () => undefined);
@@ -44,6 +48,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   signal?.addEventListener("abort", abort, { once: true });
   let turnRequestSent = false;
   try {
+    await spawned;
     await rpc.request("initialize", { clientInfo: { name: "crewcoder", title: "CrewCoder", version: CREWCODER_VERSION }, capabilities: { experimentalApi: true } });
     rpc.notify("initialized", {});
     const contractHash = continuationContractHash(input);
@@ -66,6 +71,9 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     await input.stream?.onProviderSessionId?.(formatSessionId(threadId, contractHash));
 
     const textParts: string[] = [];
+    const agentMessagePhases = new Map<string, string>();
+    const commentaryByItem = new Map<string, string>();
+    const reasoningByItem = new Map<string, string>();
     let usage: ModelUsage | undefined;
     let turnError: string | undefined;
     let completed = false;
@@ -79,11 +87,17 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
         rpc.respond(message.id, { contentItems: [{ type: "inputText", text: result ? getText(result) : `Tool ${name} is unavailable.` }], success: Boolean(result && !result.isError) });
         return;
       }
-      if (message.id !== undefined && method.endsWith("/requestApproval")) {
-        rpc.respond(message.id, { decision: "decline" });
+      if (message.id !== undefined && (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval")) {
+        rpc.respond(message.id, { decision: await approvalDecision(params, input) });
         return;
       }
-      if (method === "item/started" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
+      if (message.id !== undefined && method === "item/permissions/requestApproval") {
+        rpc.respond(message.id, await permissionDecision(params, input));
+        return;
+      }
+      if (method === "item/started" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.id === "string") {
+        if (typeof params.item.phase === "string") agentMessagePhases.set(params.item.id, params.item.phase);
+      } else if (method === "item/started" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolStart?.({ type: "toolCall", id: params.item.id, name: "Codex command", arguments: { command: params.item.command, cwd: params.item.cwd } });
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex command", text: typeof params.item.aggregatedOutput === "string" ? params.item.aggregatedOutput : "", isError: params.item.status !== "completed" });
@@ -92,13 +106,32 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "fileChange" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex file change", text: JSON.stringify(params.item.changes ?? []), isError: params.item.status !== "completed" });
       } else if (method === "item/agentMessage/delta" && typeof params.delta === "string") {
-        textParts.push(params.delta);
-        await input.stream?.onAssistantDelta?.(params.delta);
-      } else if ((method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") && typeof params.delta === "string") {
+        const itemId = typeof params.itemId === "string" ? params.itemId : "";
+        if (agentMessagePhases.get(itemId) === "commentary") {
+          commentaryByItem.set(itemId, `${commentaryByItem.get(itemId) ?? ""}${params.delta}`);
+          await input.stream?.onThinkingDelta?.(params.delta);
+        } else {
+          textParts.push(params.delta);
+          await input.stream?.onAssistantDelta?.(params.delta);
+        }
+      } else if (method === "item/reasoning/textDelta" && typeof params.delta === "string") {
+        const itemId = typeof params.itemId === "string" ? params.itemId : "";
+        reasoningByItem.set(itemId, `${reasoningByItem.get(itemId) ?? ""}${params.delta}`);
         await input.stream?.onThinkingDelta?.(params.delta);
-      } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.text === "string" && !textParts.join("").trim()) {
-        textParts.push(params.item.text);
-        await input.stream?.onAssistantDelta?.(params.item.text);
+      } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "reasoning") {
+        const itemId = typeof params.item.id === "string" ? params.item.id : "";
+        const content = reasoningContent(params.item.content);
+        const remainder = unstreamedRemainder(reasoningByItem.get(itemId) ?? "", content);
+        if (remainder) await input.stream?.onThinkingDelta?.(remainder);
+      } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.text === "string") {
+        const itemId = typeof params.item.id === "string" ? params.item.id : "";
+        if (params.item.phase === "commentary" || agentMessagePhases.get(itemId) === "commentary") {
+          const emitted = commentaryByItem.get(itemId) ?? "";
+          if (!emitted && params.item.text) await input.stream?.onThinkingDelta?.(params.item.text);
+        } else if (!textParts.join("").trim()) {
+          textParts.push(params.item.text);
+          await input.stream?.onAssistantDelta?.(params.item.text);
+        }
       } else if (method === "thread/tokenUsage/updated" && isRecord(params.tokenUsage) && isRecord(params.tokenUsage.last)) {
         const last = params.tokenUsage.last;
         usage = { providerId: input.provider.id, model: input.model, inputTokens: number(last.inputTokens), outputTokens: number(last.outputTokens), totalTokens: number(last.totalTokens), cachedInputTokens: number(last.cachedInputTokens), cacheWriteTokens: number(last.cacheWriteInputTokens), reasoningTokens: number(last.reasoningOutputTokens), contextTokens: number(last.inputTokens) };
@@ -110,7 +143,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
 
     const prompt = codexPrompt(input.modelInput.messages, hasNativeThread, input.prompt);
     turnRequestSent = true;
-    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } });
+    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...turnPermissions(input) });
     await rpc.waitUntil(() => completed, signal);
     const text = textParts.join("").trim();
     if (turnError || !text) return failure(input, turnError ?? "Codex app-server returned no assistant output", stderr, usage);
@@ -120,8 +153,12 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     // Before turn/start there can be no model output or tool side effect, so the
     // direct full-context transport is a safe fallback. Never replay after the
     // turn request was sent: it may have started despite a broken local stream.
-    if (!turnRequestSent || (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    return failure(input, error instanceof Error ? error.message : String(error), stderr, undefined);
+    const message = error instanceof Error ? error.message : String(error);
+    if (!turnRequestSent || (error as NodeJS.ErrnoException).code === "ENOENT") {
+      await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: "app-server unavailable before turn; using direct transport", details: { error: message, stderr: stderr.trim(), command: invocation.command, exitCode: child.exitCode, signalCode: child.signalCode } });
+      return undefined;
+    }
+    return failure(input, message, stderr, undefined);
   } finally {
     signal?.removeEventListener("abort", abort);
     // App-server may rotate the refresh token. Copy its validated result back to
@@ -136,11 +173,11 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
 
 function threadParams(input: ProviderRunInput, extra: RpcRecord = {}): RpcRecord {
   const tools = input.modelInput?.availableTools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, inputSchema: tool.parameters ?? { type: "object", properties: {} } })) ?? [];
-  return { ...extra, model: input.model, cwd: input.cwd, approvalPolicy: "never", sandbox: "readOnly", baseInstructions: input.modelInput?.systemPrompt, developerInstructions: "Use the supplied dynamic CrewCoder tools for workspace mutations and specialized operations. Native tools are read-only.", dynamicTools: tools };
+  return { ...extra, model: input.model, cwd: input.cwd, developerInstructions: input.modelInput?.systemPrompt, dynamicTools: tools, ...threadPermissions(input) };
 }
 
 function continuationContractHash(input: ProviderRunInput): string {
-  const stable = { model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), tools: input.modelInput?.availableTools };
+  const stable = { model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools };
   return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 24);
 }
 function formatSessionId(threadId: string, contractHash: string): string { return `${SESSION_PREFIX}:${contractHash}:${threadId}`; }
@@ -201,6 +238,68 @@ function failure(input: ProviderRunInput, message: string, stderr: string, usage
 function isRecord(value: unknown): value is RpcRecord { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function nestedString(value: RpcRecord, parent: string, key: string): string | undefined { const item = value[parent]; return isRecord(item) && typeof item[key] === "string" ? item[key] : undefined; }
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
+function reasoningContent(value: unknown): string {
+  return Array.isArray(value) ? value.filter((part): part is string => typeof part === "string").join("") : "";
+}
+function unstreamedRemainder(streamed: string, completed: string): string {
+  if (!completed || completed === streamed || streamed.includes(completed)) return "";
+  return completed.startsWith(streamed) ? completed.slice(streamed.length) : completed;
+}
+function approvalPolicy(input: ProviderRunInput): string | undefined {
+  const mode = input.modelInput?.approvalMode;
+  if (mode === "always") return "untrusted";
+  if (mode === "review") return "on-request";
+  if (mode === "never" || mode === "sandboxed" || mode === "full-access") return "never";
+  return undefined;
+}
+function threadPermissions(input: ProviderRunInput): RpcRecord {
+  const policy = approvalPolicy(input);
+  if (!policy) return {};
+  return { approvalPolicy: policy, sandbox: input.modelInput?.approvalMode === "full-access" ? "danger-full-access" : "workspace-write" };
+}
+function turnPermissions(input: ProviderRunInput): RpcRecord {
+  const policy = approvalPolicy(input);
+  if (!policy) return {};
+  if (input.modelInput?.approvalMode === "full-access") return { approvalPolicy: policy, sandboxPolicy: { type: "dangerFullAccess" } };
+  return {
+    approvalPolicy: policy,
+    sandboxPolicy: {
+      type: "workspaceWrite",
+      writableRoots: input.modelInput?.externalDirectories ?? [],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false
+    }
+  };
+}
+async function approvalDecision(params: RpcRecord, input: ProviderRunInput): Promise<string> {
+  if (!input.stream?.requestQuestion) return "decline";
+  const reason = typeof params.reason === "string" ? params.reason : undefined;
+  const command = typeof params.command === "string" ? params.command : undefined;
+  const answer = await input.stream.requestQuestion({
+    title: [reason ?? `${input.provider.title} requests approval`, command].filter(Boolean).join("\n"),
+    options: [
+      { label: "Allow once", value: "accept" },
+      { label: "Allow session", value: "acceptForSession" },
+      { label: "Decline", value: "decline" }
+    ]
+  });
+  return answer === "accept" || answer === "acceptForSession" ? answer : "decline";
+}
+async function permissionDecision(params: RpcRecord, input: ProviderRunInput): Promise<RpcRecord> {
+  if (!input.stream?.requestQuestion || !isRecord(params.permissions)) return { permissions: {}, scope: "turn" };
+  const answer = await input.stream.requestQuestion({
+    title: typeof params.reason === "string" ? params.reason : `${input.provider.title} requests additional permissions`,
+    options: [
+      { label: "Allow once", value: "turn" },
+      { label: "Allow session", value: "session" },
+      { label: "Decline", value: "decline" }
+    ]
+  });
+  return answer === "turn" || answer === "session"
+    ? { permissions: params.permissions, scope: answer }
+    : { permissions: {}, scope: "turn" };
+}
 
 class AppServerRpc {
   private nextId = 1;
@@ -217,8 +316,10 @@ class AppServerRpc {
   }
   request(method: string, params: RpcRecord): Promise<RpcRecord> {
     const id = this.nextId++;
-    this.write({ id, method, params });
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.write({ id, method, params });
+    });
   }
   notify(method: string, params: RpcRecord): void { this.write({ method, params }); }
   respond(id: unknown, result: RpcRecord): void { this.write({ id, result }); }

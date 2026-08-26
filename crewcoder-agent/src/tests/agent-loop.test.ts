@@ -361,10 +361,45 @@ describe("agent loop", () => {
       if (originalHome === undefined) delete process.env.CREWCODER_HOME; else process.env.CREWCODER_HOME = originalHome;
     }
   });
+  it("auto-compacts after a final-answer turn crosses the model-relative threshold", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const initialMessages = Array.from({ length: 16 }, (_, index) => index % 2 === 0
+      ? textMessage("user", `history user ${index}`)
+      : assistantText(`history reply ${index}`));
+    let summarizing = false;
+    const modelClient: ModelClient = {
+      async complete(input, _signal, stream) {
+        if (input.availableTools.length === 0) {
+          summarizing = true;
+          return assistantText("- Work completed; no open tasks");
+        }
+        await stream?.onUsage?.({ providerId: "test", model: "large", contextTokens: 631_000, inputTokens: 631_000 });
+        return assistantText("final answer");
+      }
+    };
+
+    const result = await runAgentLoop({ prompt: "finish", requestedMode: "general", cwd }, {
+      maxIterations: 1,
+      modelClient,
+      contextWindow: 1_050_000,
+      autoCompact: true,
+      initialMessages,
+      persistSession: false
+    });
+
+    expect(summarizing).toBe(true);
+    expect(result.compactions).toHaveLength(1);
+    expect(result.compactions[0]?.summary).toContain("Work completed");
+  });
+
   it.each([
-    { label: "automatic 60% boundary", autoCompact: true, lastInputTokens: 61_000 },
-    { label: "disabled 80% safety boundary", autoCompact: false, lastInputTokens: 81_000 }
-  ])("preflight-compacts a resumed session at the $label", async ({ autoCompact, lastInputTokens }) => {
+    { label: "1,050,000 window at 60%",  autoCompact: true, contextWindow: 1_050_000, usage: { turns: 1, lastInputTokens: 631_000 }, expectedTokens: 631_000, expectedMeasurement: "live context", expectedBoundary: "630,000 (60% of 1,050,000" },
+    { label: "1,000,000 window at 60%", autoCompact: true, contextWindow: 1_000_000, usage: { turns: 1, lastInputTokens: 601_000 }, expectedTokens: 601_000, expectedMeasurement: "live context", expectedBoundary: "600,000 (60% of 1,000,000" },
+    { label: "400,000 window at 50%", autoCompact: true, contextWindow: 400_000, usage: { turns: 1, lastInputTokens: 201_000 }, expectedTokens: 201_000, expectedMeasurement: "live context", expectedBoundary: "200,000 (50% of 400,000" },
+    { label: "200,000 window at 50%", autoCompact: true, contextWindow: 200_000, usage: { turns: 1, lastInputTokens: 101_000 }, expectedTokens: 101_000, expectedMeasurement: "live context", expectedBoundary: "100,000 (50% of 200,000" },
+    { label: "disabled 80% safety boundary", autoCompact: false, contextWindow: 100_000, usage: { turns: 1, lastInputTokens: 81_000 }, expectedTokens: 81_000, expectedMeasurement: "live context", expectedBoundary: "80% of 100,000" },
+    { label: "explicit unknown-model fallback", autoCompact: true, autoCompactThresholdTokens: 60_000, usage: { turns: 1, totalTokens: 61_000 }, expectedTokens: 61_000, expectedMeasurement: "cumulative fallback", expectedBoundary: "unknown-model fallback 60,000" }
+  ])("preflight-compacts a resumed session at the $label", async ({ autoCompact, contextWindow, autoCompactThresholdTokens, usage, expectedTokens, expectedMeasurement, expectedBoundary }) => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-home-"));
     const originalHome = process.env.CREWCODER_HOME;
@@ -386,20 +421,27 @@ describe("agent loop", () => {
         }
       };
       const events: string[] = [];
+      const compactionProgress: string[] = [];
       const result = await runAgentLoop({ prompt: "continue", requestedMode: "general", cwd }, {
         maxIterations: 1,
         providerId: "any-provider",
         model: "small-context-model",
-        contextWindow: 100_000,
+        contextWindow,
         modelClient,
         autoCompact,
+        autoCompactThresholdTokens,
         initialMessages,
-        initialUsage: { turns: 1, lastInputTokens },
+        initialUsage: usage,
         initialProviderSessionIds: { "any-provider": "stale-native-session" },
-        emit: (event) => { events.push(event.type); }
+        emit: (event) => {
+          events.push(event.type);
+          if (event.type === "session_compaction_progress") compactionProgress.push(event.message);
+        }
       });
 
       expect(events).toContain("session_compacted");
+      expect(compactionProgress[0]).toContain(expectedBoundary);
+      expect(compactionProgress[0]).toContain(`${expectedTokens.toLocaleString("en-US")} ${expectedMeasurement} tokens`);
       expect(result.compactions.at(-1)?.summary).toContain("preflight safety summary");
       expect(normalInputs).toHaveLength(1);
       expect(normalInputs[0]).toHaveLength(9);
@@ -410,6 +452,62 @@ describe("agent loop", () => {
       if (originalHome === undefined) delete process.env.CREWCODER_HOME; else process.env.CREWCODER_HOME = originalHome;
     }
   });
+  it("ignores an absolute fallback when the model context window is known", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const initialMessages = Array.from({ length: 16 }, (_, index) => index % 2 === 0
+      ? textMessage("user", `history user ${index}`)
+      : assistantText(`history reply ${index}`));
+    const inputs: AgentMessage[][] = [];
+    const modelClient: ModelClient = {
+      async complete(input) {
+        inputs.push(input.messages);
+        return assistantText("continued without early compaction");
+      }
+    };
+
+    const result = await runAgentLoop({ prompt: "continue", requestedMode: "general", cwd }, {
+      maxIterations: 1,
+      modelClient,
+      contextWindow: 400_000,
+      autoCompact: true,
+      autoCompactThresholdTokens: 100_000,
+      initialMessages,
+      initialUsage: { turns: 1, lastInputTokens: 150_000 },
+      persistSession: false
+    });
+
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveLength(17);
+    expect(result.compactions).toEqual([]);
+  });
+
+  it("does not guess an automatic threshold for an unknown-window model", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-home-"));
+    const originalHome = process.env.CREWCODER_HOME;
+    process.env.CREWCODER_HOME = home;
+    try {
+      const initialMessages = Array.from({ length: 16 }, (_, index) => index % 2 === 0
+        ? textMessage("user", `history user ${index}`)
+        : assistantText(`history reply ${index}`));
+      const modelClient: ModelClient = { async complete() { return assistantText("continued"); } };
+
+      const result = await runAgentLoop({ prompt: "continue", requestedMode: "general", cwd }, {
+        maxIterations: 1,
+        modelClient,
+        autoCompact: true,
+        initialMessages,
+        initialUsage: { turns: 1, lastInputTokens: 2_000_000 },
+        persistSession: false
+      });
+
+      expect(result.compactions).toEqual([]);
+    } finally {
+      if (originalHome === undefined) delete process.env.CREWCODER_HOME;
+      else process.env.CREWCODER_HOME = originalHome;
+    }
+  });
+
   it("honors a manual compaction signal mid-run even with auto-compaction disabled", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-home-"));

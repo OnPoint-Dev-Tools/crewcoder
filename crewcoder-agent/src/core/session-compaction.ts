@@ -25,6 +25,8 @@ const SUMMARY_SYSTEM_PROMPT = [
   "3. Files created or modified and what changed in each.",
   "4. Important findings, errors encountered, and their resolutions.",
   "5. Open threads / what is left to do next.",
+  "6. Current task status, especially work already completed or verified.",
+  "Recent retained messages are authoritative for current status. Never describe work as open if those messages show it was completed, superseded, or verified.",
   "Use compact markdown bullet points. Do not invent details. Output only the summary."
 ].join("\n");
 
@@ -118,9 +120,9 @@ export async function prepareLiveCompaction(
   if (start === 0) return undefined;
   const retained = messages.slice(start);
   const compacted = messages.slice(0, start);
-  const modelSummary = await summarizeWithModel(compacted, options);
+  const modelSummary = await summarizeWithModel(compacted, retained, options);
   return {
-    summary: modelSummary.text ?? summarizeMessages(compacted),
+    summary: modelSummary.text ?? deterministicCompactionSummary(compacted),
     source: modelSummary.text ? "model" : "deterministic",
     retained,
     originalMessageCount: messages.length,
@@ -175,14 +177,20 @@ type ModelSummaryOutcome = { text?: string; fallbackReason?: string };
  * indistinguishable from a healthy one, and the only symptom is the agent quietly getting worse
  * after long sessions. Every failure path here records why.
  */
-async function summarizeWithModel(messages: AgentMessage[], options: LiveCompactionOptions): Promise<ModelSummaryOutcome> {
-  const transcript = buildTranscript(messages);
-  if (!transcript) return { fallbackReason: "No text content was available to summarize." };
+async function summarizeWithModel(compacted: AgentMessage[], retained: AgentMessage[], options: LiveCompactionOptions): Promise<ModelSummaryOutcome> {
+  const olderTranscript = buildTranscript(compacted, 16_000);
+  const recentTranscript = buildTranscript(retained, 8_000);
+  if (!olderTranscript) return { fallbackReason: "No text content was available to summarize." };
+  const prompt = [
+    "Older messages being replaced:",
+    olderTranscript,
+    ...(recentTranscript ? ["", "Recent messages retained verbatim (authoritative for current task status):", recentTranscript] : [])
+  ].join("\n");
   try {
     const assistant = await options.modelClient.complete(
       {
         systemPrompt: SUMMARY_SYSTEM_PROMPT,
-        messages: [textMessage("user", `Conversation excerpt to summarize:\n\n${transcript}`)],
+        messages: [textMessage("user", prompt)],
         availableTools: []
       },
       options.signal
@@ -200,7 +208,7 @@ async function summarizeWithModel(messages: AgentMessage[], options: LiveCompact
   }
 }
 
-function buildTranscript(messages: AgentMessage[]): string {
+function buildTranscript(messages: AgentMessage[], maxChars = MAX_TRANSCRIPT_CHARS): string {
   const lines: string[] = [];
   for (const message of messages) {
     const text = getText(message).replace(/\s+/g, " ").trim();
@@ -208,7 +216,12 @@ function buildTranscript(messages: AgentMessage[]): string {
     const prefix = message.role === "toolResult" ? `tool:${message.toolName}` : message.role;
     lines.push(`${prefix}: ${text}`);
   }
-  return truncate(lines.join("\n"), MAX_TRANSCRIPT_CHARS);
+  return truncateMiddle(lines.join("\n"), maxChars);
+}
+
+function deterministicCompactionSummary(messages: AgentMessage[]): string {
+  const statusGuard = "- Current-status guard: Recent retained messages are authoritative; do not repeat work they show as completed, superseded, or verified.";
+  return truncate(`${statusGuard}\n${summarizeMessages(messages)}`, MAX_SUMMARY_CHARS);
 }
 
 export function summarizeMessagesForHandoff(messages: AgentMessage[]): string {
@@ -230,4 +243,14 @@ function summarizeMessages(messages: AgentMessage[]): string {
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+function truncateMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const marker = "\n… middle transcript content omitted …\n";
+  if (maxChars <= marker.length) return truncate(text, maxChars);
+  const available = maxChars - marker.length;
+  const head = Math.ceil(available / 2);
+  const tail = Math.floor(available / 2);
+  return `${text.slice(0, head).trimEnd()}${marker}${text.slice(text.length - tail).trimStart()}`;
 }
