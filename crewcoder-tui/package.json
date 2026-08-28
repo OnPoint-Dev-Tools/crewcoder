@@ -12,6 +12,11 @@
    "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
    "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
    "type": "module",
+   "files": [
+      "dist",
+      "LICENSE",
+      "README.md"
+   ],
    "publishConfig": {
       "access": "public",
       "provenance": true

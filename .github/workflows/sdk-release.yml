@@ -58,14 +58,7 @@ jobs:
             npm publish -w @onpoint-dev-tools/crewcoder-agent --access public --provenance
           fi
       - name: Verify published agent runtime
-        run: |
-          PACKAGE_VERSION="$(node -p "require('./crewcoder-agent/package.json').version")"
-          for attempt in {1..12}; do
-            npm view "@onpoint-dev-tools/crewcoder-agent@${PACKAGE_VERSION}" version && exit 0
-            echo "Waiting for npm registry propagation (${attempt}/12)…"
-            sleep 10
-          done
-          exit 1
+        run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-agent crewcoder-agent/package.json
       - name: Publish terminal UI
         run: |
           PACKAGE_VERSION="$(node -p "require('./crewcoder-tui/package.json').version")"
@@ -75,14 +68,7 @@ jobs:
             npm publish -w @onpoint-dev-tools/crewcoder-tui --access public --provenance
           fi
       - name: Verify published terminal UI
-        run: |
-          PACKAGE_VERSION="$(node -p "require('./crewcoder-tui/package.json').version")"
-          for attempt in {1..12}; do
-            npm view "@onpoint-dev-tools/crewcoder-tui@${PACKAGE_VERSION}" version && exit 0
-            echo "Waiting for npm registry propagation (${attempt}/12)…"
-            sleep 10
-          done
-          exit 1
+        run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-tui crewcoder-tui/package.json
       - name: Publish browser client
         run: |
           PACKAGE_VERSION="$(node -p "require('./crewcoder-client/package.json').version")"
@@ -92,14 +78,7 @@ jobs:
             npm publish -w @onpoint-dev-tools/crewcoder-client --access public --provenance
           fi
       - name: Verify published browser client
-        run: |
-          PACKAGE_VERSION="$(node -p "require('./crewcoder-client/package.json').version")"
-          for attempt in {1..12}; do
-            npm view "@onpoint-dev-tools/crewcoder-client@${PACKAGE_VERSION}" version && exit 0
-            echo "Waiting for npm registry propagation (${attempt}/12)…"
-            sleep 10
-          done
-          exit 1
+        run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-client crewcoder-client/package.json
       - name: Publish SDK
         run: |
           PACKAGE_VERSION="$(node -p "require('./crewcoder-sdk/package.json').version")"
@@ -109,14 +88,7 @@ jobs:
             npm publish -w @onpoint-dev-tools/crewcoder-sdk --access public --provenance
           fi
       - name: Verify published SDK
-        run: |
-          PACKAGE_VERSION="$(node -p "require('./crewcoder-sdk/package.json').version")"
-          for attempt in {1..12}; do
-            npm view "@onpoint-dev-tools/crewcoder-sdk@${PACKAGE_VERSION}" version && exit 0
-            echo "Waiting for npm registry propagation (${attempt}/12)…"
-            sleep 10
-          done
-          exit 1
+        run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-sdk crewcoder-sdk/package.json
       - name: Publish CrewCoder umbrella
         run: |
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
@@ -126,11 +98,4 @@ jobs:
             npm publish --access public --provenance
           fi
       - name: Verify published CrewCoder umbrella
-        run: |
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          for attempt in {1..12}; do
-            npm view "crewcoder@${PACKAGE_VERSION}" version && exit 0
-            echo "Waiting for npm registry propagation (${attempt}/12)…"
-            sleep 10
-          done
-          exit 1
+        run: node scripts/wait-for-npm-package.cjs crewcoder package.json
