@@ -66,9 +66,10 @@ export class CrewTaskStore {
 
   create(input: { subject: string; description: string; activeForm?: string; owner?: string; sessionId?: string; metadata?: Record<string, unknown> }): CrewTask {
     return this.withLock(() => {
+      if (input.sessionId) this.retireCompletedSession(input.sessionId);
       const now = Date.now();
       const task: CrewTask = {
-        id: String(this.nextId++),
+        id: this.nextIdInScope(input.sessionId),
         subject: input.subject,
         description: input.description,
         status: "pending",
@@ -82,15 +83,15 @@ export class CrewTaskStore {
         createdAt: now,
         updatedAt: now
       };
-      this.tasks.set(task.id, task);
+      this.tasks.set(this.storageKey(task), task);
       if (task.sessionId) this.addTaskToSession(task.sessionId, task.id, now);
       return task;
     });
   }
 
-  get(id: string): CrewTask | undefined {
+  get(id: string, sessionId?: string): CrewTask | undefined {
     this.load();
-    return this.tasks.get(id);
+    return this.lookup(id, sessionId);
   }
 
   list(sortOrder: CrewTaskSortOrder = "id", filter?: { sessionId?: string; includeCompleted?: boolean }): CrewTask[] {
@@ -111,16 +112,18 @@ export class CrewTaskStore {
     metadata?: Record<string, unknown>;
     addBlocks?: string[];
     addBlockedBy?: string[];
-  }): { task: CrewTask | undefined; changedFields: string[]; warnings: string[] } {
+  }, sessionId?: string): { task: CrewTask | undefined; changedFields: string[]; warnings: string[] } {
     return this.withLock(() => {
-      const task = this.tasks.get(id);
+      const task = this.lookup(id, sessionId);
       if (!task) return { task: undefined, changedFields: [], warnings: [] };
       const changedFields: string[] = [];
       const warnings: string[] = [];
+      const scope = sessionId ?? task.sessionId;
+      const oldKey = this.storageKey(task);
 
       if (fields.status === "deleted") {
-        this.tasks.delete(id);
-        this.removeDependencyEdges(id);
+        this.tasks.delete(oldKey);
+        this.removeDependencyEdges(task.id, scope);
         return { task: undefined, changedFields: ["deleted"], warnings };
       }
       if (fields.status !== undefined) { task.status = fields.status; changedFields.push("status"); }
@@ -128,7 +131,11 @@ export class CrewTaskStore {
       if (fields.description !== undefined) { task.description = fields.description; changedFields.push("description"); }
       if (fields.activeForm !== undefined) { task.activeForm = fields.activeForm; changedFields.push("activeForm"); }
       if (fields.owner !== undefined) { task.owner = fields.owner; changedFields.push("owner"); }
-      if (fields.sessionId !== undefined) { task.sessionId = fields.sessionId; this.addTaskToSession(fields.sessionId, id, Date.now()); changedFields.push("sessionId"); }
+      if (fields.sessionId !== undefined) {
+        task.sessionId = fields.sessionId;
+        this.addTaskToSession(fields.sessionId, task.id, Date.now());
+        changedFields.push("sessionId");
+      }
       if (fields.metadata !== undefined) {
         for (const [key, value] of Object.entries(fields.metadata)) {
           if (value === null) delete task.metadata[key];
@@ -137,31 +144,38 @@ export class CrewTaskStore {
         changedFields.push("metadata");
       }
       if (fields.addBlocks?.length) {
-        for (const targetId of fields.addBlocks) this.addEdge(id, targetId, warnings);
+        for (const targetId of fields.addBlocks) this.addEdge(task.id, targetId, warnings, scope);
         changedFields.push("blocks");
       }
       if (fields.addBlockedBy?.length) {
-        for (const sourceId of fields.addBlockedBy) this.addEdge(sourceId, id, warnings);
+        for (const sourceId of fields.addBlockedBy) this.addEdge(sourceId, task.id, warnings, scope);
         changedFields.push("blockedBy");
+      }
+      const newKey = this.storageKey(task);
+      if (oldKey !== newKey) {
+        this.tasks.delete(oldKey);
+        this.tasks.set(newKey, task);
       }
       if (changedFields.length) task.updatedAt = Date.now();
       return { task, changedFields: [...new Set(changedFields)], warnings };
     });
   }
 
-  delete(id: string): boolean {
+  delete(id: string, sessionId?: string): boolean {
     return this.withLock(() => {
-      if (!this.tasks.delete(id)) return false;
-      this.removeDependencyEdges(id);
+      const task = this.lookup(id, sessionId);
+      if (!task) return false;
+      this.tasks.delete(this.storageKey(task));
+      this.removeDependencyEdges(task.id, sessionId ?? task.sessionId);
       return true;
     });
   }
 
   clearCompleted(): number {
     return this.withLock(() => {
-      const completed = [...this.tasks.values()].filter((task) => task.status === "completed").map((task) => task.id);
-      for (const id of completed) this.tasks.delete(id);
-      for (const id of completed) this.removeDependencyEdges(id);
+      const completed = [...this.tasks.values()].filter((task) => task.status === "completed");
+      for (const task of completed) this.tasks.delete(this.storageKey(task));
+      for (const task of completed) this.removeDependencyEdges(task.id, task.sessionId);
       return completed.length;
     });
   }
@@ -174,19 +188,56 @@ export class CrewTaskStore {
     });
   }
 
-  private addEdge(sourceId: string, targetId: string, warnings: string[]): void {
-    const source = this.tasks.get(sourceId);
-    const target = this.tasks.get(targetId);
-    if (!source) { warnings.push(`#${sourceId} does not exist`); return; }
-    if (!target) warnings.push(`#${targetId} does not exist`);
-    if (sourceId === targetId) warnings.push(`#${sourceId} blocks itself`);
-    if (!source.blocks.includes(targetId)) source.blocks.push(targetId);
-    if (target && !target.blockedBy.includes(sourceId)) target.blockedBy.push(sourceId);
-    if (target?.blocks.includes(sourceId)) warnings.push(`cycle: #${sourceId} and #${targetId} block each other`);
+  private storageKey(task: { id: string; sessionId?: string }): string {
+    return task.sessionId ? `${task.sessionId}::${task.id}` : task.id;
   }
 
-  private removeDependencyEdges(id: string): void {
+  private lookup(id: string, sessionId?: string): CrewTask | undefined {
+    if (sessionId) {
+      const scoped = this.tasks.get(`${sessionId}::${id}`);
+      if (scoped) return scoped;
+    }
+    const exact = this.tasks.get(id);
+    if (exact) return exact;
+    const matches = [...this.tasks.values()].filter((task) => task.id === id);
+    if (sessionId) return matches.find((task) => task.sessionId === sessionId);
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  private peers(sessionId?: string): CrewTask[] {
+    const scope = sessionId ?? "";
+    return [...this.tasks.values()].filter((task) => (task.sessionId ?? "") === scope);
+  }
+
+  private nextIdInScope(sessionId?: string): string {
+    const max = Math.max(0, ...this.peers(sessionId).map((task) => Number(task.id)).filter((id) => Number.isFinite(id) && id > 0));
+    return String(max + 1);
+  }
+
+  private retireCompletedSession(sessionId: string): void {
+    const peers = this.peers(sessionId);
+    if (peers.length === 0 || peers.some((task) => task.status !== "completed")) return;
+    for (const task of peers) {
+      this.tasks.delete(this.storageKey(task));
+      this.removeDependencyEdges(task.id, sessionId);
+    }
+  }
+
+  private addEdge(sourceId: string, targetId: string, warnings: string[], sessionId?: string): void {
+    const source = this.lookup(sourceId, sessionId);
+    const target = this.lookup(targetId, sessionId);
+    if (!source) { warnings.push(`task ${sourceId} does not exist`); return; }
+    if (!target) warnings.push(`task ${targetId} does not exist`);
+    if (sourceId === targetId) warnings.push(`task ${sourceId} blocks itself`);
+    if (!source.blocks.includes(targetId)) source.blocks.push(targetId);
+    if (target && !target.blockedBy.includes(sourceId)) target.blockedBy.push(sourceId);
+    if (target?.blocks.includes(sourceId)) warnings.push(`cycle: ${sourceId} and ${targetId} block each other`);
+  }
+
+  private removeDependencyEdges(id: string, sessionId?: string): void {
     for (const task of this.tasks.values()) {
+      if (sessionId && task.sessionId !== sessionId) continue;
+      if (!sessionId && task.sessionId) continue;
       task.blocks = task.blocks.filter((taskId) => taskId !== id);
       task.blockedBy = task.blockedBy.filter((taskId) => taskId !== id);
     }
@@ -197,7 +248,8 @@ export class CrewTaskStore {
     try {
       const data = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as Partial<CrewTaskStoreData>;
       this.nextId = typeof data.nextId === "number" && data.nextId > 0 ? data.nextId : 1;
-      this.tasks = new Map((data.tasks ?? []).map((task) => [task.id, task]));
+      this.tasks = new Map();
+      for (const task of data.tasks ?? []) this.tasks.set(this.storageKey(task), task);
     } catch { /* corrupt project task file: keep current in-memory state */ }
   }
 

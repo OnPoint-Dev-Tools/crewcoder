@@ -54,7 +54,7 @@ describe("Claude Agent SDK provider", () => {
     expect(options.settingSources).toEqual(["project"]);
     expect(options.skills).toEqual([]);
     expect(options.tools).toEqual(["Read", "Grep", "Glob", "AskUserQuestion"]);
-    expect(options.additionalDirectories).toEqual(["/shared"]);
+    expect(options.additionalDirectories).toEqual(expect.arrayContaining(["/shared"]));
     expect(options.systemPrompt).toMatchObject({ preset: "claude_code", append: "CrewCoder system" });
     expect(options.strictMcpConfig).toBe(true);
     expect(options.settings.autoCompactEnabled).toBe(true);

@@ -18,6 +18,7 @@ import { isTuiMode, normalizeTuiMode, pushSystemLog, TUI_MODES, type TuiDecision
 
 const MODE_DESCRIPTIONS: Record<TuiMode, string> = {
   general: "General coding agent mode",
+  crewcoder: "Architect, plan, and approve",
   plugin: "CrewCode app plugin architect mode",
   extension: "CrewCoder extension architect mode"
 };
@@ -712,6 +713,11 @@ export class App implements Component {
     }
     if (value.startsWith("/follow-up ") || value.startsWith("follow-up ") || value.startsWith("/followup ") || value.startsWith("followup ")) {
       this.queueFollowUp(value.replace(/^\/?follow-?up\s+/, "").trim());
+      return;
+    }
+    if (value === "/approve-plan" || value === "approve-plan") {
+      if (this.bridge.running && this.runActive) { this.queueFollowUp("/approve-plan"); return; }
+      this.runPrompt("/approve-plan");
       return;
     }
     if (value === "/approve" || value === "approve" || value.startsWith("/approve ") || value.startsWith("approve ")) {
@@ -1436,6 +1442,7 @@ export class App implements Component {
   private showModesOverlay(workers: Array<{ name: string; active: boolean; ownerName: string | null }>): void {
     const builtinModes: PickerOption[] = [
       { label: !this.state.worker && this.state.mode === "general" ? "* general" : "general", value: "general", description: "General coding agent mode" },
+      { label: !this.state.worker && this.state.mode === "crewcoder" ? "* crewcoder" : "crewcoder", value: "crewcoder", description: "Deliberate clarify, plan, approve, and implement workflow" },
       ...(this.state.integrationProfile === "crewcode" ? [{ label: !this.state.worker && this.state.mode === "plugin" ? "* plugin" : "plugin", value: "plugin", description: "CrewCode app plugin architect mode" }] : []),
       { label: !this.state.worker && this.state.mode === "extension" ? "* extension" : "extension", value: "extension", description: "CrewCoder extension architect mode" }
     ];

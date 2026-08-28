@@ -32,6 +32,7 @@ System prompt profile
 | `IDENTITY.md`         | `~/.crewcoder/workers/<worker>/IDENTITY.md`           | Yes, through the worker identity block | Stable worker persona and specialty                   |
 | System prompt profile | `~/.crewcoder/system-prompts/<name>/SYSTEM-PROMPT.md` | Yes, after CrewCoder's default prompt  | Selectable behavior profiles                          |
 | `/commands`           | `~/.crewcoder/commands/`                              | No, not automatically                  | Reusable user-message templates                       |
+| User skills           | `~/.agents/skills`, `~/.crewcoder/skills`, …          | No. The agent may read a `SKILL.md`    | On-demand procedures. See [SKILLS.md](./SKILLS.md)    |
 
 ## AGENTS.md
 

@@ -43,6 +43,15 @@ import { readMemoryContext } from "./memory-store.js";
 import { readRulesContext } from "./rules-store.js";
 import { formatExternalDirectories, validateExternalDirectories } from "./external-directories.js";
 import type { ApprovalControlDecision, CompactionPreviewDecision } from "./stdin-control.js";
+import { createCrewcoderWorkflowTools } from "../modes/crewcoder-tools.js";
+import {
+  applyIncomingUserMessage,
+  cloneCrewcoderWorkflow,
+  crewcoderMutationBlockReason,
+  formatCrewcoderWorkflowPrompt,
+  reconstructCrewcoderWorkflow,
+  type CrewcoderWorkflowState
+} from "../modes/crewcoder-workflow.js";
 
 export type AgentLoopOptions = {
   modelClient?: ModelClient;
@@ -81,6 +90,7 @@ export type AgentLoopOptions = {
   initialModelTurns?: SessionModelTurn[];
   initialProviderSessionIds?: Record<string, string>;
   initialExtensionEntries?: CrewCoderExtSessionEntry[];
+  initialCrewcoderWorkflow?: CrewcoderWorkflowState;
   resumeContext?: string;
   dumpModelInput?: boolean;
   systemPromptName?: string;
@@ -208,10 +218,13 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   let budgetWarningEmitted = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).warningReached;
   let budgetDownshiftRequested = false;
   let budgetExceeded = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).exceeded;
-  const builtInTools = options.tools ?? createToolRegistry(integrationProfile, mode);
+  const builtInTools = withCrewcoderWorkflowTools(options.tools ?? createToolRegistry(integrationProfile, mode), mode);
   const tools = options.tools
     ? [...builtInTools, ...(options.additionalTools ?? [])]
     : [...builtInTools, ...(await loadTrustedExtensionTools()), ...(options.additionalTools ?? [])];
+  const crewcoderWorkflow = mode === "crewcoder"
+    ? applyIncomingUserMessage(options.initialCrewcoderWorkflow ?? reconstructCrewcoderWorkflow(initialMessages), request.prompt)
+    : undefined;
   const modelClient = options.modelClient ?? createModelClientFromEnv();
   const approvalMode = options.approvalMode ?? "never";
   // 0/undefined means unlimited. A working agent is bounded by the task, by an
@@ -314,6 +327,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     sandbox,
     emit,
     textFiles: options.textFiles,
+    crewcoderWorkflow,
     delegateWorker: workerDelegationDepth < maxChildWorkerDepth ? async (delegation, signal) => {
       const childPrompt = [
         `Parent worker ${activeWorker.name} delegated this scoped subtask from session ${sessionId}.`,
@@ -334,6 +348,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         resumeFromSessionId: sessionId,
         initialMessages: messages,
         initialMutationLog: mutationLog,
+        initialCrewcoderWorkflow: crewcoderWorkflow ? cloneCrewcoderWorkflow(crewcoderWorkflow) : undefined,
         workerDelegationDepth: workerDelegationDepth + 1,
         maxChildWorkerDepth,
         signal,
@@ -356,6 +371,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       const followUp = textMessage("user", text);
       followUp.background = ["Follow-up queued during the active run. Treat this as additional user context for the current task."];
       messages.push(followUp);
+      if (crewcoderWorkflow) Object.assign(crewcoderWorkflow, applyIncomingUserMessage(crewcoderWorkflow, text));
       await emit({ type: "message_start", message: followUp });
       await emit({ type: "message_end", message: followUp });
     }
@@ -394,6 +410,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       checkpoints,
       extensionState: {},
       extensionEntries: [...priorExtensionEntries, ...extensionRuntime.entries.slice(runEntriesStart)],
+      crewcoderWorkflow,
       parentSessionId: options.parentSessionId ?? (options.resumeFromSessionId && options.resumeFromSessionId !== sessionId ? options.resumeFromSessionId : undefined),
       systemPrompt: selectedSystemPrompt ? { name: selectedSystemPrompt.name, path: selectedSystemPrompt.path } : undefined
     });
@@ -551,7 +568,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       let generationDurationMs: number | undefined;
       try {
         const modelInput = {
-          systemPrompt,
+          systemPrompt: crewcoderWorkflow ? `${systemPrompt}\n\n${formatCrewcoderWorkflowPrompt(crewcoderWorkflow)}` : systemPrompt,
           messages: renderMessagesForModel(messages),
           externalDirectories,
           // Provider-native filesystem tools cannot honor ACP/SDK virtual file hosts.
@@ -673,8 +690,8 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
 
       await emit({ type: "turn_end", iteration, message: assistant, toolResults });
       await persistTurn(iteration);
-      await drainFollowUps();
-      if (toolResults.some((result) => result.terminate)) break;
+      const followUps = await drainFollowUps();
+      if (toolResults.some((result) => result.terminate) && followUps === 0) break;
 
       if (stallDetector) {
         for (const call of toolCalls) {
@@ -1041,6 +1058,21 @@ async function executeToolCallsSequential(
     }
 
     const tool = findTool(toolCall.name, tools);
+    const workflowBlock = crewcoderMutationBlockReason(tool, toolCall.arguments, context.crewcoderWorkflow);
+    if (workflowBlock) {
+      const blocked: ToolResultMessage = {
+        role: "toolResult",
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: "text", text: workflowBlock }],
+        isError: true,
+        timestamp: Date.now()
+      };
+      await emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "info", source: "crewcoder-workflow", message: "blocked mutation before plan approval", details: { toolName: toolCall.name, phase: context.crewcoderWorkflow?.phase } });
+      await emit({ type: "tool_execution_end", toolCallId: toolCall.id, toolName: toolCall.name, result: blocked, isError: true });
+      results.push(blocked);
+      continue;
+    }
     const baseApproval = decideApproval({ approvalMode, tool, args: toolCall.arguments });
     const approval = policyDecision.action === "review" && !baseApproval.required
       ? { ...baseApproval, required: true, approved: false, risk: policyDecision.risk, reason: policyDecision.reason }
@@ -1183,6 +1215,7 @@ async function executeToolCallsSequential(
 
     await emit({ type: "tool_execution_end", toolCallId: toolCall.id, toolName: toolCall.name, result, isError: result.isError, metadata: mergeToolMetadata(startMetadata, result.details) });
     results.push(result);
+    if (result.terminate) break;
   }
 
   return results;
@@ -1274,6 +1307,13 @@ function selectSkills(mode: ResolvedAgentMode, prompt: string): Skill[] {
   return crewcodeSkills.filter((skill) => ["crewcode.plugin.manifest", "crewcode.plugin.security"].includes(skill.id));
 }
 
+function withCrewcoderWorkflowTools(tools: ToolDefinition[], mode: ResolvedAgentMode): ToolDefinition[] {
+  if (mode !== "crewcoder") return tools;
+  const names = new Set(tools.map((tool) => tool.name));
+  const extra = createCrewcoderWorkflowTools().filter((tool) => !names.has(tool.name));
+  return extra.length ? [...tools, ...extra] : tools;
+}
+
 /**
  * The full doc catalog for the mode — deliberately NOT filtered by the prompt.
  *
@@ -1284,8 +1324,9 @@ function selectSkills(mode: ResolvedAgentMode, prompt: string): Skill[] {
  * `docs` tool when it actually needs them.
  */
 function selectDocs(mode: ResolvedAgentMode): EmbeddedDoc[] {
-  if (mode === "general") return [];
-  return mode === "extension" ? embeddedCrewCoderExtensionDocs : embeddedCrewCodeDocs;
+  if (mode === "extension") return embeddedCrewCoderExtensionDocs;
+  if (mode === "plugin") return embeddedCrewCodeDocs;
+  return [];
 }
 
 function summarizeRun(mode: ResolvedAgentMode, assistant: AssistantMessage | undefined, mutationLog: string[], failure?: string, truncated = false): string {
@@ -1301,6 +1342,7 @@ function summarizeRun(mode: ResolvedAgentMode, assistant: AssistantMessage | und
 
 function buildNotes(mode: ResolvedAgentMode, docs: EmbeddedDoc[]): string[] {
   if (mode === "general") return ["General mode is active. CrewCode plugin and CrewCoder extension constraints are not enforced; select an explicit mode for those."];
+  if (mode === "crewcoder") return ["CrewCoder mode is active. Runtime-enforced clarification, plan proposal, and explicit plan approval are required before implementation."];
   // The catalog is offered, not injected: only ids reach the prompt, and the model
   // pulls bodies through the `docs` tool. Report the count, not 14 titles of noise.
   const available = `${docs.length} embedded docs available; the agent fetches bodies on demand with the docs tool.`;

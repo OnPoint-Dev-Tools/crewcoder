@@ -378,6 +378,26 @@ describe("App input", () => {
     });
   });
 
+  it("queues /approve-plan as a follow-up during an active run", () => {
+    const state = createInitialState();
+    const app = new App(state);
+    let followed: string | undefined;
+    (app as unknown as { runActive: boolean; bridge: { running: boolean; followUp: (message: string) => boolean } }).runActive = true;
+    (app as unknown as { bridge: { running: boolean; followUp: (message: string) => boolean } }).bridge = {
+      running: true,
+      followUp(message: string) {
+        followed = message;
+        return true;
+      }
+    };
+
+    for (const event of parseInputEvents("/approve-plan\r")) {
+      app.handleInput(event);
+    }
+
+    expect(followed).toBe("/approve-plan");
+  });
+
   it("opens an approval popup and approves with y", () => {
     const state = createInitialState();
     state.blocks = [];
@@ -647,6 +667,12 @@ describe("App input", () => {
     expect(state.mode).toBe("general");
     expect(state.worker).toBe("Builder");
 
+    await (app as unknown as { selectModeOrWorker: (name: string) => Promise<void> }).selectModeOrWorker("crewcoder");
+
+    expect(state.mode).toBe("crewcoder");
+    expect(state.worker).toBeUndefined();
+
+    await (app as unknown as { selectModeOrWorker: (name: string) => Promise<void> }).selectModeOrWorker("Builder");
     await (app as unknown as { selectModeOrWorker: (name: string) => Promise<void> }).selectModeOrWorker("plugin");
 
     expect(state.mode).toBe("plugin");

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ToolDefinition } from "../core/tool-types.js";
 import { textResult } from "../core/tool-types.js";
-import { resolveInsideCwd, relativeToCwd } from "./path-utils.js";
+import { resolveReadablePath, relativeToCwd } from "./path-utils.js";
 import { DEFAULT_TOOL_OUTPUT_BYTES, truncateToolOutputHead } from "./tool-output-limits.js";
 
 type Args = { path?: string; maxFiles: number };
@@ -15,7 +15,7 @@ export const listFilesTool: ToolDefinition<Args> = {
   parameters: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Workspace-relative directory or absolute directory inside a session external root." },
+      path: { type: "string", description: "Workspace-relative directory, or an absolute directory inside a session external root or an on-demand skill catalog." },
       maxFiles: { type: "integer", description: "Maximum number of files to return.", minimum: 1, maximum: 2000 }
     },
     additionalProperties: false
@@ -28,7 +28,7 @@ export const listFilesTool: ToolDefinition<Args> = {
     };
   },
   async execute(args, context, signal) {
-    const root = resolveInsideCwd(context.cwd, args.path ?? ".", context.externalDirectories);
+    const root = resolveReadablePath(context.cwd, args.path ?? ".", context.externalDirectories);
     const files: string[] = [];
     let countLimitReached = false;
 

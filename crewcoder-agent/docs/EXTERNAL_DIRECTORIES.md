@@ -85,7 +85,11 @@ authorization happens in CrewCoder before it asks the client to perform the oper
 
 - Grants are per session and never copied into a new session implicitly.
 - The filesystem root cannot be granted.
-- Paths outside the workspace and explicit roots are rejected by file tools.
+- Paths outside the workspace and explicit roots are rejected by mutating file tools.
+  Read, grep, and listFiles may also open on-demand user skill catalogs
+  (`~/.agents/skills`, `~/.crewcoder/skills`, `~/.claude/skills`, `~/.codex/skills`)
+  without turning those catalogs into writable session grants. Skill bodies are not
+  auto-injected; the agent has to read a `SKILL.md` when it needs one.
 - Removing a grant takes effect before the next bridge/run starts.
 - CrewCode rejects its local directory-picker flow for SSH workspaces; CrewCoder's own remote TUI
   may grant paths that exist on the remote host.

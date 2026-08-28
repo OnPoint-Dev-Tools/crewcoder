@@ -1,7 +1,7 @@
 import type { ToolDefinition } from "../core/tool-types.js";
 import { textResult } from "../core/tool-types.js";
 import { describeToolImage, describeToolImageForModel } from "../core/tool-images.js";
-import { resolveInsideCwd } from "./path-utils.js";
+import { resolveReadablePath } from "./path-utils.js";
 import { readTextFile } from "./text-file-io.js";
 import { DEFAULT_TOOL_OUTPUT_BYTES, DEFAULT_TOOL_OUTPUT_LINES, truncateToolOutputHead } from "./tool-output-limits.js";
 
@@ -13,7 +13,7 @@ export const readTool: ToolDefinition<Args> = {
   parameters: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Workspace-relative path, or an absolute path inside a session external directory." },
+      path: { type: "string", description: "Workspace-relative path, or an absolute path inside a session external directory or an on-demand skill catalog." },
       offset: { type: "integer", description: "Line number to start reading from (1-indexed).", minimum: 1 },
       limit: { type: "integer", description: "Maximum number of lines to read.", minimum: 1, maximum: DEFAULT_TOOL_OUTPUT_LINES },
       maxBytes: { type: "integer", description: "Maximum UTF-8 bytes to return before truncating (maximum 50KB).", minimum: 1, maximum: DEFAULT_TOOL_OUTPUT_BYTES }
@@ -32,7 +32,7 @@ export const readTool: ToolDefinition<Args> = {
     };
   },
   async execute(args, context) {
-    const file = resolveInsideCwd(context.cwd, args.path, context.externalDirectories);
+    const file = resolveReadablePath(context.cwd, args.path, context.externalDirectories);
 
     // Images are checked first: decoding a PNG as UTF-8 fills the context with
     // garbage the model cannot use and costs real tokens. Declaring it on

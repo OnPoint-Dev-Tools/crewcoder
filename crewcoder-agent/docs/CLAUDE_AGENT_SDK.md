@@ -53,8 +53,12 @@ skills: []
 strictMcpConfig: true
 ```
 
-Project `CLAUDE.md` guidance remains available, while global skill catalogs and undeclared MCP
-servers are excluded. CrewCoder appends its own system prompt and selected skills separately.
+Project `CLAUDE.md` guidance remains available, while Claude's Skill tool and global skill catalogs
+are not auto-enabled. Agents may still *read* on-demand skill files themselves: existing user
+catalogs (`~/.agents/skills`, `~/.crewcoder/skills`, `~/.claude/skills`, `~/.codex/skills`) are
+passed as extra `additionalDirectories` so native Read/Grep/Glob can open them. Skill bodies are
+never injected into the system prompt. Undeclared MCP servers stay excluded. CrewCoder still
+appends its own system prompt separately.
 External directories are passed through the SDK and remain subject to CrewCoder tool validation for
 all MCP-backed operations. When ACP or the SDK supplies a virtual `TextFileHost` (including SSH/SFTP),
 CrewCoder disables Claude-native Read/Grep/Glob and exposes those operations through MCP instead. A

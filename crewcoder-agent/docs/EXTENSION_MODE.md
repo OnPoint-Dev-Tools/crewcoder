@@ -1,10 +1,11 @@
 # Agent modes
 
-CrewCoder runs in one of three **explicit** modes. There is no `auto` mode and no
+CrewCoder runs in one of four **explicit** modes. There is no `auto` mode and no
 prompt-keyword routing: the requested mode is the resolved mode.
 
 ```txt
 general    (default)  general coding agent; no manifest constraints enforced
+crewcoder             deliberate clarification, plan approval, and implementation workflow
 plugin                CrewCode app plugin architect  (crewcode.plugin.json)
 extension             CrewCoder extension architect  (crewcoder.extension.json)
 ```
@@ -28,6 +29,7 @@ asked for. Do not reintroduce keyword routing.
 
 ```bash
 crewcoder run --mode extension "add a compaction hook to my extension"
+crewcoder run --mode crewcoder "design and implement audit logging"
 crewcoder config set defaultMode extension
 ```
 
@@ -44,7 +46,7 @@ so existing state keeps loading.
 ```txt
 normalizeAgentMode("auto")     -> "general"   (src/core/mode-router.ts)
 normalizeTuiMode("auto")       -> "general"   (crewcoder-tui/src/state/tui-store.ts)
-config set defaultMode auto    -> error: defaultMode must be one of: general, plugin, extension
+config set defaultMode auto    -> error: defaultMode must be one of: general, crewcoder, plugin, extension
 ```
 
 Coercion is read-only tolerance. Writing `auto` is a hard error, because accepting it
@@ -134,6 +136,7 @@ The model-facing built-in registry fails closed:
 
 ```txt
 general    -> no docs/createCrewCoderExtension/createPlugin/validatePlugin/listPluginTemplates
+crewcoder  -> normal coding tools; no authoring-mode docs or generators
 plugin     -> docs + createPlugin + validatePlugin + listPluginTemplates (CrewCode profile required)
 extension  -> docs + createCrewCoderExtension
 ```

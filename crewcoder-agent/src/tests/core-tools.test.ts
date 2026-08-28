@@ -65,6 +65,18 @@ describe("session external directory grants", () => {
     expect(fs.readFileSync(path.join(external, "new.txt"), "utf8")).toBe("created");
     expect(context.mutationLog).toEqual([path.join(external, "new.txt")]);
   });
+
+  it("lets read-only tools open on-demand skill catalogs without granting writes", async () => {
+    const { context } = workspace();
+    const skillDir = path.join(process.env.CREWCODER_HOME!, "skills", "pdf");
+    fs.mkdirSync(skillDir, { recursive: true });
+    const skillFile = path.join(skillDir, "SKILL.md");
+    fs.writeFileSync(skillFile, "skill body", "utf8");
+
+    const result = await readTool.execute(readTool.parse({ path: skillFile }), context);
+    expect(result.content[0]?.text).toContain("skill body");
+    await expect(writeTool.execute(writeTool.parse({ path: skillFile, content: "nope" }), context)).rejects.toThrow("outside the workspace and session external directories");
+  });
 });
 
 describe("read tool pagination", () => {

@@ -46,7 +46,8 @@ export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | unde
       kind: toolKind(event.toolName),
       status: "in_progress",
       rawInput: event.args,
-      locations: toolLocations(event.args)
+      locations: toolLocations(event.args),
+      _meta: { "crewcoder/tool": { name: event.toolName } }
     };
   }
 
@@ -62,11 +63,16 @@ export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | unde
 
   if (event.type === "tool_execution_end") {
     const output = resultText(event.result);
+    const details = event.result.details;
     return {
       sessionUpdate: "tool_call_update",
       toolCallId: event.toolCallId,
       status: event.isError ? "failed" : "completed",
-      rawOutput: { output, isError: event.isError },
+      rawOutput: {
+        output,
+        isError: event.isError,
+        ...(details && Object.keys(details).length > 0 ? details : {})
+      },
       content: output ? [{ type: "content", content: { type: "text", text: output } }] : undefined
     };
   }

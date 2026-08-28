@@ -4,9 +4,9 @@ The right sidebar shows only tasks attached to the active CrewCoder session.
 
 ## Numbering
 
-Task labels in the sidebar restart at `1` for every session. The labels follow task creation order and remain stable when task status changes reorder the visible list. For example, an in-progress task labeled `2` may render above a pending task labeled `1`.
+Each agent session numbers its own tasks from `1`. Those labels are presentation-only and stay stable when status changes reorder the list, so an in-progress task labeled `2` can render above pending task `1`.
 
-Sidebar labels are presentation-only. Crew task storage and the `TaskGet`, `TaskUpdate`, and `TaskDelete` tools continue to use project-wide durable task IDs so persisted tasks and dependency edges remain unambiguous across sessions.
+A new session does not continue the previous session's counter. Inside a session, creating a task after every current task is `completed` retires that finished list so the next plan also starts at `1` instead of rolling to `11`.
 
 ## Refresh behavior
 

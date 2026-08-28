@@ -49,11 +49,12 @@ Modes are explicit; legacy persisted `auto` values are read as `general` but can
 
 ```txt
 general      # default coding mode
+crewcoder    # deliberate clarify, plan, approve, and implement workflow
 plugin       # CrewCode app plugin architect (crewcode.plugin.json)
 extension    # CrewCoder extension architect (crewcoder.extension.json)
 ```
 
-See `docs/EXTENSION_MODE.md`.
+See `docs/CREWCODER_MODE.md` and `docs/EXTENSION_MODE.md`.
 
 ## Terminal UI
 
@@ -324,6 +325,7 @@ CrewCoder automatically loads bounded, repository-owned Markdown rules from `.cr
 ## Shipped feature guides
 
 - Repository instruction layers and path-aware rules: `docs/INSTRUCTION_LAYERS.md`, `docs/REPOSITORY_RULES.md`
+- On-demand user skills: `docs/SKILLS.md`
 - Durable sessions, exact model-turn replay, and search: `docs/SESSION_STORAGE.md`, `docs/REPRODUCIBLE_RUNS_AND_SEARCH.md`
 - Checkpoints, rewind, compaction, export, and `/why`: `docs/SESSION_CHECKPOINTS.md`, `docs/AUTO_COMPACTION.md`, `docs/SESSION_EXPORT.md`, `docs/WHY_COMMAND.md`
 - Token budgets, stall detection, verification, and CI: `docs/RUNTIME_GUARDRAILS.md`, `docs/CI_RUNS.md`, `docs/CI_INTEGRATIONS.md`

@@ -26,6 +26,7 @@ describe("CommandPalette", () => {
     expect(items).toContainEqual(expect.objectContaining({ label: "/add-dir", category: "Settings" }));
     expect(items).toContainEqual(expect.objectContaining({ label: "/new", category: "Session" }));
     expect(items).toContainEqual(expect.objectContaining({ label: "/commands", category: "Content & Extensions" }));
+    expect(items).toContainEqual(expect.objectContaining({ label: "/approve-plan", category: "Review & Tasks" }));
   });
 
   it("hides CrewCode commands in standalone and shows them in crewcode profile", () => {

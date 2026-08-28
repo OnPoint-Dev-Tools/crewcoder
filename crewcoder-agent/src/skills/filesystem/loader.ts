@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { getCrewCoderHome } from "../../core/crewcoder-home.js";
 
@@ -22,6 +23,47 @@ export function resolveSkillsDir(): string {
   const override = process.env.CREWCODER_SKILLS_DIR?.trim();
   if (override) return path.resolve(override);
   return path.join(getCrewCoderHome().root, "skills");
+}
+
+/**
+ * User skill catalogs agents may read on demand. Bodies are never auto-injected;
+ * the model has to open a SKILL.md itself. Writes stay blocked — these roots
+ * are not session external directories.
+ */
+export function resolveSkillCatalogRoots(): string[] {
+  const home = os.homedir();
+  const roots = [
+    path.join(home, ".agents", "skills"),
+    resolveSkillsDir(),
+    path.join(home, ".claude", "skills"),
+    path.join(home, ".codex", "skills")
+  ];
+  const unique: string[] = [];
+  for (const root of roots) {
+    const resolved = path.resolve(root);
+    if (!unique.includes(resolved)) unique.push(resolved);
+  }
+  return unique;
+}
+
+export function existingSkillCatalogRoots(): string[] {
+  return resolveSkillCatalogRoots().filter((root) => {
+    try {
+      return fs.statSync(root).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Session grants plus on-disk skill catalogs, for nested-agent sandbox roots. */
+export function mergeSkillCatalogDirectories(directories: readonly string[] | undefined): string[] {
+  const merged: string[] = [];
+  for (const directory of [...(directories ?? []), ...existingSkillCatalogRoots()]) {
+    const resolved = path.resolve(directory);
+    if (!merged.includes(resolved)) merged.push(resolved);
+  }
+  return merged;
 }
 
 interface ParsedSkillFile {

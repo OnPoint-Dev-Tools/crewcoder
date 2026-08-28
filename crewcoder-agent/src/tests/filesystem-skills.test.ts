@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadFilesystemSkills, findFilesystemSkill, parseSkillFile, resolveSkillsDir } from "../skills/filesystem/loader.js";
+import { loadFilesystemSkills, findFilesystemSkill, parseSkillFile, resolveSkillsDir, resolveSkillCatalogRoots } from "../skills/filesystem/loader.js";
 
 let tmpDir: string;
 
@@ -71,6 +71,11 @@ describe("filesystem skills loader", () => {
       if (prev === undefined) delete process.env.CREWCODER_SKILLS_DIR;
       else process.env.CREWCODER_SKILLS_DIR = prev;
     }
+  });
+
+  it("includes the cross-agent user catalog at ~/.agents/skills", () => {
+    expect(resolveSkillCatalogRoots()).toContain(path.join(os.homedir(), ".agents", "skills"));
+    expect(resolveSkillCatalogRoots()).toContain(resolveSkillsDir());
   });
 
   it("defaults to the skills directory under the CrewCoder home (~/.crewcoder)", () => {

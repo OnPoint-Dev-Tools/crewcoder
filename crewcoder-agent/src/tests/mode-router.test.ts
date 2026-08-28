@@ -7,12 +7,13 @@ describe("mode router", () => {
   });
 
   it("exposes exactly the explicit modes and rejects auto", () => {
-    expect([...AGENT_MODES]).toEqual(["general", "plugin", "extension"]);
+    expect([...AGENT_MODES]).toEqual(["general", "crewcoder", "plugin", "extension"]);
     expect(isAgentMode("auto")).toBe(false);
   });
 
   it("resolves each mode to itself", () => {
     expect(resolveMode("general")).toBe("general");
+    expect(resolveMode("crewcoder")).toBe("crewcoder");
     expect(resolveMode("plugin")).toBe("plugin");
     expect(resolveMode("extension")).toBe("extension");
   });

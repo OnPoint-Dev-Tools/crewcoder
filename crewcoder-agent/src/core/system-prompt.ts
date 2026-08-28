@@ -1,6 +1,7 @@
 import type { ResolvedAgentMode } from "./types.js";
 import { CREWCODE_V0_CONSTRAINTS } from "../knowledge/constraints.js";
 import { CREWCODER_EXTENSION_CONSTRAINTS } from "../knowledge/extension-constraints.js";
+import { CREWCODER_MODE_PROMPT } from "../modes/crewcoder-mode.js";
 import type { Skill } from "../skills/types.js";
 import type { EmbeddedDoc } from "../knowledge/crewcode-docs.js";
 
@@ -30,6 +31,8 @@ export function buildSystemPrompt(input: {
           "CrewCoder extension constraints are law:",
           ...CREWCODER_EXTENSION_CONSTRAINTS.map((item) => `- ${item}`),
         ]
+    : input.mode === "crewcoder"
+      ? CREWCODER_MODE_PROMPT
       : [
           "You are in General Coding Agent mode.",
           "You are an expert coding assistant operating inside CrewCoder, a local coding agent harness.",

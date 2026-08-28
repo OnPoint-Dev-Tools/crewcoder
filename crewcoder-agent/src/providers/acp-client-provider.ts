@@ -38,6 +38,8 @@ import { getText } from "../core/messages.js";
 import type { ModelUsage } from "../core/usage.js";
 import type { ProviderRunInput, ProviderRunResult } from "./types.js";
 import { CREWCODER_VERSION } from "../core/version.js";
+import { mergeSkillCatalogDirectories } from "../skills/filesystem/loader.js";
+import { isPathInsideSkillCatalog } from "../tools/path-utils.js";
 
 /** Permission option kinds we treat as an approval, in descending preference. */
 const ALLOW_KINDS = ["allow_once", "allow_always"];
@@ -47,6 +49,11 @@ type AcpTurnState = {
   textParts: string[];
   toolNames: Map<string, string>;
   usage?: ModelUsage;
+  /**
+   * `session/load` is required to replay transcript as `session/update`. Those
+   * chunks are history, not this turn's output. Live deltas start at `session/prompt`.
+   */
+  acceptUpdates: boolean;
 };
 
 export async function runAcpClientProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult> {
@@ -74,7 +81,7 @@ export async function runAcpClientProvider(input: ProviderRunInput, signal?: Abo
     });
   });
 
-  const state: AcpTurnState = { textParts: [], toolNames: new Map() };
+  const state: AcpTurnState = { textParts: [], toolNames: new Map(), acceptUpdates: false };
   const abort = () => child.kill("SIGTERM");
   signal?.addEventListener("abort", abort, { once: true });
 
@@ -88,6 +95,7 @@ export async function runAcpClientProvider(input: ProviderRunInput, signal?: Abo
   try {
     const app = client({ name: "crewcoder" })
       .onNotification("session/update", async (ctx) => {
+        if (!state.acceptUpdates) return;
         await applySessionUpdate((ctx.params as SessionNotification).update, input, state);
       })
       .onRequest("session/request_permission", async (ctx) => resolvePermission(ctx.params, input))
@@ -149,6 +157,9 @@ async function runTurn(ctx: ClientContext, input: ProviderRunInput, state: AcpTu
   await input.stream?.onProviderSessionId?.(sessionId);
 
   const prompt = await promptBlocks(modelInput.messages, Boolean(modelInput.session?.providerSessionId), input.prompt);
+  // Accept live updates only for this prompt. Load-replay notifications that
+  // arrive late must not become assistant text at the start of the turn.
+  state.acceptUpdates = true;
   return await ctx.request("session/prompt", { sessionId, prompt }) as PromptResponse;
 }
 
@@ -161,11 +172,16 @@ async function runTurn(ctx: ClientContext, input: ProviderRunInput, state: AcpTu
 async function openSession(ctx: ClientContext, input: ProviderRunInput): Promise<string> {
   const existing = input.modelInput?.session?.providerSessionId;
   const cwd = path.resolve(input.cwd);
-  const externalDirectories = input.modelInput?.externalDirectories?.map((directory) => path.resolve(directory));
+  const additionalDirectories = mergeSkillCatalogDirectories(input.modelInput?.externalDirectories);
 
   if (existing) {
     try {
-      await ctx.request("session/load", { sessionId: existing, cwd, mcpServers: [] });
+      await ctx.request("session/load", {
+        sessionId: existing,
+        cwd,
+        mcpServers: [],
+        ...(additionalDirectories.length ? { additionalDirectories } : {})
+      });
       return existing;
     } catch (error) {
       await input.debug?.event({
@@ -180,7 +196,7 @@ async function openSession(ctx: ClientContext, input: ProviderRunInput): Promise
   const created = await ctx.request("session/new", {
     cwd,
     mcpServers: [],
-    ...(externalDirectories?.length ? { additionalDirectories: externalDirectories } : {})
+    ...(additionalDirectories.length ? { additionalDirectories } : {})
   }) as NewSessionResponse;
   return created.sessionId;
 }
@@ -240,9 +256,23 @@ async function applySessionUpdate(update: SessionUpdate, input: ProviderRunInput
  * would let a detached run mutate the workspace with no approval on record.
  */
 async function resolvePermission(params: unknown, input: ProviderRunInput): Promise<{ outcome: { outcome: "selected"; optionId: string } | { outcome: "cancelled" } }> {
-  const request = params as { toolCall?: { title?: string; toolCallId?: string }; options?: Array<{ optionId: string; name: string; kind: string }> };
+  const request = params as {
+    toolCall?: {
+      title?: string;
+      toolCallId?: string;
+      kind?: string | null;
+      locations?: Array<{ path?: string } | null> | null;
+      rawInput?: unknown;
+    };
+    options?: Array<{ optionId: string; name: string; kind: string }>;
+  };
   const options = request.options ?? [];
   const reject = options.find((option) => REJECT_KINDS.includes(option.kind)) ?? options[options.length - 1];
+  const allow = options.find((option) => ALLOW_KINDS.includes(option.kind));
+
+  if (allow && isSkillCatalogReadPermission(request.toolCall, input.cwd)) {
+    return { outcome: { outcome: "selected", optionId: allow.optionId } };
+  }
 
   if (!input.stream?.requestQuestion || options.length === 0) {
     return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } };
@@ -257,13 +287,13 @@ async function resolvePermission(params: unknown, input: ProviderRunInput): Prom
   if (answer === undefined) return { outcome: { outcome: "cancelled" } };
   const chosen = options.find((option) => option.optionId === answer || option.name === answer);
   if (chosen) return { outcome: { outcome: "selected", optionId: chosen.optionId } };
-  const allow = options.find((option) => ALLOW_KINDS.includes(option.kind));
-  return { outcome: { outcome: "selected", optionId: (allow ?? reject ?? options[0]!).optionId } };
+  const fallbackAllow = options.find((option) => ALLOW_KINDS.includes(option.kind));
+  return { outcome: { outcome: "selected", optionId: (fallbackAllow ?? reject ?? options[0]!).optionId } };
 }
 
 async function readTextFile(params: unknown, input: ProviderRunInput): Promise<string> {
   const request = params as { path: string; line?: number | null; limit?: number | null };
-  const target = authorizePath(request.path, input);
+  const target = authorizePath(request.path, input, "read");
   const content = await fs.readFile(target, "utf8");
   if (typeof request.line !== "number" && typeof request.limit !== "number") return content;
   const lines = content.split("\n");
@@ -274,22 +304,48 @@ async function readTextFile(params: unknown, input: ProviderRunInput): Promise<s
 
 async function writeTextFile(params: unknown, input: ProviderRunInput): Promise<void> {
   const request = params as { path: string; content: string };
-  const target = authorizePath(request.path, input);
+  const target = authorizePath(request.path, input, "write");
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, request.content, "utf8");
 }
 
 /**
  * The remote agent is a separate process we do not control, so its `fs/*` paths
- * are untrusted input. Containment is checked against the session cwd plus the
- * same external directories the rest of CrewCoder authorizes.
+ * are untrusted input. Writes stay inside cwd plus session external directories.
+ * Reads may also open on-demand skill catalogs.
  */
-function authorizePath(candidate: string, input: ProviderRunInput): string {
+function authorizePath(candidate: string, input: ProviderRunInput, access: "read" | "write"): string {
   const target = path.resolve(input.cwd, candidate);
   const roots = [path.resolve(input.cwd), ...(input.modelInput?.externalDirectories ?? []).map((directory) => path.resolve(directory))];
   const allowed = roots.some((root) => target === root || target.startsWith(`${root}${path.sep}`));
-  if (!allowed) throw new RequestError(-32602, `Path is outside the authorized workspace: ${candidate}`);
-  return target;
+  if (allowed) return target;
+  if (access === "read" && isPathInsideSkillCatalog(target, input.cwd)) return target;
+  throw new RequestError(-32602, `Path is outside the authorized workspace: ${candidate}`);
+}
+
+function isSkillCatalogReadPermission(
+  toolCall: { kind?: string | null; locations?: Array<{ path?: string } | null> | null; rawInput?: unknown } | undefined,
+  cwd: string
+): boolean {
+  if (!toolCall) return false;
+  const kind = toolCall.kind?.trim().toLowerCase();
+  if (kind && kind !== "read" && kind !== "search") return false;
+  const paths = permissionPaths(toolCall);
+  return paths.length > 0 && paths.every((candidate) => isPathInsideSkillCatalog(candidate, cwd));
+}
+
+function permissionPaths(toolCall: { locations?: Array<{ path?: string } | null> | null; rawInput?: unknown }): string[] {
+  const paths: string[] = [];
+  for (const location of toolCall.locations ?? []) {
+    if (typeof location?.path === "string" && location.path.trim()) paths.push(location.path);
+  }
+  if (isRecord(toolCall.rawInput)) {
+    for (const key of ["path", "file_path", "filePath"]) {
+      const value = toolCall.rawInput[key];
+      if (typeof value === "string" && value.trim()) paths.push(value);
+    }
+  }
+  return paths;
 }
 
 async function promptBlocks(messages: AgentMessage[], hasAgentSession: boolean, fallback: string): Promise<ContentBlock[]> {

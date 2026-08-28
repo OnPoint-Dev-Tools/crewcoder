@@ -3,14 +3,14 @@ import type { TuiUsageSummary } from "./usage.js";
 import type { ImageAttachment } from "./image-attachment.js";
 import type { CrewCoderLiveUiPermissions } from "../bridge/live-ui-protocol.js";
 
-export type TuiMode = "general" | "plugin" | "extension";
+export type TuiMode = "general" | "crewcoder" | "plugin" | "extension";
 export type TuiIntegrationProfile = "standalone" | "crewcode";
 
-export const TUI_MODES: readonly TuiMode[] = ["general", "plugin", "extension"];
+export const TUI_MODES: readonly TuiMode[] = ["general", "crewcoder", "plugin", "extension"];
 export const DEFAULT_TUI_MODE: TuiMode = "general";
 
 export function isTuiMode(value: unknown): value is TuiMode {
-  return value === "general" || value === "plugin" || value === "extension";
+  return value === "general" || value === "crewcoder" || value === "plugin" || value === "extension";
 }
 
 /**

@@ -18,6 +18,7 @@ import { rememberTool } from "./remember.js";
 import { validatePluginTool } from "./validate-plugin-tool.js";
 import { writeTool } from "./write.js";
 import { createCrewTaskTools } from "../crew-tasks/tools.js";
+import { createCrewcoderWorkflowTools } from "../modes/crewcoder-tools.js";
 import type { IntegrationProfile } from "../core/integration-profile.js";
 import type { ResolvedAgentMode } from "../core/types.js";
 
@@ -26,8 +27,9 @@ export function createToolRegistry(
   mode: ResolvedAgentMode = "general",
 ): ToolDefinition[] {
   const core = [listFilesTool, readTool, grepTool, writeTool, editTool, editSymbolTool, editTransactionTool, gitBlameTool, gitLogTool, gitDiffRangeTool, gitCherryPickTool, lspDefinitionTool, lspHoverTool, lspDiagnosticsTool, bashTool, backgroundJobTool, delegateWorkerTool, rememberTool, ...createCrewTaskTools()];
+  const withWorkflow = mode === "crewcoder" ? [...core, ...createCrewcoderWorkflowTools()] : core;
   if (mode === "extension") return [...core, createExtensionTool, createDocsTool(profile, mode)];
   if (mode === "plugin" && profile === "crewcode") return [...core, createDocsTool(profile, mode), createPluginTool, validatePluginTool, listTemplatesTool];
-  return core;
+  return withWorkflow;
 }
 export function findTool(name: string, tools: ToolDefinition[]): ToolDefinition | undefined { return tools.find((tool) => tool.name === name); }

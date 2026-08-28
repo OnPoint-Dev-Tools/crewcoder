@@ -88,7 +88,7 @@ spawn <command> <args>                 stdio pipes, shell: false
      or session/new    { cwd, mcpServers: [], additionalDirectories }
   -> session/set_model { sessionId, modelId }        best-effort
   -> session/prompt    { sessionId, prompt: ContentBlock[] }
-  <- session/update    notifications, streamed until the prompt response resolves
+  <- session/update    live notifications only; load-replay chunks are ignored
 ```
 
 `stderr` is captured separately and only surfaces on failure. The agent's stdout is
@@ -136,9 +136,14 @@ a decision it can act on rather than an aborted turn.
 CrewCoder advertises `fs: { readTextFile: true, writeTextFile: true }` so the agent
 routes text I/O back through us instead of touching disk directly. `authorizePath()`
 resolves every requested path and requires it to sit inside the session `cwd` or one
-of `ModelInput.externalDirectories`; anything else returns a JSON-RPC invalid-params
-error. The agent is a separate process we do not control, so its paths are untrusted
-input.
+of `ModelInput.externalDirectories`; read-only on-demand skill catalogs (`~/.agents/skills`,
+`~/.crewcoder/skills`, `~/.claude/skills`, `~/.codex/skills`) are also readable. Writes
+outside those writable roots still return a JSON-RPC invalid-params error. Existing
+skill catalogs are passed as `additionalDirectories` on `session/new` and `session/load`
+so the nested agent's own sandbox treats them as permitted roots. Elevated read-only
+permission requests whose paths sit inside those catalogs are auto-allowed; other
+permission requests still prompt or fail closed. The agent is a separate process we
+do not control, so its paths are untrusted input.
 
 `terminal: false` is advertised honestly — the runtime does not implement
 `terminal/*`, so the agent runs shell commands in its own process.
@@ -164,6 +169,12 @@ The agent's own session id is persisted through `onProviderSessionId` into
 `providerSessionIds.grok` and replayed as `session/load` on the next turn, so the
 agent keeps its native history. A failed load **falls back to a new session** rather
 than failing the run — a stale id normally just means the agent pruned its store.
+
+`session/load` transcript replay is **not** this turn's output. The provider ignores
+`session/update` until `session/prompt` is sent. Treating load-replay
+`agent_message_chunk`s as live deltas would re-print the previous assistant
+messages at the start of every CrewCoder turn — which is what CrewCode then
+shows as duplicated chat.
 
 When starting fresh with existing CrewCoder history, prior messages are encoded as
 JSON Lines into the first prompt (the same approach as the Claude Agent SDK

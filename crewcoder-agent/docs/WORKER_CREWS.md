@@ -47,7 +47,7 @@ Use `/reload` after creating workers, or restart the TUI.
 /workers
 ```
 
-Choose a worker from the picker. Future prompts use that identity, the composer shows its name, and the status bar displays `MODE: worker:<name>`. Selecting `general`, `plugin`, or `extension` clears the worker.
+Choose a worker from the picker. Future prompts use that identity, the composer shows its name, and the status bar displays `MODE: worker:<name>`. Selecting `general`, `crewcoder`, `plugin`, or `extension` clears the worker.
 
 ### Hand off the active session
 

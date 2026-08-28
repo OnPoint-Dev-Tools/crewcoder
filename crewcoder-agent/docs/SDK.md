@@ -163,7 +163,7 @@ The orchestrator rejects overlapping operations. `approve()` and `abort()` are a
 const session = createCrewCoderSession({
   cwd: "/workspace",
   externalDirectories: ["/shared/library"], // explicit session-scoped filesystem grants
-  mode: "general",                  // general | plugin | extension
+  mode: "general",                  // general | crewcoder | plugin | extension
   provider: "codex",
   model: "gpt-5.6",
   effort: "high",

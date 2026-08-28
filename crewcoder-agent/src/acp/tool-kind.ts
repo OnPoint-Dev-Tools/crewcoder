@@ -29,7 +29,12 @@ const TOOL_KINDS: Record<string, ToolKind> = {
   delegate_worker: "think",
   remember: "other",
   validate_plugin: "other",
-  list_templates: "read"
+  list_templates: "read",
+  TaskCreate: "think",
+  TaskList: "think",
+  TaskGet: "think",
+  TaskUpdate: "think",
+  TaskDelete: "think"
 };
 
 export function toolKind(toolName: string): ToolKind {

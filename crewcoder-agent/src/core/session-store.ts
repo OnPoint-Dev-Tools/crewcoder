@@ -10,6 +10,7 @@ import type { UsageSummary } from "./usage.js";
 import type { SessionCompaction } from "./session-compaction.js";
 import type { SessionCheckpoint, SessionCheckpointRestore } from "./session-checkpoints.js";
 import type { CrewCoderExtSessionEntry } from "../extensions/api.js";
+import type { CrewcoderWorkflowState } from "../modes/crewcoder-workflow.js";
 
 export type SessionModelTurn = { iteration: number; input: ModelInput; promptHash: string; responseHash: string; responseId: string };
 
@@ -38,6 +39,7 @@ export type SessionRecord = {
   checkpointRestores?: SessionCheckpointRestore[];
   extensionState?: Record<string, unknown>;
   extensionEntries?: CrewCoderExtSessionEntry[];
+  crewcoderWorkflow?: CrewcoderWorkflowState;
   parentSessionId?: string;
   pendingResumeContext?: string;
   systemPrompt?: { name: string; path: string };
@@ -85,6 +87,7 @@ type MetadataEntry = BaseEntry & {
   externalDirectories?: string[];
   providerSessionIds?: Record<string, string>;
   modelTurns?: SessionModelTurn[];
+  crewcoderWorkflow?: CrewcoderWorkflowState;
 };
 type BranchSummaryEntry = BaseEntry & { type: "branch_summary"; fromId: string; summary: string };
 type LeafEntry = BaseEntry & { type: "leaf"; targetId: string | null };
@@ -357,7 +360,8 @@ function metadataEntry(record: SessionRecord, parentId: string | null, arrays: P
     checkpointRestores: record.checkpointRestores,
     pendingResumeContext: record.pendingResumeContext ?? null,
     externalDirectories: record.externalDirectories ?? [],
-    providerSessionIds: record.providerSessionIds ?? {}
+    providerSessionIds: record.providerSessionIds ?? {},
+    crewcoderWorkflow: record.crewcoderWorkflow
   };
 }
 
@@ -462,7 +466,8 @@ function entriesToRecord(entries: SessionJsonlEntry[]): SessionRecord {
     checkpointRestores: latestMetadataField(metadataEntries, "checkpointRestores"),
     extensionEntries: foldMetadataArray<CrewCoderExtSessionEntry>(metadataEntries, "extensionEntries"),
     pendingResumeContext: latestMetadataField(metadataEntries, "pendingResumeContext") ?? undefined,
-    modelTurns: foldMetadataArray<SessionModelTurn>(metadataEntries, "modelTurns")
+    modelTurns: foldMetadataArray<SessionModelTurn>(metadataEntries, "modelTurns"),
+    crewcoderWorkflow: latestMetadataField(metadataEntries, "crewcoderWorkflow")
   };
 }
 

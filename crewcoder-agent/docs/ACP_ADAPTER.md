@@ -114,6 +114,10 @@ session_compacted           -> _crewcoder/compaction_update (completed)
 Field names matter: CrewCode reads `rawInput`, `rawOutput`, `status`, and `title`
 specifically. Get them wrong and tool rows render empty.
 
+`tool_execution_end` copies `result.details` onto `rawOutput` next to
+`output` / `isError`. Task tools put a `todos` snapshot there so CrewCode's
+overlay can render the current session list without reconstructing mutations.
+
 Compaction has no standard ACP lifecycle shape, so CrewCoder uses the additive
 `_crewcoder/compaction_update` session-update kind. It carries `status`,
 `automatic`, `percent`, `message`, and optional phase/count/id metadata. The
@@ -205,6 +209,11 @@ the spec requires. The loaded session is marked `started`, so the next
 `session/prompt` continues it via `runAgentLoopContinue` rather than starting a
 fresh run. An unknown id returns `resourceNotFound` rather than silently creating
 a new session — a client that falls back to `session/new` should do so explicitly.
+
+`session/prompt` must not re-emit that transcript. Later turns stream only new
+assistant/thinking/tool updates. Replaying prior user/assistant chunks on each
+prompt is what makes CrewCode duplicate the last messages at the start of a
+turn.
 
 Tool calls and thinking are **not** replayed, only message text. CrewCode sets
 `suppressProviderHistoryReplay` when it has richer local history anyway.

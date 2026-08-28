@@ -79,6 +79,30 @@ describe("session-store durable growth", () => {
     expect((await loadSessionRecord(id)).externalDirectories).toEqual(["/tmp/shared-two"]);
   });
 
+  it("persists crewcoder workflow phase in metadata", async () => {
+    const id = "session_crewcoder_workflow";
+    await saveSession({
+      ...baseRecord(id),
+      requestedMode: "crewcoder",
+      resolvedMode: "crewcoder",
+      crewcoderWorkflow: {
+        phase: "awaiting_approval",
+        questions: ["Where should it live?"],
+        requirements: "Add a settings page.",
+        plan: "Write src/settings.ts",
+        acceptanceCriteria: "File exists."
+      }
+    });
+    const loaded = await loadSessionRecord(id);
+    expect(loaded.crewcoderWorkflow).toEqual({
+      phase: "awaiting_approval",
+      questions: ["Where should it live?"],
+      requirements: "Add a settings page.",
+      plan: "Write src/settings.ts",
+      acceptanceCriteria: "File exists."
+    });
+  });
+
   it("persists provider-native session ids in append-only metadata", async () => {
     const id = "session_provider_ids";
     await saveSession({ ...baseRecord(id), providerSessionIds: { claude: "claude-native-1" } });

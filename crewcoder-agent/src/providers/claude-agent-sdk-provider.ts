@@ -7,6 +7,7 @@ import type { JsonObjectSchema, JsonSchema } from "../core/tool-types.js";
 import { normalizeUsage, type ModelUsage } from "../core/usage.js";
 import type { ProviderRunInput, ProviderRunResult } from "./types.js";
 import { CREWCODER_VERSION } from "../core/version.js";
+import { mergeSkillCatalogDirectories } from "../skills/filesystem/loader.js";
 
 const NATIVE_FILE_TOOLS = ["Read", "Grep", "Glob"];
 const CREWCODER_NATIVE_FILE_EQUIVALENTS = new Set(["read", "grep", "listFiles"]);
@@ -78,7 +79,7 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
       prompt: claudePrompt(modelInput.messages, Boolean(providerSessionId), input.prompt),
       options: {
         cwd: input.cwd,
-        additionalDirectories: modelInput.externalDirectories,
+        additionalDirectories: mergeSkillCatalogDirectories(modelInput.externalDirectories),
         model: model || undefined,
         resume: providerSessionId,
         includePartialMessages: true,

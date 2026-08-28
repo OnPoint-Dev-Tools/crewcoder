@@ -2,6 +2,18 @@
 
 All notable changes to `@onpoint-dev-tools/crewcoder-sdk` are documented here. The project follows Semantic Versioning once the package reaches `1.0.0`.
 
+## 0.6.3 - 2026-08-28
+
+### Added
+
+- `crewcoder` agent mode for a deliberate clarify-then-plan workflow, including `crewcoder_clarify` and `crewcoder_propose_plan` tools and `/approve-plan`.
+- `crewcoder` in the browser client's `CrewCoderAgentMode` union.
+- Session-local crew task display numbers and todo snapshots used by the agent and TUI.
+
+### Changed
+
+- The TUI recognizes `crewcoder` alongside `general`, `plugin`, and `extension`.
+
 ## 0.6.1 - 2026-08-12
 
 ### Added

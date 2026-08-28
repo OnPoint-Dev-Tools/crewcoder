@@ -246,7 +246,7 @@ Codex / OpenAI Responses:
 
 Claude Agent SDK:
 - `claude` is the local-login Agent SDK provider; `anthropic` remains the direct API-key Messages provider.
-- Keep `settingSources: ["project"]`, `skills: []`, and `strictMcpConfig: true`: preserve project CLAUDE.md guidance without global skill/MCP bloat.
+- Keep `settingSources: ["project"]`, `skills: []`, and `strictMcpConfig: true`: preserve project CLAUDE.md guidance without auto-injecting global skill catalogs or undeclared MCP servers. On-demand skill files under `~/.agents/skills` and the other user catalogs remain readable; do not force Skill-tool activation.
 - Tool ownership is hybrid. Native Claude is limited to Read/Grep/Glob/AskUserQuestion; Bash, mutations, and specialized tools must route through the in-process CrewCoder MCP server and existing executor.
 - Disable native Read/Grep/Glob whenever a virtual `TextFileHost` is active (especially ACP SSH/SFTP); route those operations through CrewCoder MCP so the local Claude process cannot cross host boundaries.
 - Persist returned SDK session ids in `providerSessionIds.claude`; never substitute the CrewCoder session id or send Claude ids to another provider.
@@ -261,7 +261,7 @@ ACP client (`acp-client` runtime, Grok CLI):
 - Grok emits no `usage_update`, so `grok` reports no context tokens: auto-compaction cannot trigger and the cost ledger gets nothing. Do not substitute an estimated token count.
 - `usage_update.cost` is a CUMULATIVE session total and must never be written to the per-turn cost ledger; only `used` is kept, as `contextTokens`.
 - Permission requests route to `requestQuestion`; with no interactive host the request is REJECTED, never auto-allowed.
-- `fs/read_text_file`/`fs/write_text_file` are served by CrewCoder with path containment to `cwd` + `externalDirectories`. The agent is an untrusted separate process.
+- `fs/read_text_file`/`fs/write_text_file` are served by CrewCoder with path containment to `cwd` + `externalDirectories`. Read-only on-demand skill catalogs (`~/.agents/skills` and the other user catalogs) are also readable; writes there stay denied. The agent is an untrusted separate process.
 - `acp-client` is deliberately excluded from `EXTENSION_RUNTIMES`; it hands a spawned binary an fs write channel and has not been vetted for arbitrary third-party agents.
 - Empty turns and `refusal`/`cancelled` stop reasons are provider failures, not replies. See `docs/ACP_CLIENT_PROVIDER.md`.
 
@@ -583,6 +583,7 @@ is identity plus legacy coercion.
 
 ```txt
 general    (default)  no manifest constraints enforced
+crewcoder             deliberate clarification and approved-plan workflow
 plugin                CrewCode app plugins      -> crewcode.plugin.json
 extension             CrewCoder extensions      -> crewcoder.extension.json
 ```
@@ -590,6 +591,14 @@ extension             CrewCoder extensions      -> crewcoder.extension.json
 Do not reintroduce keyword routing. It silently changed which constraints were treated as
 law, and the extension vocabulary (`hooks`, `skills`, `workflows`, `manifest`, `tools`)
 overlaps ordinary coding vocabulary too heavily for any keyword list to be safe.
+
+`crewcoder` mode is the deliberate workflow defined in `src/modes/crewcoder-mode.ts` and
+documented in `docs/CREWCODER_MODE.md`. Preserve its ordered contract: read-only discovery,
+`crewcoder_clarify`, user answers, `crewcoder_propose_plan`, explicit `/approve-plan` (or a
+short unambiguous approval), then implementation and verification. Mutating tools are
+runtime-blocked until that sequence completes; do not regress it to prompt-only guidance.
+Keep it on the normal coding toolset; it must not inherit CrewCode plugin or CrewCoder
+extension authoring knowledge.
 
 `auto` is a **persisted** legacy value living in old `config.json`, session records, and goal
 records. `normalizeAgentMode()` coerces it to `general` on read so that state keeps loading,

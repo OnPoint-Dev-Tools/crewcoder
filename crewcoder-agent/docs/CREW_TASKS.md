@@ -61,6 +61,7 @@ When `crew-tasks` is enabled, the CrewCoder TUI renders a compact task widget ab
 - pending tasks next
 - completed tasks last
 - blocker and owner hints when present
+- subject / `activeForm` labels with per-session `#1`, `#2` numbers that reset for a new agent session and for a new plan after the previous list completed
 
 The widget reads `.crewcoder/tasks/tasks.json` on render, so `/task` commands and agent task-tool updates appear without restarting the TUI.
 
@@ -103,3 +104,20 @@ Agent-created tasks are automatically associated with the current CrewCoder sess
 ## Agent todo integration
 
 `crew-tasks` acts as the persistent project/session-aware todo layer. When enabled, CrewCoder's system prompt tells the agent to use task tools for complex multi-step work, mark tasks `in_progress` before starting, and mark tasks `completed` only after the work is fully done.
+
+When `autoSyncTodos` is on (the default), every Task* tool result includes a
+session `todos` snapshot (`content`, `status`, `activeForm`) in `details`. ACP
+forwards that object on `rawOutput` so clients such as CrewCode can render the
+same overlay they use for Claude/Pi snapshot tools.
+
+Task numbers are **per agent session**, not a project-wide rolling counter.
+Creating a task after every task in that session is completed starts a new list
+at `#1`. Tool updates still use that session's `taskId`.
+
+Disable the snapshot without turning tasks off:
+
+```json
+{ "autoSyncTodos": false }
+```
+
+in `~/.crewcoder/tasks/config.json`.

@@ -71,6 +71,8 @@ describe("acp tool mapping", () => {
     expect(toolKind("grep")).toBe("search");
     expect(toolKind("edit")).toBe("edit");
     expect(toolKind("bash")).toBe("execute");
+    expect(toolKind("TaskCreate")).toBe("think");
+    expect(toolKind("TaskUpdate")).toBe("think");
   });
 
   it("degrades an unknown tool to `other` instead of throwing", () => {
@@ -108,6 +110,38 @@ describe("acp event translation", () => {
       kind: "read",
       status: "in_progress",
       rawInput: { path: "src/cli.ts" }
+    });
+  });
+
+  it("forwards tool result details including todo snapshots on rawOutput", () => {
+    const result: ToolResultMessage = {
+      ...toolResult("Created: Write the parser"),
+      toolName: "TaskCreate",
+      details: {
+        todos: [
+          { content: "Write the parser", status: "in_progress", activeForm: "Writing the parser" },
+          { content: "Add tests", status: "pending" }
+        ]
+      }
+    };
+    const update = translateEvent({
+      type: "tool_execution_end",
+      toolCallId: "tc-1",
+      toolName: "TaskCreate",
+      result,
+      isError: false
+    });
+    expect(update).toMatchObject({
+      sessionUpdate: "tool_call_update",
+      status: "completed",
+      rawOutput: {
+        output: "Created: Write the parser",
+        isError: false,
+        todos: [
+          { content: "Write the parser", status: "in_progress", activeForm: "Writing the parser" },
+          { content: "Add tests", status: "pending" }
+        ]
+      }
     });
   });
 
@@ -394,6 +428,49 @@ describe("acp server", () => {
     for (const update of updates) {
       expect((update.params as { sessionId: string }).sessionId).toBe(sessionId);
     }
+  }, 30_000);
+
+  it("does not replay the previous turn as live updates on the next prompt", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-next-"));
+    const { send, awaitResponse } = connect({ heuristic: true, approvalMode: "full-access", maxIterations: 1 });
+
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+
+    await send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "session/prompt",
+      params: { sessionId, prompt: [{ type: "text", text: "first unique question" }] }
+    });
+    const first = await awaitResponse(3);
+    const firstText = first.notifications
+      .filter((message) => message.method === "session/update")
+      .map((message) => (message.params as { update?: { sessionUpdate?: string; content?: { text?: string } } }).update)
+      .filter((update) => update?.sessionUpdate === "agent_message_chunk")
+      .map((update) => update?.content?.text ?? "")
+      .join("");
+    expect(firstText).toContain("CrewCoder loop is wired and ready.");
+
+    await send({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "session/prompt",
+      params: { sessionId, prompt: [{ type: "text", text: "second unique question" }] }
+    });
+    const second = await awaitResponse(4);
+    const secondChunks = second.notifications
+      .filter((message) => message.method === "session/update")
+      .map((message) => (message.params as { update?: { sessionUpdate?: string; content?: { text?: string } } }).update);
+    expect(secondChunks.some((update) => update?.sessionUpdate === "user_message_chunk")).toBe(false);
+    const secondText = secondChunks
+      .filter((update) => update?.sessionUpdate === "agent_message_chunk")
+      .map((update) => update?.content?.text ?? "")
+      .join("");
+    expect(secondText).toContain("CrewCoder loop is wired and ready.");
+    expect(secondText.split("CrewCoder loop is wired and ready.").length - 1).toBe(1);
   }, 30_000);
 
   it("replays a saved transcript as notifications on session/load", async () => {

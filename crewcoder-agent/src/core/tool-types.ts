@@ -3,6 +3,7 @@ import type { TextPart } from "./messages.js";
 import type { SandboxContext } from "./sandbox.js";
 import type { ResolvedAgentMode } from "./types.js";
 import type { IntegrationProfile } from "./integration-profile.js";
+import type { CrewcoderWorkflowState } from "../modes/crewcoder-workflow.js";
 export type ToolExecutionMode = "sequential" | "parallel";
 export type JsonSchema = boolean | JsonObjectSchema | JsonArraySchema | JsonStringSchema | JsonNumberSchema | JsonBooleanSchema;
 export type JsonObjectSchema = { type: "object"; properties?: Record<string, JsonSchema>; required?: string[]; additionalProperties?: boolean | JsonSchema; description?: string };
@@ -28,7 +29,7 @@ export type TextFileHost = {
   writeTextFile?(absolutePath: string, content: string): Promise<void>;
 };
 
-export type ToolContext = { cwd: string; externalDirectories?: string[]; mode: ResolvedAgentMode; integrationProfile?: IntegrationProfile; sessionId: string; mutationLog: string[]; sandbox?: SandboxContext; emit?: AgentEventSink; textFiles?: TextFileHost; delegateWorker?: (request: ChildWorkerDelegateRequest, signal?: AbortSignal) => Promise<ChildWorkerDelegateResult> };
+export type ToolContext = { cwd: string; externalDirectories?: string[]; mode: ResolvedAgentMode; integrationProfile?: IntegrationProfile; sessionId: string; mutationLog: string[]; sandbox?: SandboxContext; emit?: AgentEventSink; textFiles?: TextFileHost; delegateWorker?: (request: ChildWorkerDelegateRequest, signal?: AbortSignal) => Promise<ChildWorkerDelegateResult>; crewcoderWorkflow?: CrewcoderWorkflowState };
 export type ToolDefinition<TArgs extends Record<string, unknown> = Record<string, unknown>> = {
   name: string;
   description: string;

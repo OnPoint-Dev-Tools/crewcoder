@@ -182,10 +182,12 @@ The `/repaint` command (alias `/redraw`) forces `Renderer.render(true)` through 
 
 Conversation view has no persistent header; the transcript owns the full surface above the one-row composer gap. The centered fresh-home landing screen keeps its landing logo. Safety and focused Live UI status belong at the top of the right sidebar; modified files use the upper content area; workspace location and Git branch/dirty state belong in its anchored footer. The sidebar anchors a combined, wrapped `<cwd>:<git>` identity and CrewCoder brand footer to the bottom, below modified files, agents, and tasks. There is no persistent bottom runtime bar, and no task or file-change chrome belongs between the transcript and composer.
 
-Selecting a worker from `/modes` sets `state.worker` for the session and the composer prompt must show that worker. Selecting a built-in mode (`general`, `plugin`, `extension`) clears `state.worker`.
+Selecting a worker from `/modes` sets `state.worker` for the session and the composer prompt must show that worker. Selecting a built-in mode (`general`, `crewcoder`, `plugin`, `extension`) clears `state.worker`.
 
-Modes are explicit and there is no `auto` mode; `general` is the default. `plugin` is the CrewCode
-app plugin architect, `extension` is the CrewCoder extension architect — different systems, do not
+Modes are explicit and there is no `auto` mode; `general` is the default. `crewcoder` is the
+deliberate clarification and approved-plan workflow. `/approve-plan` accepts that
+plan; `/approve` remains the pending tool-call control. `plugin` is the CrewCode app plugin architect,
+`extension` is the CrewCoder extension architect — different systems, do not
 merge them in UI copy. `auto` still exists in persisted config/session records, so `normalizeTuiMode`
 in `state/tui-store.ts` coerces it to `general` on read instead of dropping the value. See
 `crewcoder-agent/docs/EXTENSION_MODE.md`.
@@ -260,7 +262,7 @@ Do not remove `thinking` blocks or collapse them into assistant text. Codex/Open
 
 User message `background` is intentional context from the coding-agent package. Render it as muted background under the user turn; do not pretend it was typed by the user, and do not drop it from state.
 
-Approval cards are live control-channel state, not passive logs. The TUI should keep `approval_required` blocks pending until `approval_resolved`, open a focused approval popup for the active decision, and keep `/approve` / `/deny` writing approval control messages to the running CrewCoder child process as fallback controls.
+Approval cards are live control-channel state, not passive logs. The TUI should keep `approval_required` blocks pending until `approval_resolved`, open a focused approval popup for the active decision, and keep `/approve` / `/deny` writing approval control messages to the running CrewCoder child process as fallback controls. `/approve-plan` is a CrewCoder-mode plan acceptance, not a tool-call approval: send it as a prompt or follow-up so the backend can unlock mutations.
 
 While the backend bridge is running, ordinary non-command composer submissions must use the same `follow_up` control channel as `/follow-up <message>` instead of starting or resuming another process. Keep slash-prefixed commands explicit and preserve normal prompt submission while the bridge is idle.
 

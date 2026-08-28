@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ToolDefinition } from "../core/tool-types.js";
 import { textResult } from "../core/tool-types.js";
-import { resolveInsideCwd, relativeToCwd } from "./path-utils.js";
+import { resolveReadablePath, relativeToCwd } from "./path-utils.js";
 
 type Args = { pattern: string; path?: string; maxMatches: number };
 
@@ -62,7 +62,7 @@ export const grepTool: ToolDefinition<Args> = {
     type: "object",
     properties: {
       pattern: { type: "string", description: "Case-insensitive regular expression to search for." },
-      path: { type: "string", description: "Workspace-relative path or absolute path inside a session external directory. Defaults to the workspace root." },
+      path: { type: "string", description: "Workspace-relative path or absolute path inside a session external directory or an on-demand skill catalog. Defaults to the workspace root." },
       maxMatches: { type: "integer", description: "Maximum number of matches to return.", minimum: 1, maximum: 1000 }
     },
     required: ["pattern"],
@@ -79,7 +79,7 @@ export const grepTool: ToolDefinition<Args> = {
   async execute(args, context) {
     if (!args.pattern) throw new Error("pattern is required");
     const target = args.path ?? ".";
-    const root = resolveInsideCwd(context.cwd, target, context.externalDirectories);
+    const root = resolveReadablePath(context.cwd, target, context.externalDirectories);
     const regex = compilePattern(args.pattern);
     const matches: string[] = [];
     const truncation = { line: false };

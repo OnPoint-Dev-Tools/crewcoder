@@ -31,7 +31,7 @@ Each `session.jsonl` starts with a header entry and then append-only entries:
 - `tool` entries for tool results
 - `compaction` entries for explicit/live compaction summaries
 - `branch_summary` entries for future branch summaries
-- `metadata` entries for events, mutation log, usage, checkpoints, and extension state
+- `metadata` entries for events, mutation log, usage, checkpoints, extension state, and the CrewCoder-mode workflow phase
 - `leaf` entries for future navigation/branch leaf changes
 
 The public loader still returns a `SessionRecord` by building context from the current leaf path.

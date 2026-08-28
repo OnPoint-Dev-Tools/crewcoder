@@ -107,7 +107,7 @@ Inside the TUI:
 /provider opencode
 /provider claude
 /provider codex
-/modes                    # general, plugin, extension, or a saved worker
+/modes                    # general, crewcoder, plugin, extension, or a saved worker
 /workers                  # alias of /modes
 /model
 /model default
@@ -133,6 +133,7 @@ Inside the TUI:
 /export [path]
 /task status|on|off|list|add|done # on/off apply only to this TUI instance
 /approve
+/approve-plan
 /deny
 /quit
 ```

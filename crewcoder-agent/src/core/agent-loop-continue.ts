@@ -70,6 +70,7 @@ export async function runAgentLoopContinue(input: {
     initialCheckpoints: session.checkpoints,
     initialModelTurns: session.modelTurns,
     initialProviderSessionIds: session.providerSessionIds,
-    initialExtensionEntries: session.extensionEntries
+    initialExtensionEntries: session.extensionEntries,
+    initialCrewcoderWorkflow: session.crewcoderWorkflow
   });
 }

@@ -16,6 +16,8 @@ When the backend emits `approval_required`, the TUI opens a focused approval pop
 
 - `/approve`: Approves the latest pending approval card.
 - `/approve <approvalId>`: Approves a specific pending approval.
+- `/approve-plan`: Accepts the current CrewCoder-mode implementation plan. This is
+  not a tool-call approval; the backend treats it as explicit plan approval.
 - `/deny`: Denies the latest pending approval card.
 - `/deny <approvalId>`: Denies a specific pending approval.
 - `/full-access on`: Bypass future approval prompts and allow dangerous commands in this TUI session.

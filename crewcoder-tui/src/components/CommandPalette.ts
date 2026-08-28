@@ -39,7 +39,7 @@ export const commandCategories: CommandCategory[] = [
   { title: "Settings", commands: [
     ["/profile", "Pick standalone or CrewCode-integrated behavior for this project"],
     ["/provider", "Pick any configured built-in or extension provider"], ["/model", "Pick model for the active provider"],
-    ["/effort", "Pick reasoning effort for this model"], ["/thinking", "Enable or disable provider reasoning: /thinking on|off|status"], ["/modes", "Pick mode or worker: general, plugin, extension, or a saved worker"],
+    ["/effort", "Pick reasoning effort for this model"], ["/thinking", "Enable or disable provider reasoning: /thinking on|off|status"], ["/modes", "Pick mode or worker: general, crewcoder, plugin, extension, or a saved worker"],
     ["/workers", "Pick mode or worker (alias of /modes)"], ["/prompts", "Pick a custom system prompt"],
     ["/full-access", "Toggle approval bypass: /full-access on|off"],
     ["/checkpoints", "Enable or disable automatic checkpoints: /checkpoints on|off|status"],
@@ -60,7 +60,7 @@ export const commandCategories: CommandCategory[] = [
     ["/handoff", "Hand off the active transcript to another worker: /handoff worker:name [prompt]"],
     ["/crew", "Run named workers sequentially: /crew worker1,worker2 <task>"],
     ["/teams", "List worker teams declared in crewcoder.json"], ["/team", "Run a declared team: /team <team> <task>"],
-    ["/approve", "Approve the latest pending tool call"], ["/deny", "Deny the latest pending tool call"],
+    ["/approve", "Approve the latest pending tool call"], ["/approve-plan", "Approve the current CrewCoder-mode plan"], ["/deny", "Deny the latest pending tool call"],
     ["/follow-up", "Queue a message for the active run: /follow-up <message>"], ["/stop", "Stop the active run"]
   ] },
   { title: "View", commands: [

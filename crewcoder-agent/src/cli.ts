@@ -126,7 +126,7 @@ function collectDirectoryPath(value: string, previous: string[] = []): string[] 
 
 program.command("run", { isDefault: true })
   .argument("[prompt...]")
-  .option("-m, --mode <mode>", "general, plugin, extension")
+  .option("-m, --mode <mode>", AGENT_MODE_LIST)
   .option("-p, --provider <provider>", "Provider id (see: crewcoder providers)")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
@@ -178,7 +178,7 @@ const crew = program.command("crew").description("Run and hand off work across n
 crew.command("run")
   .argument("<prompt...>")
   .requiredOption("--workers <names>", "Comma-separated worker names, e.g. reviewer,builder")
-  .option("-m, --mode <mode>", "general, plugin, extension")
+  .option("-m, --mode <mode>", AGENT_MODE_LIST)
   .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
@@ -195,7 +195,7 @@ crew.command("handoff")
   .argument("<workerRef>", "Target worker reference, e.g. worker:reviewer")
   .argument("<sessionId>", "Source session id")
   .argument("[prompt...]")
-  .option("-m, --mode <mode>", "general, plugin, extension")
+  .option("-m, --mode <mode>", AGENT_MODE_LIST)
   .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
@@ -223,7 +223,7 @@ crewTeam.command("list", { isDefault: true }).option("--json", "Output raw JSON"
 crewTeam.command("run")
   .argument("<teamId>")
   .argument("<prompt...>")
-  .option("-m, --mode <mode>", "general, plugin, extension")
+  .option("-m, --mode <mode>", AGENT_MODE_LIST)
   .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
@@ -324,7 +324,7 @@ program.command("search").argument("<query...>").option("--json", "Output struct
 const goalCommand = program.command("goal").description("Run and manage durable detached goals.");
 goalCommand.command("start")
   .argument("<objective...>")
-  .option("-m, --mode <mode>", "general, plugin, extension")
+  .option("-m, --mode <mode>", AGENT_MODE_LIST)
   .option("-p, --provider <provider>", "Provider id")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
@@ -466,7 +466,7 @@ session.command("prune")
     for (const failure of plan.failures) console.log(pc.red(`  failed: ${failure.path} (${failure.error})`));
     if (plan.failures.length) process.exitCode = 1;
   });
-session.command("resume").argument("<id>").argument("[prompt...]").option("--json-events", "Emit JSON events").option("-p, --provider <provider>").option("--model <model>").option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh").option("--mode <mode>", "auto, general, plugin", "auto").option("--budget <tokens>", "Set or replace the durable session token budget").option("--max-tokens <tokens>", "Alias for --budget").option("--verify", "Run verification checks after the agent").option("--approval <mode>", "never, review, always, full-access, sandboxed", "never").option("--backend-debug-stderr", "Also stream backend debug events to stderr").option("--dump-model-input", "Write exact model input payloads to ~/.crewcoder/logs for debugging").option("--system-prompt <name>", "Use a stored custom system prompt for this resumed run").option("--worker <name>", "Use a specific worker identity for this resumed run only").option("--add-dir <path>", "Grant an external directory to this session (repeatable)", collectDirectoryPath, []).option("--image <path>", "Attach an image file for vision-capable providers (repeatable)", collectImagePath, []).action(async (id: string, promptParts: string[], options: RunOptions) => {
+session.command("resume").argument("<id>").argument("[prompt...]").option("--json-events", "Emit JSON events").option("-p, --provider <provider>").option("--model <model>").option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh").option("--mode <mode>", AGENT_MODE_LIST).option("--budget <tokens>", "Set or replace the durable session token budget").option("--max-tokens <tokens>", "Alias for --budget").option("--verify", "Run verification checks after the agent").option("--approval <mode>", "never, review, always, full-access, sandboxed", "never").option("--backend-debug-stderr", "Also stream backend debug events to stderr").option("--dump-model-input", "Write exact model input payloads to ~/.crewcoder/logs for debugging").option("--system-prompt <name>", "Use a stored custom system prompt for this resumed run").option("--worker <name>", "Use a specific worker identity for this resumed run only").option("--add-dir <path>", "Grant an external directory to this session (repeatable)", collectDirectoryPath, []).option("--image <path>", "Attach an image file for vision-capable providers (repeatable)", collectImagePath, []).action(async (id: string, promptParts: string[], options: RunOptions) => {
   const config = readConfig();
   const record = await loadSession(id);
   const externalDirectories = await validateExternalDirectories(record.cwd, [...(record.externalDirectories ?? []), ...(options.addDir ?? [])]);

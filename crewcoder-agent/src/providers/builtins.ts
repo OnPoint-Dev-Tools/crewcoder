@@ -58,8 +58,8 @@ export const builtinProviders: ProviderDefinition[] = [
     // Verified against `grok models` on a logged-in CLI, not from docs. The CLI
     // exposes only what the signed-in account grants, and these are NOT the xAI
     // HTTP API ids (`grok-4.1-fast`, `grok-code-fast-1`) carried by `xai`.
-    models: ["grok-4.5"],
-    defaultModel: "grok-4.5",
+    models: ["grok-4.5", "grok-4.6"],
+    defaultModel: "grok-4.6",
     // ACP `session/new` carries an explicit cwd, unlike the direct HTTP providers.
     capabilities: { ...directCapabilities, acceptsWorkingDirectory: true },
     transport: { channel: "process", continuation: "provider-session", replay: "never" },

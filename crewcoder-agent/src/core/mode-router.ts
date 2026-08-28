@@ -1,6 +1,6 @@
 import type { AgentMode, ResolvedAgentMode } from "./types.js";
 
-export const AGENT_MODES: readonly AgentMode[] = ["general", "plugin", "extension"];
+export const AGENT_MODES: readonly AgentMode[] = ["general", "crewcoder", "plugin", "extension"];
 
 export const DEFAULT_AGENT_MODE: AgentMode = "general";
 
@@ -19,7 +19,7 @@ const LEGACY_MODE_ALIASES: Record<string, AgentMode> = {
 };
 
 export function isAgentMode(value: string): value is AgentMode {
-  return value === "general" || value === "plugin" || value === "extension";
+  return value === "general" || value === "crewcoder" || value === "plugin" || value === "extension";
 }
 
 /** Coerce arbitrary/persisted input to a valid mode, falling back to the default. */

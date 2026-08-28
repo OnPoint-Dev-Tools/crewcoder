@@ -1,6 +1,6 @@
 import { CrewCoderError, CrewCoderFleetProtocolError, CrewCoderFleetRequestError } from "./errors.js";
 
-export type CrewCoderAgentMode = "general" | "plugin" | "extension";
+export type CrewCoderAgentMode = "general" | "crewcoder" | "plugin" | "extension";
 export type CrewCoderApprovalMode = "never" | "review" | "always" | "full-access" | "sandboxed";
 /** Browser-safe structural event type. Narrow by `type` and validate fields used by your UI. */
 export type CrewCoderRemoteAgentEvent = { type: string; [key: string]: unknown };

@@ -18,7 +18,7 @@ Choose a saved worker. The TUI then:
 - changes the composer label to the worker name;
 - passes `--worker <name>` to future `run` or `session resume` backend calls.
 
-Selecting `general`, `plugin`, or `extension` clears the saved worker selection.
+Selecting `general`, `crewcoder`, `plugin`, or `extension` clears the saved worker selection.
 
 Workers must already exist. Create and inspect them from a shell:
 

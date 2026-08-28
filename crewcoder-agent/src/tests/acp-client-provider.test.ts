@@ -126,6 +126,43 @@ describe("acp client provider", () => {
     expect(result.stdout).toBe("outcome:reject-once");
   });
 
+  it("serves on-demand skill catalog reads without granting writes", async () => {
+    const skillDir = path.join(process.env.CREWCODER_HOME!, "skills", "pdf");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(skillFile, "skill body", "utf8");
+    const previous = process.env.CREWCODER_FAKE_ACP_SKILL_PATH;
+    process.env.CREWCODER_FAKE_ACP_SKILL_PATH = skillFile;
+    try {
+      const result = await runAcpClientProvider(request("skill-fs", cwd));
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("skill:skill body");
+      expect(result.stdout).toContain("write:denied");
+      expect(result.stdout).toContain(path.join(process.env.CREWCODER_HOME!, "skills"));
+      expect(await fs.readFile(skillFile, "utf8")).toBe("skill body");
+    } finally {
+      if (previous === undefined) delete process.env.CREWCODER_FAKE_ACP_SKILL_PATH;
+      else process.env.CREWCODER_FAKE_ACP_SKILL_PATH = previous;
+    }
+  });
+
+  it("auto-allows elevated read-only skill catalog permission without a host prompt", async () => {
+    const skillDir = path.join(process.env.CREWCODER_HOME!, "skills", "pdf");
+    const skillFile = path.join(skillDir, "SKILL.md");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(skillFile, "skill body", "utf8");
+    const previous = process.env.CREWCODER_FAKE_ACP_SKILL_PATH;
+    process.env.CREWCODER_FAKE_ACP_SKILL_PATH = skillFile;
+    try {
+      const result = await runAcpClientProvider(request("skill-permission", cwd));
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("outcome:allow-once");
+    } finally {
+      if (previous === undefined) delete process.env.CREWCODER_FAKE_ACP_SKILL_PATH;
+      else process.env.CREWCODER_FAKE_ACP_SKILL_PATH = previous;
+    }
+  });
+
   it("serves fs reads inside the workspace and denies path escapes", async () => {
     await fs.writeFile(path.join(cwd, "acp-fixture.txt"), "workspace content", "utf8");
     const result = await runAcpClientProvider(request("fs", cwd));
@@ -149,6 +186,18 @@ describe("acp client provider", () => {
 
     expect(result.exitCode).toBe(0);
     expect(recorded.sessionIds).toEqual(["kept-session"]);
+  });
+
+  it("does not treat session/load transcript replay as this turn's assistant text", async () => {
+    const { stream, recorded } = recorder();
+    const result = await runAcpClientProvider(request("ok", cwd, stream, "kept-session"));
+
+    expect(result.exitCode).toBe(0);
+    expect(recorded.assistant.join("")).not.toContain("prior user");
+    expect(recorded.assistant.join("")).not.toContain("prior assistant");
+    expect(recorded.assistant.slice(0, 2)).toEqual(["Hello ", "from Grok."]);
+    expect(result.stdout).toContain("Hello from Grok.");
+    expect(result.stdout).not.toContain("prior assistant");
   });
 
   it("treats an empty turn as a provider failure rather than a successful reply", async () => {

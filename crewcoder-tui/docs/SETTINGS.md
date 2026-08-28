@@ -9,7 +9,7 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 | `/provider` | session selection | Select the provider used by future prompts. |
 | `/model` | session selection | Select a model for the active provider. |
 | `/effort` | session selection | Select supported reasoning effort. |
-| `/modes` | session selection | Select `general`, `plugin`, `extension`, or a saved worker. `/workers` is an alias. |
+| `/modes` | session selection | Select `general`, `crewcoder`, `plugin`, `extension`, or a saved worker. `/workers` is an alias. |
 | `/prompts` | session selection | Select a stored custom system prompt. |
 | `/full-access on\|off` | session | Enable or disable approval bypass. `/new` resets it to review mode. |
 | `/checkpoints on\|off\|status` | backend config | Enable or disable automatic pre-mutation filesystem checkpoints. Existing checkpoints are preserved. |

@@ -13,6 +13,7 @@ const reply = (id, result) => send({ jsonrpc: "2.0", id, result });
 const update = (sessionId, update) => send({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
 
 let clientCapabilities;
+let additionalDirectories = [];
 let requestId = 0;
 const pending = new Map();
 
@@ -46,13 +47,21 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
   }
 
   if (method === "session/new") {
+    additionalDirectories = params.additionalDirectories ?? [];
     reply(id, { sessionId: "fake-session-1" });
     return;
   }
 
   if (method === "session/load") {
     if (mode === "load-fails") send({ jsonrpc: "2.0", id, error: { code: -32603, message: "unknown session" } });
-    else reply(id, {});
+    else {
+      const sessionId = params.sessionId;
+      // Spec: replay transcript before the load response. Live turns must not
+      // treat these chunks as this turn's assistant output.
+      update(sessionId, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "prior user" } });
+      update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "prior assistant" } });
+      reply(id, {});
+    }
     return;
   }
 
@@ -78,6 +87,42 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
       const readResult = await ask("fs/read_text_file", { sessionId, path: "acp-fixture.txt" });
       const escape = await ask("fs/write_text_file", { sessionId, path: "../../escaped.txt", content: "nope" });
       update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `read:${readResult.content}|escape:${escape.error ? "denied" : "allowed"}` } });
+      reply(id, { stopReason: "end_turn" });
+      return;
+    }
+
+    if (mode === "skill-fs") {
+      const skillPath = process.env.CREWCODER_FAKE_ACP_SKILL_PATH;
+      const readResult = await ask("fs/read_text_file", { sessionId, path: skillPath });
+      const writeResult = await ask("fs/write_text_file", { sessionId, path: skillPath, content: "mutated" });
+      update(sessionId, {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: `skill:${readResult.content ?? readResult.error?.message}|write:${writeResult.error ? "denied" : "allowed"}|roots:${additionalDirectories.join(",")}`
+        }
+      });
+      reply(id, { stopReason: "end_turn" });
+      return;
+    }
+
+    if (mode === "skill-permission") {
+      const skillPath = process.env.CREWCODER_FAKE_ACP_SKILL_PATH;
+      const outcome = await ask("session/request_permission", {
+        sessionId,
+        toolCall: {
+          toolCallId: "call-1",
+          title: "Read skill",
+          kind: "read",
+          locations: [{ path: skillPath }],
+          rawInput: { path: skillPath }
+        },
+        options: [
+          { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+          { optionId: "reject-once", name: "Reject", kind: "reject_once" }
+        ]
+      });
+      update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `outcome:${outcome.outcome?.optionId ?? outcome.outcome?.outcome}` } });
       reply(id, { stopReason: "end_turn" });
       return;
     }

@@ -1,6 +1,8 @@
 import type { ToolDefinition } from "../core/tool-types.js";
 import { textResult } from "../core/tool-types.js";
 import { readCrewTasksConfig } from "./config.js";
+import { formatNumberedTask, sessionDisplayNumbers, taskStorageKey } from "./display.js";
+import { withTodoSnapshot } from "./snapshot.js";
 import { CrewTaskStore } from "./store.js";
 import type { CrewTask, CrewTaskStatus } from "./types.js";
 
@@ -8,11 +10,12 @@ function assertEnabled(): void {
   if (!readCrewTasksConfig().enabled) throw new Error("crew-tasks is disabled. Run /task on or `crewcoder task on` first.");
 }
 
-function formatTask(task: CrewTask): string {
-  const owner = task.owner ? ` (${task.owner})` : "";
-  const session = task.sessionId ? ` session=${task.sessionId}` : "";
-  const blocked = task.blockedBy.length ? ` blockedBy=${task.blockedBy.map((id) => `#${id}`).join(",")}` : "";
-  return `#${task.id} [${task.status}] ${task.subject}${owner}${session}${blocked}`;
+function sessionTasks(store: CrewTaskStore, sessionId?: string): CrewTask[] {
+  return store.list("id", { sessionId, includeCompleted: true });
+}
+
+function displayNumber(task: CrewTask, tasks: CrewTask[]): number {
+  return sessionDisplayNumbers(tasks).get(taskStorageKey(task)) ?? Number(task.id);
 }
 
 export const TaskCreateTool: ToolDefinition<{ subject: string; description: string; activeForm?: string; owner?: string; metadata?: Record<string, unknown> }> = {
@@ -43,8 +46,10 @@ export const TaskCreateTool: ToolDefinition<{ subject: string; description: stri
     assertEnabled();
     if (!args.subject) throw new Error("subject is required");
     if (!args.description) throw new Error("description is required");
-    const task = new CrewTaskStore(context.cwd).create({ ...args, sessionId: context.sessionId, metadata: { ...(args.metadata ?? {}), source: "agent" } });
-    return textResult(`Task #${task.id} created: ${task.subject}`, { task });
+    const store = new CrewTaskStore(context.cwd);
+    const task = store.create({ ...args, sessionId: context.sessionId, metadata: { ...(args.metadata ?? {}), source: "agent" } });
+    const tasks = sessionTasks(store, context.sessionId);
+    return textResult(`Created #${displayNumber(task, tasks)}: ${task.subject}`, withTodoSnapshot({ task }, tasks));
   }
 };
 
@@ -67,8 +72,10 @@ export const TaskListTool: ToolDefinition<{ sort?: "id" | "status" | "recent" | 
   async execute(args, context) {
     assertEnabled();
     const cfg = readCrewTasksConfig();
-    const tasks = new CrewTaskStore(context.cwd).list(args.sort ?? cfg.sortOrder, { sessionId: args.sessionOnly ? context.sessionId : undefined, includeCompleted: args.includeCompleted });
-    return textResult(tasks.length ? tasks.map(formatTask).join("\n") : "No tasks found", { count: tasks.length });
+    const store = new CrewTaskStore(context.cwd);
+    const tasks = store.list(args.sort ?? cfg.sortOrder, { sessionId: args.sessionOnly ? context.sessionId : undefined, includeCompleted: args.includeCompleted });
+    const numbers = sessionDisplayNumbers(tasks);
+    return textResult(tasks.length ? tasks.map((task) => formatNumberedTask(task, numbers)).join("\n") : "No tasks found", withTodoSnapshot({ count: tasks.length }, tasks));
   }
 };
 
@@ -79,19 +86,22 @@ export const TaskGetTool: ToolDefinition<{ taskId: string }> = {
   parse(args) { return { taskId: String(args.taskId ?? "").trim() }; },
   async execute(args, context) {
     assertEnabled();
-    const task = new CrewTaskStore(context.cwd).get(args.taskId);
-    if (!task) return textResult(`Task #${args.taskId} not found`);
+    const store = new CrewTaskStore(context.cwd);
+    const task = store.get(args.taskId, context.sessionId);
+    if (!task) return textResult(`Task not found: ${args.taskId}`);
+    const tasks = sessionTasks(store, task.sessionId ?? context.sessionId);
     const lines = [
-      `Task #${task.id}: ${task.subject}`,
+      `Task #${displayNumber(task, tasks)}: ${task.subject}`,
+      `taskId: ${task.id}`,
       `Status: ${task.status}`,
       task.sessionId ? `Session: ${task.sessionId}` : undefined,
       task.owner ? `Owner: ${task.owner}` : undefined,
       `Description: ${task.description.replace(/\\n/g, "\n")}`,
-      task.blockedBy.length ? `Blocked by: ${task.blockedBy.map((id) => `#${id}`).join(", ")}` : undefined,
-      task.blocks.length ? `Blocks: ${task.blocks.map((id) => `#${id}`).join(", ")}` : undefined,
+      task.blockedBy.length ? `Blocked by: ${task.blockedBy.join(", ")}` : undefined,
+      task.blocks.length ? `Blocks: ${task.blocks.join(", ")}` : undefined,
       Object.keys(task.metadata).length ? `Metadata: ${JSON.stringify(task.metadata)}` : undefined
     ].filter(Boolean) as string[];
-    return textResult(lines.join("\n"), { task });
+    return textResult(lines.join("\n"), withTodoSnapshot({ task }, tasks));
   }
 };
 
@@ -131,10 +141,14 @@ export const TaskUpdateTool: ToolDefinition<{ taskId: string; status?: CrewTaskS
   async execute(args, context) {
     assertEnabled();
     const { taskId, ...fields } = args;
-    const result = new CrewTaskStore(context.cwd).update(taskId, fields);
-    if (!result.task && !result.changedFields.length) return textResult(`Task #${taskId} not found`);
+    const store = new CrewTaskStore(context.cwd);
+    const result = store.update(taskId, fields, context.sessionId);
+    if (!result.task && !result.changedFields.length) return textResult(`Task not found: ${taskId}`);
     const warnings = result.warnings.length ? ` (warning: ${result.warnings.join("; ")})` : "";
-    return textResult(`Updated task #${taskId}: ${result.changedFields.join(", ")}${warnings}`, result);
+    const sessionId = result.task?.sessionId ?? context.sessionId;
+    const tasks = sessionTasks(store, sessionId);
+    const label = result.task ? `#${displayNumber(result.task, tasks)}: ${result.task.subject}` : taskId;
+    return textResult(`Updated ${label} (${result.changedFields.join(", ")})${warnings}`, withTodoSnapshot(result, tasks));
   }
 };
 
@@ -145,8 +159,13 @@ export const TaskDeleteTool: ToolDefinition<{ taskId: string }> = {
   parse(args) { return { taskId: String(args.taskId ?? "").trim() }; },
   async execute(args, context) {
     assertEnabled();
-    const deleted = new CrewTaskStore(context.cwd).delete(args.taskId);
-    return textResult(deleted ? `Deleted task #${args.taskId}` : `Task #${args.taskId} not found`, { deleted });
+    const store = new CrewTaskStore(context.cwd);
+    const existing = store.get(args.taskId, context.sessionId);
+    const sessionId = existing?.sessionId ?? context.sessionId;
+    const tasks = sessionTasks(store, sessionId);
+    const label = existing ? `#${displayNumber(existing, tasks)}: ${existing.subject}` : args.taskId;
+    const deleted = store.delete(args.taskId, context.sessionId);
+    return textResult(deleted ? `Deleted ${label}` : `Task not found: ${args.taskId}`, withTodoSnapshot({ deleted }, sessionTasks(store, sessionId)));
   }
 };
 

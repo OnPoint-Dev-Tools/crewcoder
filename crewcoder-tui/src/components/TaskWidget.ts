@@ -115,7 +115,7 @@ function sessionDisplayNumbers(tasks: CrewTaskRecord[]): Map<string, number> {
   const creationOrder = [...tasks].sort((left, right) => {
     const leftId = Number(left.id);
     const rightId = Number(right.id);
-    if (Number.isFinite(leftId) && Number.isFinite(rightId)) return leftId - rightId;
+    if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) return leftId - rightId;
     return left.id.localeCompare(right.id);
   });
   return new Map(creationOrder.map((task, index) => [task.id, index + 1]));

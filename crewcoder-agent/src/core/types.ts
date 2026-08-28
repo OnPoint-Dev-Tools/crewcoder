@@ -2,7 +2,7 @@
  * Modes are explicit. There is no `auto` mode and no keyword routing: whatever the
  * caller asks for is what runs. `general` is the default.
  */
-export type AgentMode = "general" | "plugin" | "extension";
+export type AgentMode = "general" | "crewcoder" | "plugin" | "extension";
 /**
  * Retained as a distinct name because the loop/prompt layers talk about the *resolved*
  * mode, but every `AgentMode` is now directly resolvable.
