@@ -3,7 +3,19 @@
    "version": "0.6.3",
    "private": false,
    "description": "CrewCoder custom terminal UI connected to crewcoder-agent with wired backend process bridge.",
+   "license": "Apache-2.0",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git",
+      "directory": "crewcoder-tui"
+   },
+   "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+   "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
    "type": "module",
+   "publishConfig": {
+      "access": "public",
+      "provenance": true
+   },
    "bin": {
       "crewcoder-tui": "./dist/cli.js"
    },

@@ -6,21 +6,35 @@ const root = path.resolve(__dirname, "..");
 const agentPath = path.join(root, "crewcoder-agent", "package.json");
 const sdkPath = path.join(root, "crewcoder-sdk", "package.json");
 const clientPath = path.join(root, "crewcoder-client", "package.json");
+const tuiPath = path.join(root, "crewcoder-tui", "package.json");
 const agent = JSON.parse(fs.readFileSync(agentPath, "utf8"));
 const sdk = JSON.parse(fs.readFileSync(sdkPath, "utf8"));
 const client = JSON.parse(fs.readFileSync(clientPath, "utf8"));
+const tui = JSON.parse(fs.readFileSync(tuiPath, "utf8"));
 const publishing = process.argv.includes("--publish");
 const failures = [];
+const expectedRepositoryHost = "github.com/OnPoint-Dev-Tools/crewcoder";
+
+function packageRepositoryUrl(manifest) {
+  if (typeof manifest.repository === "string") return manifest.repository;
+  if (manifest.repository && typeof manifest.repository.url === "string") return manifest.repository.url;
+  return "";
+}
 
 if (agent.version !== sdk.version || client.version !== sdk.version) failures.push(`Version mismatch: agent=${agent.version}, client=${client.version}, sdk=${sdk.version}`);
 if (sdk.dependencies?.[agent.name] !== agent.version) failures.push(`SDK dependency ${agent.name} must exactly match ${agent.version}.`);
 if (sdk.dependencies?.[client.name] !== client.version) failures.push(`SDK dependency ${client.name} must exactly match ${client.version}.`);
-if (agent.license !== "Apache-2.0" || sdk.license !== "Apache-2.0" || client.license !== "Apache-2.0") failures.push("Agent, client, and SDK must declare Apache-2.0.");
+if (agent.license !== "Apache-2.0" || sdk.license !== "Apache-2.0" || client.license !== "Apache-2.0" || tui.license !== "Apache-2.0") failures.push("Agent, client, SDK, and TUI must declare Apache-2.0.");
 if (agent.engines?.node !== ">=22.0.0" || sdk.engines?.node !== ">=22.0.0") failures.push("Agent and SDK must require Node.js >=22.0.0.");
-for (const packageDirectory of ["crewcoder-agent", "crewcoder-client", "crewcoder-sdk"]) {
+for (const packageDirectory of ["crewcoder-agent", "crewcoder-client", "crewcoder-sdk", "crewcoder-tui"]) {
   for (const file of ["LICENSE", "README.md"]) {
     if (!fs.existsSync(path.join(root, packageDirectory, file))) failures.push(`${packageDirectory}/${file} is missing.`);
   }
+}
+for (const [label, manifest] of [["agent", agent], ["client", client], ["sdk", sdk], ["tui", tui]]) {
+  const repositoryUrl = packageRepositoryUrl(manifest);
+  if (!repositoryUrl) failures.push(`${label} package.json repository.url is missing.`);
+  else if (!repositoryUrl.includes(expectedRepositoryHost)) failures.push(`${label} repository.url must point at ${expectedRepositoryHost}.`);
 }
 if (!fs.existsSync(path.join(root, "crewcoder-sdk", "CHANGELOG.md"))) failures.push("crewcoder-sdk/CHANGELOG.md is missing.");
 
@@ -40,8 +54,8 @@ const clientFleetVersion = clientFleetSource.match(/CREWCODER_FLEET_PROTOCOL_VER
 if (!agentFleetVersion || agentFleetVersion !== clientFleetVersion) failures.push(`Fleet protocol version mismatch: agent=${agentFleetVersion ?? "missing"}, client=${clientFleetVersion ?? "missing"}.`);
 
 if (publishing) {
-  if (agent.private === true || sdk.private === true || client.private === true) failures.push("Publishing is blocked while any package has private: true.");
-  if (!agent.repository || !sdk.repository || !client.repository) failures.push("Publishing requires repository metadata in every package.");
+  if (agent.private === true || sdk.private === true || client.private === true || tui.private === true) failures.push("Publishing is blocked while any package has private: true.");
+  if (!agent.repository || !sdk.repository || !client.repository || !tui.repository) failures.push("Publishing requires repository metadata in every package.");
 }
 
 if (failures.length) {
