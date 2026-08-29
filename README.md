@@ -5,6 +5,8 @@
 **Extensible, security-conscious coding-agent platform**
 
 [![SDK checks](https://github.com/OnPoint-Dev-Tools/crewcoder/actions/workflows/sdk-check.yml/badge.svg)](https://github.com/OnPoint-Dev-Tools/crewcoder/actions/workflows/sdk-check.yml)
+[![npm (crewcoder)](https://img.shields.io/npm/v/crewcoder?label=crewcoder)](https://www.npmjs.com/package/crewcoder)
+[![npm weekly downloads](https://img.shields.io/npm/dw/crewcoder?label=weekly%20downloads)](https://npm-stat.com/charts.html?package=crewcoder)
 [![npm (sdk)](https://img.shields.io/npm/v/@onpoint-dev-tools/crewcoder-agent?label=agent)](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-agent)
 [![npm (sdk)](https://img.shields.io/npm/v/@onpoint-dev-tools/crewcoder-tui?label=tui)](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-tui)
 [![npm (sdk)](https://img.shields.io/npm/v/@onpoint-dev-tools/crewcoder-sdk?label=sdk)](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-sdk)
