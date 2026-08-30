@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import type { ProviderRunInput, ProviderRunResult } from "./types.js";
+import { enforceProviderFileCustody } from "./provider-file-custody.js";
 
 export async function runProcessProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult> {
+  enforceProviderFileCustody(input);
   const timeoutMs = input.timeoutMs ?? 120_000;
   const args = renderArgs(input.provider.args, input);
   const startedAt = Date.now();

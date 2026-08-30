@@ -58,6 +58,7 @@ see "Deliberate deviations" below.
 | `session/prompt` | Runs the agent loop; resolves with a `stopReason` |
 | `session/cancel` | Aborts the run via `AbortSignal` |
 | `session/set_model` | Switches provider/model. Routed through `extMethod` |
+| `session/set_approval_mode` | Switches the active session approval/sandbox mode without respawning CrewCoder |
 | `session/set_external_directories` | Replaces and persists the session's explicitly granted filesystem roots |
 | `authenticate` | No-op; credentials are managed by `crewcoder auth` |
 
@@ -89,6 +90,15 @@ accepts `{ sessionId, directories }`, validates directories on the agent host, r
 session grant set, and persists changes once the session exists durably. CrewCode calls it after
 new/load; sending an empty array is required to revoke stale grants. See
 [`EXTERNAL_DIRECTORIES.md`](./EXTERNAL_DIRECTORIES.md).
+
+`session/set_approval_mode` is another additive extension. It accepts
+`{ sessionId, approvalMode }`, where `approvalMode` is `never`, `review`, `always`,
+`full-access`, or `sandboxed`. The value is session-scoped and applies to the next prompt.
+Clients that own the complete execution safety boundary may synchronize their trust mode
+after `session/new` / `session/load` and whenever it changes. A client that retains a host-side
+dangerous-command tripwire should keep CrewCoder in `review` and auto-resolve ordinary ACP
+permission requests instead; setting `full-access` makes Codex unrestricted and prevents that
+host from inspecting provider-native commands before execution.
 
 `session/prompt` reports usage **twice**: `_meta["crewcoder/usage"]` (spec-correct,
 full `UsageSummary` including `contextWindow` and `lastInputTokens`) and a top-level
@@ -152,14 +162,26 @@ Options are offered with the standard ids `allow_once`, `allow_always`,
 because clients are known to answer with shortened ids (CrewCode replies `reject`).
 `allow_always` / `reject_always` are remembered per session and per tool name.
 
-CrewCode's composer modes already have an ACP lane, which maps onto CrewCoder's
-`ApprovalMode`:
+Provider-native operations use the same visible permission surface. When Codex app-server,
+Claude Agent SDK, or a nested ACP provider calls `ModelStreamCallbacks.requestQuestion` with
+options, the adapter announces a pending provider-question tool row and forwards the choices
+through `session/request_permission`. Standard approval ids are mapped back to the provider's
+original values (`allow_once` to `accept`, `allow_always` to `acceptForSession`, and
+`reject_once` to `decline` for Codex). Codex's elevated-permission `turn` value also maps to
+ACP `allow_once` and back; otherwise CrewCode's canonical response would be mistaken for a
+rejection. Cancellation returns no answer, so providers retain
+their fail-closed behavior without falsely claiming that the user rejected an unseen prompt.
 
-| CrewCode mode | ACP lane | `--approval` |
+CrewCode deliberately keeps CrewCoder in `review` for Build and Full. Full auto-resolves
+ordinary `session/request_permission` calls while retaining CrewCode's catastrophic-command
+tripwire; it must not select unrestricted Codex `dangerFullAccess`, which would bypass that gate.
+Ask and Plan cancel mutation requests at the ACP client boundary.
+
+| CrewCode mode | ACP lane | CrewCoder approval mode |
 |---|---|---|
-| `ask` / `plan` | permission requests declined | `always` |
+| `ask` / `plan` | permission requests declined | `review` |
 | `build` | permission overlay shown | `review` (default) |
-| `full` | auto-accept | `full-access` |
+| `full` | ordinary requests auto-accepted; catastrophic commands require confirmation | `review` |
 
 ## Stop reasons
 
@@ -226,6 +248,12 @@ client instead of `node:fs`. That gets CrewCoder two things it cannot do on its 
 **unsaved editor buffers**, and **remote workspaces** (CrewCode proxies these over
 SFTP).
 
+Those capabilities describe available file methods, not workspace custody. The client
+must separately send `_meta["crewcode/virtualFilesystem"]` on `initialize`. CrewCode
+sends `false` for local chats and `true` for remote SSH chats.
+Only the explicit `true` disables provider-native file access and activates the
+runtime custody policy; missing metadata remains local-compatible for other ACP clients.
+
 ```txt
 tools/text-file-io.ts   single choke point: host filesystem, else node:fs
 ToolContext.textFiles   optional TextFileHost, plumbed from AgentLoopOptions
@@ -234,6 +262,9 @@ acp/client-files.ts     builds a TextFileHost backed by conn.readTextFile/writeT
 
 Three rules the implementation depends on:
 
+- **Capability and custody are separate.** Local clients can provide `fs/*` for
+  unsaved buffers while still allowing local provider runtimes. Never infer virtual
+  custody from `clientCapabilities.fs`.
 - **Read and write are independent.** A client may offer reads without writes, so
   each method is wired only if actually claimed and each falls back separately.
   All-or-nothing gating would silently disable writes for read-only clients.

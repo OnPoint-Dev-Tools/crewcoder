@@ -13,6 +13,10 @@
 import type { AgentSideConnection, ClientCapabilities } from "@agentclientprotocol/sdk";
 import type { TextFileHost } from "../core/tool-types.js";
 
+export function virtualFilesystemFromMeta(meta: Record<string, unknown> | null | undefined): boolean {
+  return meta?.["crewcode/virtualFilesystem"] === true;
+}
+
 export function createClientTextFileHost(
   conn: AgentSideConnection,
   sessionId: string,

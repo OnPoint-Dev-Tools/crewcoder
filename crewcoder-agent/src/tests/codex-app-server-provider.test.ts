@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { textMessage, type ToolCallPart } from "../core/messages.js";
 import { setAuthCredential } from "../providers/auth-store.js";
-import { runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
+import { codexTurnPermissions, formatCodexCommandResult, formatCodexFileChangeResult, runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
 import type { ProviderDefinition } from "../providers/types.js";
 
 const originalHome = process.env.CREWCODER_HOME;
@@ -17,6 +17,26 @@ afterEach(() => {
 });
 
 describe("Codex app-server provider", () => {
+  it("does not start app-server when a virtual filesystem disables provider-native file tools", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
+    const marker = path.join(home, "app-server-started");
+    const server = path.join(home, "fake-codex.cjs");
+    fs.writeFileSync(server, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`, { mode: 0o755 });
+    process.env.CREWCODER_HOME = home;
+    process.env.CREWCODER_CODEX_PATH = server;
+
+    const result = await runCodexAppServerProvider({
+      provider,
+      prompt: "write remotely",
+      cwd: "/remote/project",
+      model: "gpt-test",
+      modelInput: { systemPrompt: "system", messages: [textMessage("user", "write remotely")], useProviderNativeFileTools: false, availableTools: [{ name: "write", description: "host-backed write" }] }
+    });
+
+    expect(result).toBeUndefined();
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
   it("persists a durable thread id and resumes it with only the latest prompt", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
     const log = path.join(home, "requests.jsonl");
@@ -66,7 +86,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(turn.params.input[0]?.text).not.toContain("old prompt");
     expect(turn.params.summary).toBe("none");
     expect(turn.params.approvalPolicy).toBe("never");
-    expect(turn.params.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
+    expect(turn.params.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: [], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
   });
 
   it("routes commentary agent messages through thinking and keeps the final answer separate", async () => {
@@ -119,6 +139,40 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(assistant).toEqual(["Inspection complete."]);
     expect(questions).toEqual(["Inspect the repository\npwd"]);
     expect(JSON.parse(result?.text ?? "{}").content).toEqual([{ type: "text", text: "Inspection complete." }]);
+  });
+
+  it("preserves a failed file change error instead of reporting only its proposed patch", () => {
+    expect(formatCodexFileChangeResult({
+      status: "failed",
+      changes: [{ path: "remote.txt", kind: "add", diff: "+text" }],
+      error: { message: "workspace patch gate rejected the remote path" }
+    })).toBe('workspace patch gate rejected the remote path\n\nProposed changes:\n[{"path":"remote.txt","kind":"add","diff":"+text"}]');
+  });
+
+  it("reports native command status when Codex returns no aggregated output", () => {
+    expect(formatCodexCommandResult({ status: "failed", aggregatedOutput: "", exitCode: 1 }))
+      .toBe("Codex command failed with exit code 1.");
+    expect(formatCodexCommandResult({ status: "declined", aggregatedOutput: "" }))
+      .toBe("Codex command was declined.");
+    expect(formatCodexCommandResult({ status: "failed", aggregatedOutput: "", error: { message: "sandbox denied rm" } }))
+      .toBe("sandbox denied rm");
+  });
+
+  it("uses network namespaces only for explicit sandboxed mode", () => {
+    const input = (approvalMode: "review" | "sandboxed" | "full-access") => ({
+      provider,
+      prompt: "inspect",
+      cwd: "/workspace",
+      model: "gpt-test",
+      modelInput: { systemPrompt: "system", messages: [], availableTools: [], approvalMode }
+    });
+
+    expect(codexTurnPermissions(input("review"))).toMatchObject({ sandboxPolicy: { networkAccess: true } });
+    expect(codexTurnPermissions(input("sandboxed"))).toMatchObject({ sandboxPolicy: { networkAccess: false } });
+    expect(codexTurnPermissions(input("full-access"))).toEqual({
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" }
+    });
   });
 
   it("falls back to the direct transport for legacy credentials without an id token", async () => {

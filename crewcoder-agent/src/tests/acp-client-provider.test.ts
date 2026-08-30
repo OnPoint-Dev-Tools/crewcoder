@@ -73,6 +73,14 @@ afterEach(async () => {
 });
 
 describe("acp client provider", () => {
+  it("refuses a virtual filesystem before spawning the nested agent", async () => {
+    const input = request("ok", "/remote/project");
+    input.provider = provider("ok", "command-that-must-not-run");
+    input.modelInput!.useProviderNativeFileTools = false;
+
+    await expect(runAcpClientProvider(input)).rejects.toThrow("Virtual filesystem custody unavailable for provider \"grok\"");
+  });
+
   it("streams assistant text, thinking, and native tool activity from the remote agent", async () => {
     const { stream, recorded } = recorder();
     const result = await runAcpClientProvider(request("ok", cwd, stream));

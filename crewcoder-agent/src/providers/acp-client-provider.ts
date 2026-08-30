@@ -40,6 +40,7 @@ import type { ProviderRunInput, ProviderRunResult } from "./types.js";
 import { CREWCODER_VERSION } from "../core/version.js";
 import { mergeSkillCatalogDirectories } from "../skills/filesystem/loader.js";
 import { isPathInsideSkillCatalog } from "../tools/path-utils.js";
+import { enforceProviderFileCustody } from "./provider-file-custody.js";
 
 /** Permission option kinds we treat as an approval, in descending preference. */
 const ALLOW_KINDS = ["allow_once", "allow_always"];
@@ -58,6 +59,7 @@ type AcpTurnState = {
 
 export async function runAcpClientProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult> {
   if (!input.modelInput) throw new Error("ACP client provider requires structured model input");
+  enforceProviderFileCustody(input);
 
   const args = renderArgs(input.provider.args, input);
   const child = spawn(input.provider.command, args, {

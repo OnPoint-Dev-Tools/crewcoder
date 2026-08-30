@@ -7,6 +7,7 @@ import type { ModelUsage } from "./usage.js";
 import type { ApprovalMode } from "./approval.js";
 export type ModelSessionContext = { sessionId: string; resumeFromSessionId?: string; continuation: boolean; providerSessionId?: string };
 export type ModelInput = { systemPrompt: string; messages: AgentMessage[]; externalDirectories?: string[]; useProviderNativeFileTools?: boolean; approvalMode?: ApprovalMode; availableTools: Array<{ name: string; description: string; parameters?: JsonObjectSchema }>; session?: ModelSessionContext };
+export type ModelQuestion = { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string };
 export type ModelStreamCallbacks = {
   onAssistantDelta?(text: string): Promise<void> | void;
   onThinkingDelta?(text: string): Promise<void> | void;
@@ -15,7 +16,7 @@ export type ModelStreamCallbacks = {
   executeTool?(call: ToolCallPart): Promise<ToolResultMessage>;
   onProviderToolStart?(call: ToolCallPart): Promise<void> | void;
   onProviderToolEnd?(result: { toolCallId: string; toolName: string; text: string; isError: boolean }): Promise<void> | void;
-  requestQuestion?(input: { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string }): Promise<string | undefined>;
+  requestQuestion?(input: ModelQuestion): Promise<string | undefined>;
 };
 export interface ModelClient {
   complete(input: ModelInput, signal?: AbortSignal, stream?: ModelStreamCallbacks): Promise<AssistantMessage>;

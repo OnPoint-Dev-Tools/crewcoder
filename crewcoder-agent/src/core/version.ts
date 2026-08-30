@@ -1,1 +1,1 @@
-export const CREWCODER_VERSION = "0.6.3" as const;
+export const CREWCODER_VERSION = "0.6.4" as const;

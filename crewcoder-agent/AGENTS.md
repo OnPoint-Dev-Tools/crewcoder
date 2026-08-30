@@ -241,8 +241,12 @@ Codex / OpenAI Responses:
 - Never treat reasoning token usage as proof the UI received a summary; usage can show reasoning_tokens while no summary was emitted.
 - If successful Codex output leaks raw SSE `data:` lines, normalize it back into CrewCoder assistant JSON before returning.
 - HTTP 200 does not prove a successful Codex turn: SSE `error`, `response.failed`, and `response.incomplete` events are terminal provider failures. A stream ending without assistant text, tool calls, or completion metadata is also a provider/protocol failure, never a successful `(empty Codex response)` placeholder.
-- Codex primarily uses official app-server durable threads stored under CrewCoder's isolated Codex home. Persist only the encoded thread/contract identifier in `providerSessionIds.codex`; never auth tokens. App-server native capabilities stay read-only and CrewCoder mutations route through dynamic tools. The direct connection-cached WebSocket and stateless SSE transports are guarded fallbacks; never replay after app-server `turn/start` has been sent.
+- Codex primarily uses official app-server durable threads stored under CrewCoder's isolated Codex home. Persist only the encoded thread/contract identifier in `providerSessionIds.codex`; never auth tokens. Local app-server turns use its native workspace-write shell/patch capabilities, and provider-native approval requests must route through the active host interaction channel. When `useProviderNativeFileTools` is false for an ACP/SDK virtual filesystem, skip app-server entirely and use the direct Responses transport so built-in local shell/patch tools cannot bypass the host filesystem. Preserve failed native `fileChange` error detail rather than projecting only its proposed patch. The direct connection-cached WebSocket and stateless SSE transports are guarded fallbacks; never replay after app-server `turn/start` has been sent.
+- Native Codex command failures must preserve error text and otherwise report declined status or exit code. Empty `aggregatedOutput` is not a useful failure result and must not become an unexplained blank tool row.
+- Codex app-server `networkAccess: false` is reserved for CrewCoder's explicit `sandboxed` approval mode. `review`, `always`, and `never` are approval policies rather than network sandboxes; forcing a private network namespace there breaks restricted Linux hosts with `bwrap: loopback: Failed RTM_NEWADDR` and causes misleading elevation retries.
+- ACP exposes session-scoped `session/set_approval_mode`, but hosts with their own dangerous-command tripwire must not blindly map UI Full mode to `full-access`: unrestricted provider-native execution would bypass the host gate. CrewCode intentionally keeps CrewCoder in `review` and auto-resolves ordinary ACP permission requests while retaining its catastrophic-command confirmation.
 - Provider protocol and physical transport are separate contracts. Famous providers use maintained built-in payload/auth adapters; extensions may select only vetted generic runtimes and must never access credential-owning adapters such as ChatGPT OAuth Codex.
+- Virtual filesystem custody is runtime-wide and fail-closed. `provider-file-custody.ts` exhaustively classifies every `ProviderRuntime`: HTTP/SSE and generic WebSocket adapters expose only CrewCoder tools; Claude disables native files; Codex skips app-server; `acp-client`, `process`, and `model-command` are refused before spawn because their subprocess can access local disk outside an ACP/SDK file host. Every new runtime must declare a policy and every native-tool adapter needs a virtual-host regression. Never infer that offering ACP `fs/*` proves a nested agent lacks a second native filesystem path.
 
 Claude Agent SDK:
 - `claude` is the local-login Agent SDK provider; `anthropic` remains the direct API-key Messages provider.
@@ -916,7 +920,10 @@ or an environment variable. See `docs/EXTERNAL_DIRECTORIES.md`.
 
 When a client advertises `clientCapabilities.fs`, `read`/`write`/`edit` route text I/O
 through `fs/read_text_file`/`fs/write_text_file` instead of `node:fs`, which is how
-CrewCoder sees unsaved editor buffers and remote (SFTP-proxied) workspaces.
+CrewCoder sees unsaved editor buffers and remote (SFTP-proxied) workspaces. Filesystem
+capability presence does not establish virtual custody: ACP clients must set
+`initialize._meta["crewcode/virtualFilesystem"]` explicitly. Local CrewCode chats send
+`false`; remote SSH chats send `true`.
 `src/tools/text-file-io.ts` is the single choke point; `ToolContext.textFiles` carries an
 optional `TextFileHost` that is deliberately host-agnostic, not ACP-specific. Read and
 write capabilities are **independent** — wire and fall back per method, because
@@ -944,6 +951,14 @@ otherwise the prompt references a row the client has never seen. Decisions feed 
 loop's `approvalSignal` (same channel as stdin control) — never saved-session polling.
 Permission responses are matched **by id prefix**, because clients answer with shortened
 ids (CrewCode replies `reject`, not `reject_once`).
+
+Provider-native approvals and questions use the loop's `requestQuestion` channel. The ACP
+adapter must route option-based requests through `session/request_permission`; never leave
+the callback absent, because Codex app-server interprets that as `decline` and reports a
+misleading `patch rejected by user` without showing the user an approval prompt.
+Canonical ACP answers must map back to the provider's original value: Codex uses both
+`accept` and elevated-permission `turn` for once-only approval, and CrewCode returns
+`allow_once` for either.
 
 Provider and stall failures are raised as JSON-RPC errors, never `stopReason: "end_turn"`;
 a failed run reported as a successful turn is the same class of bug as a provider error

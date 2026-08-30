@@ -14,6 +14,7 @@ import { runClaudeAgentSdkProvider } from "./claude-agent-sdk-provider.js";
 import { runAcpClientProvider } from "./acp-client-provider.js";
 import type { BackendDebugLogger } from "../core/backend-debug-logger.js";
 import { resolveProviderTransport } from "./provider-transport.js";
+import { enforceProviderFileCustody } from "./provider-file-custody.js";
 
 export class ProviderModelClient implements ModelClient {
   constructor(private readonly providerId: string, private readonly cwd: string, private readonly model?: string, private readonly debug?: BackendDebugLogger, private readonly reasoningEffort?: string) {}
@@ -33,6 +34,7 @@ export class ProviderModelClient implements ModelClient {
     const prompt = [input.systemPrompt, last ? getText(last) : ""].filter(Boolean).join("\n\nUser request:\n");
     const model = resolveProviderModel(provider, this.model);
     const transport = resolveProviderTransport(provider);
+    enforceProviderFileCustody({ provider, modelInput: input, cwd: this.cwd });
     await this.debug?.event({ level: "debug", source: "provider.client", message: "provider prompt prepared", details: { providerId: this.providerId, model, promptChars: prompt.length, transport: transport.channel, continuation: transport.continuation, replay: transport.replay } });
     const request = { provider, prompt, cwd: this.cwd, model, reasoningEffort: this.reasoningEffort, modelInput: input, session: input.session, debug: this.debug, stream };
     const result = provider.runtime === "claude-agent-sdk"

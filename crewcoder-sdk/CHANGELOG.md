@@ -2,6 +2,16 @@
 
 All notable changes to `@onpoint-dev-tools/crewcoder-sdk` are documented here. The project follows Semantic Versioning once the package reaches `1.0.0`.
 
+## 0.6.4 - 2026-08-30
+
+### Security
+
+- Fail-closed virtual filesystem custody: provider-native file tools cannot bypass an ACP/SDK file host. Codex skips app-server on virtual workspaces; `acp-client`, `process`, and `model-command` are refused before spawn.
+
+### Changed
+
+- Route provider-native approvals and questions through the host interaction channel instead of treating a missing callback as a silent decline.
+
 ## 0.6.3 - 2026-08-28
 
 ### Added

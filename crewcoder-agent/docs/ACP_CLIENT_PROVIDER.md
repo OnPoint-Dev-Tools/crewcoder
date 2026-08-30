@@ -32,6 +32,12 @@ Consequences that are deliberate, not oversights:
   CrewCoder's own loop. The CLI's advantage is subscription auth plus Grok's own
   tooling, not better integration.
 
+Because a nested ACP agent can also own native shell or filesystem tools, CrewCoder refuses the
+`acp-client` runtime when its own host supplies a virtual filesystem (including SSH/SFTP). Offering
+`fs/read_text_file` and `fs/write_text_file` does not prove the child lacks another local-disk path.
+The refusal occurs before spawn and requires selecting a CrewCoder tool-routed provider such as
+`xai`. Local workspaces retain normal `acp-client` behavior.
+
 ## Provider definition
 
 ```txt

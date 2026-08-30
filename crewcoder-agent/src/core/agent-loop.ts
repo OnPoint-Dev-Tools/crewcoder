@@ -22,7 +22,7 @@ import { embeddedCrewCodeDocs, type EmbeddedDoc } from "../knowledge/crewcode-do
 import { embeddedCrewCoderExtensionDocs } from "../knowledge/crewcoder-extension-docs.js";
 import { appendCustomSystemPrompt, buildSystemPrompt } from "./system-prompt.js";
 import { getSystemPrompt } from "./system-prompt-store.js";
-import { createModelClientFromEnv, type ModelClient } from "./model-client.js";
+import { createModelClientFromEnv, type ModelClient, type ModelQuestion } from "./model-client.js";
 import { createSessionId, saveSession, type SessionModelTurn } from "./session-store.js";
 import { assignAssistantHashes } from "./message-hash.js";
 import { decideApproval, type ApprovalMode } from "./approval.js";
@@ -78,6 +78,14 @@ export type AgentLoopOptions = {
   approvalMode?: ApprovalMode;
   /** Host-provided text file I/O for read/write/edit. Defaults to local disk. */
   textFiles?: TextFileHost;
+  /** Host interaction channel for provider-native approvals and questions. */
+  requestQuestion?: (question: ModelQuestion) => Promise<string | undefined>;
+  /**
+   * Whether the host filesystem is a virtual boundary that provider-native
+   * file tools cannot access. Defaults to the legacy `textFiles` inference for
+   * SDK callers; protocol adapters should always pass an explicit value.
+   */
+  virtualFilesystem?: boolean;
   sessionId?: string;
   resumeFromSessionId?: string;
   /** Audit-only parent for a fresh summary handoff; does not inherit transcript. */
@@ -227,6 +235,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     : undefined;
   const modelClient = options.modelClient ?? createModelClientFromEnv();
   const approvalMode = options.approvalMode ?? "never";
+  const virtualFilesystem = options.virtualFilesystem ?? options.textFiles !== undefined;
   // 0/undefined means unlimited. A working agent is bounded by the task, by an
   // opt-in token budget, or by stall detection — never by a turn counter.
   const requestedIterations = options.maxIterations ?? runtimeConfig.maxIterations;
@@ -345,6 +354,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         // bounded by stall detection and maxChildWorkerDepth, not a turn count.
         maxIterations: delegation.maxIterations,
         workerName: delegation.worker,
+        requestQuestion: options.requestQuestion,
         resumeFromSessionId: sessionId,
         initialMessages: messages,
         initialMutationLog: mutationLog,
@@ -571,8 +581,10 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           systemPrompt: crewcoderWorkflow ? `${systemPrompt}\n\n${formatCrewcoderWorkflowPrompt(crewcoderWorkflow)}` : systemPrompt,
           messages: renderMessagesForModel(messages),
           externalDirectories,
-          // Provider-native filesystem tools cannot honor ACP/SDK virtual file hosts.
-          useProviderNativeFileTools: options.textFiles === undefined,
+          // Provider-native filesystem tools cannot honor a virtual host boundary.
+          // A file host may also represent local unsaved buffers, so capability
+          // presence alone is not enough to classify the workspace as virtual.
+          useProviderNativeFileTools: !virtualFilesystem,
           approvalMode,
           availableTools: tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
           session: { sessionId, resumeFromSessionId: options.resumeFromSessionId, continuation: Boolean(options.initialMessages?.length), providerSessionId: options.providerId ? providerSessionIds[options.providerId] : undefined }
@@ -605,6 +617,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
             return result ?? { role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text: `Tool ${call.name} did not return a result.` }], isError: true, timestamp: Date.now() };
           },
           async requestQuestion(question) {
+            if (options.requestQuestion) return options.requestQuestion(question);
             if (!options.uiBridge) return undefined;
             const ui = options.uiBridge.uiFor("claude-sdk");
             return question.options?.length

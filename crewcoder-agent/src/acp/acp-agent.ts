@@ -36,10 +36,11 @@ import { DEFAULT_AGENT_MODE } from "../core/mode-router.js";
 import type { AgentEvent } from "../core/events.js";
 import type { ApprovalMode } from "../core/approval.js";
 import type { AgentMode } from "../core/types.js";
+import type { ModelQuestion } from "../core/model-client.js";
 import type { ApprovalControlDecision } from "../core/stdin-control.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
 import { listBuiltinProviderModels, resolveModel } from "../providers/model-registry.js";
-import { createClientTextFileHost } from "./client-files.js";
+import { createClientTextFileHost, virtualFilesystemFromMeta } from "./client-files.js";
 import { translateEvent, type SessionUpdate } from "./event-translator.js";
 import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
 
@@ -58,8 +59,10 @@ type AcpSession = {
   providerId: string;
   model?: string;
   reasoningEffort?: string;
+  approvalMode: ApprovalMode;
   mode: AgentMode;
   externalDirectories: string[];
+  virtualFilesystem: boolean;
   /** Set once the first prompt has run, so later turns resume from the store. */
   started: boolean;
   abort?: AbortController;
@@ -68,6 +71,7 @@ type AcpSession = {
   announced: Set<string>;
   /** Instructions queued by session/follow_up while the agent loop is active. */
   followUpSignal: { messages: string[] };
+  providerQuestionSequence: number;
 };
 
 /**
@@ -89,6 +93,7 @@ export class CrewCoderAcpAgent implements Agent {
   private readonly options: AcpAgentOptions;
   private readonly sessions = new Map<string, AcpSession>();
   private clientCapabilities: ClientCapabilities | undefined;
+  private virtualFilesystem = false;
   /** Tools the user chose "always allow" for, per session. */
   private readonly alwaysAllow = new Map<string, Set<string>>();
   private readonly alwaysReject = new Map<string, Set<string>>();
@@ -102,6 +107,7 @@ export class CrewCoderAcpAgent implements Agent {
     // Retained for the lifetime of the connection: file tools consult it on
     // every read/write to decide between the client filesystem and local disk.
     this.clientCapabilities = params.clientCapabilities;
+    this.virtualFilesystem = virtualFilesystemFromMeta(params._meta);
     return {
       protocolVersion: Math.min(params.protocolVersion ?? PROTOCOL_VERSION, PROTOCOL_VERSION),
       agentCapabilities: {
@@ -125,7 +131,7 @@ export class CrewCoderAcpAgent implements Agent {
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const sessionId = createSessionId();
-    const session = this.createSession(sessionId, params.cwd);
+    const session = this.createSession(sessionId, params.cwd, [], this.virtualFilesystem);
     // `models` is not in the 1.x ACP schema (the model API was removed), but
     // clients still read it off `session/new` to populate their model picker.
     // Emitting it is additive: clients that ignore it are unaffected.
@@ -136,7 +142,12 @@ export class CrewCoderAcpAgent implements Agent {
     const record = await loadSessionRecord(params.sessionId).catch(() => undefined);
     if (!record) throw RequestError.resourceNotFound(params.sessionId);
 
-    const session = this.createSession(record.id, params.cwd, record.externalDirectories);
+    const session = this.createSession(
+      record.id,
+      params.cwd,
+      record.externalDirectories,
+      this.virtualFilesystem
+    );
     // A loaded session already has a transcript, so the next prompt must
     // continue it rather than starting a fresh run.
     session.started = true;
@@ -163,12 +174,12 @@ export class CrewCoderAcpAgent implements Agent {
   }
 
   /**
-   * `session/set_model` was removed from the 1.x ACP schema, so it arrives here
-   * rather than as a typed method. Clients (including CrewCode) still call it,
-   * and it is the only way to switch models without respawning the process.
+   * Session configuration extensions arrive here rather than as typed ACP 1.x
+   * methods. They let a long-lived client update the active session without
+   * respawning CrewCoder.
    */
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (method !== "session/set_model" && method !== "session/set_reasoning_effort" && method !== "session/set_external_directories" && method !== "session/follow_up") throw RequestError.methodNotFound(method);
+    if (method !== "session/set_model" && method !== "session/set_reasoning_effort" && method !== "session/set_approval_mode" && method !== "session/set_external_directories" && method !== "session/follow_up") throw RequestError.methodNotFound(method);
     const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
     const session = this.session(sessionId);
 
@@ -187,6 +198,15 @@ export class CrewCoderAcpAgent implements Agent {
       }
       session.reasoningEffort = effort === "off" ? "none" : effort;
       return {};
+    }
+
+    if (method === "session/set_approval_mode") {
+      const approvalMode = typeof params.approvalMode === "string" ? params.approvalMode.trim() : "";
+      if (approvalMode !== "never" && approvalMode !== "review" && approvalMode !== "always" && approvalMode !== "full-access" && approvalMode !== "sandboxed") {
+        throw RequestError.invalidParams({ reason: "approvalMode must be one of: never, review, always, full-access, sandboxed" });
+      }
+      session.approvalMode = approvalMode;
+      return { approvalMode };
     }
 
     if (method === "session/set_external_directories") {
@@ -254,7 +274,7 @@ export class CrewCoderAcpAgent implements Agent {
       providerId: session.providerId,
       model: session.model,
       contextWindow,
-      approvalMode: this.options.approvalMode ?? ("review" as ApprovalMode),
+      approvalMode: session.approvalMode,
       maxIterations: this.options.maxIterations,
       modelClient: this.options.heuristic
         ? undefined
@@ -263,6 +283,8 @@ export class CrewCoderAcpAgent implements Agent {
       followUpSignal: session.followUpSignal,
       signal: abort.signal,
       textFiles: createClientTextFileHost(this.conn, session.sessionId, this.clientCapabilities),
+      virtualFilesystem: session.virtualFilesystem,
+      requestQuestion: (question: ModelQuestion) => this.resolveProviderQuestion(session, question),
       emit
     };
 
@@ -357,6 +379,42 @@ export class CrewCoderAcpAgent implements Agent {
     return { approvalId: event.approvalId, approved, reason: approved ? undefined : event.reason };
   }
 
+  private async resolveProviderQuestion(session: AcpSession, question: ModelQuestion): Promise<string | undefined> {
+    if (!question.options?.length) return undefined;
+    const choices = providerPermissionChoices(question.options);
+    const toolCallId = `provider_question_${session.sessionId}_${(++session.providerQuestionSequence).toString(36)}`;
+    const rawInput = { title: question.title, options: question.options };
+    await this.conn.sessionUpdate({
+      sessionId: session.sessionId,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: question.title,
+        kind: "other",
+        status: "pending",
+        rawInput
+      }
+    });
+
+    const response = await this.conn.requestPermission({
+      sessionId: session.sessionId,
+      options: choices.map((choice) => choice.permission),
+      toolCall: { toolCallId, title: question.title, kind: "other", status: "pending", rawInput }
+    });
+    const selectedId = response.outcome.outcome === "selected" ? response.outcome.optionId : undefined;
+    const selected = choices.find((choice) => choice.permission.optionId === selectedId);
+    await this.conn.sessionUpdate({
+      sessionId: session.sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: selected ? "completed" : "failed",
+        rawOutput: selected ? { answer: selected.value } : { cancelled: true }
+      }
+    });
+    return selected?.value;
+  }
+
   private remember(store: Map<string, Set<string>>, sessionId: string, toolName: string): void {
     const existing = store.get(sessionId) ?? new Set<string>();
     existing.add(toolName);
@@ -369,19 +427,27 @@ export class CrewCoderAcpAgent implements Agent {
     return session;
   }
 
-  private createSession(sessionId: string, cwd: string, externalDirectories: string[] = []): AcpSession {
+  private createSession(
+    sessionId: string,
+    cwd: string,
+    externalDirectories: string[] = [],
+    virtualFilesystem = false
+  ): AcpSession {
     const config = readConfig();
     const session: AcpSession = {
       sessionId,
       cwd,
       providerId: process.env.CREWCODER_PROVIDER ?? config.defaultProvider,
       model: process.env.CREWCODER_MODEL ?? config.defaultModel,
+      approvalMode: this.options.approvalMode ?? "review",
       mode: this.options.mode ?? config.defaultMode ?? DEFAULT_AGENT_MODE,
       externalDirectories,
+      virtualFilesystem,
       started: false,
       cancelled: false,
       announced: new Set(),
-      followUpSignal: { messages: [] }
+      followUpSignal: { messages: [] },
+      providerQuestionSequence: 0
     };
     this.sessions.set(sessionId, session);
     return session;
@@ -406,6 +472,21 @@ export class CrewCoderAcpAgent implements Agent {
       currentModelId: availableModels.some((entry) => entry.modelId === current) ? current : availableModels[0].modelId
     };
   }
+}
+
+export function providerPermissionChoices(options: NonNullable<ModelQuestion["options"]>): Array<{ permission: PermissionOption; value: string }> {
+  return options.map((option) => {
+    const normalized = option.value.toLowerCase();
+    const sessionApproval = normalized === "acceptforsession" || normalized === "session" || normalized === "allow_always";
+    const turnApproval = normalized === "accept" || normalized === "turn" || normalized === "allow" || normalized === "allow_once";
+    const rejection = normalized === "decline" || normalized === "reject" || normalized === "reject_once";
+    const optionId = sessionApproval ? "allow_always" : rejection ? "reject_once" : turnApproval ? "allow_once" : option.value;
+    const kind: PermissionOption["kind"] = sessionApproval ? "allow_always" : rejection ? "reject_once" : "allow_once";
+    return {
+      permission: { optionId, name: option.label, kind },
+      value: option.value
+    };
+  });
 }
 
 function promptText(blocks: ContentBlock[]): string {

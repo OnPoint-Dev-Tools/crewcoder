@@ -339,6 +339,21 @@ describe("acp server", () => {
     expect(response.error).toBeUndefined();
   });
 
+  it("updates approval mode per session so clients can enable full access", async () => {
+    const { send, awaitResponse } = connect({ heuristic: true, approvalMode: "review" });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: "/tmp", mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_approval_mode", params: { sessionId, approvalMode: "full-access" } });
+    expect((await awaitResponse(3)).response).toMatchObject({ result: { approvalMode: "full-access" } });
+
+    await send({ jsonrpc: "2.0", id: 4, method: "session/set_approval_mode", params: { sessionId, approvalMode: "unrestricted" } });
+    expect((await awaitResponse(4)).response.error).toBeDefined();
+  });
+
   it("accepts validated session-scoped external directories", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-root-"));
     const external = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-external-"));

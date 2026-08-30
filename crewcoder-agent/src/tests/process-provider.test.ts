@@ -3,6 +3,24 @@ import { runProcessProvider } from "../providers/process-provider.js";
 import type { ProviderDefinition } from "../providers/types.js";
 
 describe("process provider", () => {
+  it("refuses a virtual filesystem before spawning the provider command", async () => {
+    const provider: ProviderDefinition = {
+      id: "unsafe-process",
+      title: "Unsafe Process",
+      kind: "extension",
+      runtime: "process",
+      command: "command-that-must-not-run",
+      args: []
+    };
+
+    await expect(runProcessProvider({
+      provider,
+      prompt: "write",
+      cwd: "/remote/project",
+      modelInput: { systemPrompt: "system", messages: [], availableTools: [], useProviderNativeFileTools: false }
+    })).rejects.toThrow("Virtual filesystem custody unavailable for provider \"unsafe-process\"");
+  });
+
   it("emits backend debug events for provider lifecycle and output", async () => {
     const events: Array<{ source: string; message: string; details?: Record<string, unknown> }> = [];
     const provider: ProviderDefinition = {

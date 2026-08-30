@@ -73,6 +73,28 @@ Claude uses its Agent SDK process/session transport with hybrid native-read and 
 See [`CLAUDE_AGENT_SDK.md`](./CLAUDE_AGENT_SDK.md), [`CODEX_TRANSPORT.md`](./CODEX_TRANSPORT.md), and
 [`PROVIDER_TRANSPORTS.md`](./contributor/PROVIDER_TRANSPORTS.md).
 
+## Virtual and remote filesystem custody
+
+When CrewCoder is hosted over ACP or an SDK with a virtual filesystem, such as an SSH/SFTP
+workspace, the client-provided file host is authoritative. Provider behavior is classified by
+runtime and enforced before dispatch:
+
+ACP filesystem capabilities are independent from this classification: they can serve local
+unsaved buffers as well as remote files. ACP custody is enabled only by an explicit
+`initialize._meta["crewcode/virtualFilesystem"] === true`.
+
+| Runtime | Virtual workspace behavior |
+| --- | --- |
+| HTTP/SSE and generic WebSocket model adapters | Safe: models receive only CrewCoder tool schemas |
+| Claude Agent SDK | Safe: native file tools are removed and equivalent operations route through CrewCoder MCP |
+| Codex | Safe fallback: app-server is skipped and direct Responses uses CrewCoder tools |
+| ACP client agents, generic process, model-command | Refused: the subprocess may access local disk outside the virtual host |
+
+Unsupported runtimes fail before their command is spawned and name the provider, runtime, and
+affected workspace. Local workspaces are unchanged. A new provider runtime must be added to the
+exhaustive custody policy before TypeScript accepts it; a provider with native tools also needs an
+adapter regression proving those tools are disabled or bypassed under a virtual host.
+
 ## Compatibility expectations
 
 The OpenAI Chat Completions adapter supports:

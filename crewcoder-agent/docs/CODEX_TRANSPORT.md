@@ -44,10 +44,26 @@ Claude, so discarded pre-compaction history cannot reappear.
 
 ## Tools and safety
 
-App-server runs its native capabilities in a read-only sandbox with approval policy `never`.
-CrewCoder's tool definitions are registered as dynamic tools; mutations and specialized operations
-therefore return through CrewCoder's existing executor, approval, checkpoint, audit, extension-hook,
-and path-containment boundaries. Unexpected native app-server approval requests are denied.
+For local workspaces, app-server runs its native shell and patch capabilities inside Codex's
+`workspaceWrite` filesystem boundary. Its approval policy follows CrewCoder's active approval mode,
+and provider-native approval requests route through the active host interaction channel. CrewCoder's
+tool definitions remain registered as dynamic tools for specialized operations.
+
+When an ACP or SDK host supplies a virtual filesystem (including SSH/SFTP workspaces), CrewCoder
+does not start app-server because its built-in shell and patch tools operate on the local host and
+cannot honor that virtual filesystem boundary. The Codex provider uses its direct Responses
+transport for that session, where reads and writes are exposed only as CrewCoder tools and remain
+routed through the host filesystem. Failed native `fileChange` events retain the provider's error
+detail alongside the proposed patch instead of presenting the patch as if it were the result.
+Failed native `commandExecution` events likewise retain provider error text and otherwise report
+their declined status or exit code; an empty `aggregatedOutput` must never render as an unexplained
+empty error.
+
+CrewCoder requests Codex network isolation only for the explicit `sandboxed` approval mode.
+`review`, `always`, and `never` are approval policies rather than strict network sandboxes, so their
+app-server turns keep `networkAccess: true`. Forcing `networkAccess: false` in those modes makes
+Codex create a private network namespace and can fail on restricted Linux hosts with
+`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`.
 
 ## Fallback and replay safety
 

@@ -21,6 +21,10 @@ type PendingRequest = { resolve(value: RpcRecord): void; reject(error: Error): v
 
 export async function runCodexAppServerProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult | undefined> {
   if (!input.modelInput || input.provider.endpoint !== "https://chatgpt.com/backend-api/codex/responses") return undefined;
+  // App-server owns its built-in shell/apply-patch tools and cannot route them
+  // through an ACP/SDK virtual filesystem. Use the direct Responses adapter in
+  // that case so every filesystem operation remains a CrewCoder dynamic tool.
+  if (input.modelInput.useProviderNativeFileTools === false) return undefined;
   const invocation = resolveCodexInvocation();
   if (!invocation) return undefined;
   const existingAppServerAuth = readCodexHomeCredential();
@@ -100,11 +104,11 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
       } else if (method === "item/started" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolStart?.({ type: "toolCall", id: params.item.id, name: "Codex command", arguments: { command: params.item.command, cwd: params.item.cwd } });
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
-        await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex command", text: typeof params.item.aggregatedOutput === "string" ? params.item.aggregatedOutput : "", isError: params.item.status !== "completed" });
+        await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex command", text: formatCodexCommandResult(params.item), isError: params.item.status !== "completed" });
       } else if (method === "item/started" && isRecord(params.item) && params.item.type === "fileChange" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolStart?.({ type: "toolCall", id: params.item.id, name: "Codex file change", arguments: { changes: params.item.changes } });
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "fileChange" && typeof params.item.id === "string") {
-        await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex file change", text: JSON.stringify(params.item.changes ?? []), isError: params.item.status !== "completed" });
+        await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex file change", text: formatCodexFileChangeResult(params.item), isError: params.item.status !== "completed" });
       } else if (method === "item/agentMessage/delta" && typeof params.delta === "string") {
         const itemId = typeof params.itemId === "string" ? params.itemId : "";
         if (agentMessagePhases.get(itemId) === "commentary") {
@@ -143,7 +147,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
 
     const prompt = codexPrompt(input.modelInput.messages, hasNativeThread, input.prompt);
     turnRequestSent = true;
-    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...turnPermissions(input) });
+    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...codexTurnPermissions(input) });
     await rpc.waitUntil(() => completed, signal);
     const text = textParts.join("").trim();
     if (turnError || !text) return failure(input, turnError ?? "Codex app-server returned no assistant output", stderr, usage);
@@ -241,6 +245,36 @@ function number(value: unknown): number | undefined { return typeof value === "n
 function reasoningContent(value: unknown): string {
   return Array.isArray(value) ? value.filter((part): part is string => typeof part === "string").join("") : "";
 }
+export function formatCodexFileChangeResult(item: RpcRecord): string {
+  const changes = JSON.stringify(item.changes ?? []);
+  if (item.status === "completed") return changes;
+  const error = rpcErrorText(item.error)
+    ?? (typeof item.message === "string" && item.message.trim() ? item.message.trim() : undefined)
+    ?? (typeof item.aggregatedOutput === "string" && item.aggregatedOutput.trim() ? item.aggregatedOutput.trim() : undefined);
+  return error ? `${error}\n\nProposed changes:\n${changes}` : changes;
+}
+export function formatCodexCommandResult(item: RpcRecord): string {
+  const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput.trim() : "";
+  if (item.status === "completed") return output;
+  const error = rpcErrorText(item.error)
+    ?? (typeof item.message === "string" && item.message.trim() ? item.message.trim() : undefined);
+  if (error) return output ? `${output}\n${error}` : error;
+  const exitCode = typeof item.exitCode === "number" ? item.exitCode : undefined;
+  const failure = item.status === "declined"
+    ? "Codex command was declined."
+    : exitCode === undefined
+      ? `Codex command ${String(item.status ?? "failed")}.`
+      : `Codex command failed with exit code ${exitCode}.`;
+  return output ? `${output}\n${failure}` : failure;
+}
+function rpcErrorText(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (!isRecord(value)) return undefined;
+  const message = typeof value.message === "string" ? value.message.trim() : "";
+  const details = typeof value.additionalDetails === "string" ? value.additionalDetails.trim() : "";
+  const text = [message, details].filter(Boolean).join("\n");
+  return text || JSON.stringify(value);
+}
 function unstreamedRemainder(streamed: string, completed: string): string {
   if (!completed || completed === streamed || streamed.includes(completed)) return "";
   return completed.startsWith(streamed) ? completed.slice(streamed.length) : completed;
@@ -257,7 +291,7 @@ function threadPermissions(input: ProviderRunInput): RpcRecord {
   if (!policy) return {};
   return { approvalPolicy: policy, sandbox: input.modelInput?.approvalMode === "full-access" ? "danger-full-access" : "workspace-write" };
 }
-function turnPermissions(input: ProviderRunInput): RpcRecord {
+export function codexTurnPermissions(input: ProviderRunInput): RpcRecord {
   const policy = approvalPolicy(input);
   if (!policy) return {};
   if (input.modelInput?.approvalMode === "full-access") return { approvalPolicy: policy, sandboxPolicy: { type: "dangerFullAccess" } };
@@ -266,7 +300,12 @@ function turnPermissions(input: ProviderRunInput): RpcRecord {
     sandboxPolicy: {
       type: "workspaceWrite",
       writableRoots: input.modelInput?.externalDirectories ?? [],
-      networkAccess: false,
+      // CrewCoder's review/always/never modes are approval policies, not strict
+      // network sandboxes. Asking Codex to disable networking in those modes
+      // makes its Linux helper create a private netns and configure loopback,
+      // which fails under restricted hosts with RTM_NEWADDR. Preserve that
+      // isolation only for the explicit sandboxed mode.
+      networkAccess: input.modelInput?.approvalMode !== "sandboxed",
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false
     }
