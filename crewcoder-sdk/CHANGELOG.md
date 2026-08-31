@@ -2,6 +2,12 @@
 
 All notable changes to `@onpoint-dev-tools/crewcoder-sdk` are documented here. The project follows Semantic Versioning once the package reaches `1.0.0`.
 
+## 0.6.5 - 2026-08-30
+
+### Changed
+
+- Coupled SDK, client, and agent versions to `0.6.5` so the umbrella patch can publish.
+
 ## 0.6.4 - 2026-08-30
 
 ### Security
