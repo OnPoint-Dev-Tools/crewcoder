@@ -22,6 +22,8 @@ CrewCoder should become a best-in-class coding agent with:
 
 The agent package maps `crewcoder`, `cc`, and `crewcoder-agent` to the same CLI entrypoint. Keep `cc` behavior identical to `crewcoder`, including no-argument TUI launch and all argument-bearing backend commands.
 
+`crewcoder update` and its `upgrade` alias update only the public `crewcoder` umbrella through npm's stable `latest` tag. Preserve the current/proposed version preview, interactive arrow-key Yes/No confirmation, `--yes` non-interactive path, and exact up-to-date message. Never update the scoped runtime packages independently from this command.
+
 ## Project structure
 
 ```txt

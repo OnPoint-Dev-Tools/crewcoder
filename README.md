@@ -57,6 +57,16 @@ crewcoder providers
 crewcoder run "explain this repository"
 ```
 
+Update a persistent global installation to the stable npm `latest` release:
+
+```sh
+crewcoder update             # show versions and confirm with arrow-key Yes/No choices
+crewcoder upgrade            # alias of update
+crewcoder update --yes       # non-interactive install
+```
+
+Running `npm install --global crewcoder@latest` directly also updates an existing global installation. The CrewCoder command adds the version check and confirmation before running that same npm install.
+
 The scoped packages remain available separately for development and custom packaging:
 
 ```sh
@@ -64,7 +74,7 @@ npm install --global @onpoint-dev-tools/crewcoder-agent
 npm install --global @onpoint-dev-tools/crewcoder-tui
 ```
 
-Installing only `@onpoint-dev-tools/crewcoder-agent` does not install the TUI. Most CLI users should install the `crewcoder` umbrella package. See the [installation guide](docs/INSTALLATION.md) for more details.
+Installing only `@onpoint-dev-tools/crewcoder-agent` does not install the TUI. Most CLI users should install the `crewcoder` umbrella package. See the [installation guide](docs/INSTALLATION.md) for install and update details.
 
 ## Packages
 

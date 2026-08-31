@@ -83,6 +83,7 @@ import { clearGoal, decideGoalApproval, pauseGoal, refreshGoal, resumeGoal, runG
 import { goalEventsPath, goalStderrPath, goalStdoutPath, listGoals, type GoalRecord } from "./core/goal-store.js";
 import { isStandaloneExecutable } from "./core/self-invocation.js";
 import { CREWCODER_VERSION } from "./core/version.js";
+import { runSelfUpdate } from "./core/self-update.js";
 import { detectCrewCodeProject, isIntegrationProfile, resolveIntegrationProfile, setCrewCodeProfilePromptDismissed, setProjectIntegrationProfile } from "./core/integration-profile.js";
 
 /**
@@ -111,6 +112,12 @@ installSignalFlush();
 
 const program = new Command();
 program.name("crewcoder").description("CrewCoder: Coding agent CLI with built-in providers, extensions, sessions, approvals, and JSON events.").version(CREWCODER_VERSION);
+
+program.command("update")
+  .alias("upgrade")
+  .option("-y, --yes", "Install the update without interactive confirmation")
+  .description("Update the globally installed CrewCoder umbrella package to npm latest.")
+  .action(async (options: { yes?: boolean }) => { await runSelfUpdate(options, { currentVersion: CREWCODER_VERSION }); });
 
 type RunOptions = { mode?: string; provider?: string; model?: string; effort?: string; maxIterations?: string; heuristic?: boolean; jsonEvents?: boolean; ci?: boolean; approval?: string; backendDebugStderr?: boolean; dumpModelInput?: boolean; systemPrompt?: string; worker?: string; budget?: string; maxTokens?: string; verify?: boolean; parentSession?: string; replay?: string; at?: string; image?: string[]; addDir?: string[] };
 type GoalOptions = Pick<RunOptions, "mode" | "provider" | "model" | "effort" | "approval" | "systemPrompt" | "worker" | "budget" | "maxTokens"> & { json?: boolean; maxTurns?: string; checkModel?: string | false; timeoutMinutes?: string };

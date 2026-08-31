@@ -79,6 +79,14 @@ crewcoder run "fix this bug"
 crewcoder providers
 ```
 
+The umbrella can update itself to npm's stable `latest` release. `upgrade` is an alias, and `--yes` is required when confirmation cannot be interactive:
+
+```bash
+crewcoder update
+crewcoder upgrade
+crewcoder update --yes
+```
+
 The scoped agent and TUI packages can still be installed separately for development or custom packaging.
 
 ## Providers
