@@ -2,6 +2,12 @@
 
 All notable changes to `@onpoint-dev-tools/crewcoder-sdk` are documented here. The project follows Semantic Versioning once the package reaches `1.0.0`.
 
+## 0.6.6 - 2026-08-31
+
+### Changed
+
+- Coupled SDK, client, and agent versions to `0.6.6`. TUI conversation rendering updates ship with `@onpoint-dev-tools/crewcoder-tui@0.6.4`.
+
 ## 0.6.5 - 2026-08-30
 
 ### Changed
