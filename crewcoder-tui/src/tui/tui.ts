@@ -29,7 +29,7 @@ export class CrewCoderTui {
     this.renderer = new Renderer(this.overlays, loadCrewCoderTheme(themeSelector));
     this.app.pushOverlay = (component, options) => this.overlays.push(component, options);
     this.app.closeOverlay = () => this.overlays.pop();
-    this.app.repaint = () => this.renderer.render(true);
+    this.app.repaint = (force = false) => this.renderer.render(force);
   }
 
   start(): void {

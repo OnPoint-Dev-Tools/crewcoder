@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Header } from "../components/Header.js";
-import { MainViewport } from "../components/MainViewport.js";
+import { firstLiveBlockIndex, MainViewport } from "../components/MainViewport.js";
 import { SPINNER_FRAMES } from "../components/Spinner.js";
 import { createInitialState } from "../state/tui-store.js";
 import { bg, bold, fg, italic, stripAnsi } from "../tui/ansi.js";
@@ -59,6 +59,59 @@ describe("MainViewport", () => {
     expect(plain.join("\n")).not.toContain("╭");
     expect(plain.join("\n")).not.toContain("╰");
     expect(plain.every((line) => line.length <= 34)).toBe(true);
+  });
+
+  it("wraps crewcoder_clarify questions instead of truncating them", () => {
+    const question = "Should organization-level audit logs live in a dedicated table with retention, or as JSON events attached to the existing activity stream?";
+    const state = createInitialState();
+    state.blocks = [{
+      type: "tool",
+      name: "crewcoder_clarify",
+      status: "done",
+      args: { questions: [question] },
+      text: `1. ${question}`
+    }];
+
+    const lines = new MainViewport(state).render({ theme: crewCoderTheme, size: { width: 48, height: 16 } });
+    const plain = lines.map(stripAnsi).join("\n");
+
+    expect(plain).toContain("TOOL: CREWCODER_CLARIFY");
+    expect(plain).toContain("1. Should organization-level");
+    expect(plain).toContain("activity stream?");
+    expect(plain).not.toContain("…");
+    expect(plain).not.toContain('{"questions"');
+    expect(lines.map(stripAnsi).every((line) => line.length <= 48)).toBe(true);
+  });
+
+  it("wraps crewcoder_propose_plan sections instead of truncating them", () => {
+    const requirements = "Add organization-level audit logs for membership changes, role updates, and billing events without rewriting the existing user activity stream.";
+    const plan = "Inspect the current activity store, add an organization_audit_events table, write the query and API surface, then cover membership, role, and billing writes with tests.";
+    const acceptanceCriteria = "An organization admin can list audit events for those three actions, unrelated user activity is unchanged, and the new tests pass.";
+    const state = createInitialState();
+    state.blocks = [{
+      type: "tool",
+      name: "crewcoder_propose_plan",
+      status: "done",
+      args: { requirements, plan, acceptanceCriteria },
+      text: `Requirements:\n${requirements}\n\nPlan:\n${plan}`
+    }];
+
+    const lines = new MainViewport(state).render({ theme: crewCoderTheme, size: { width: 52, height: 28 } });
+    const plain = lines.map(stripAnsi).join("\n");
+
+    expect(plain).toContain("TOOL: CREWCODER_PROPOSE_PLAN");
+    expect(plain).toContain("Requirements");
+    expect(plain).toContain("organization-level audit logs");
+    expect(plain).toContain("existing user activity");
+    expect(plain).toContain("stream.");
+    expect(plain).toContain("Plan");
+    expect(plain).toContain("organization_audit_events");
+    expect(plain).toContain("Acceptance criteria");
+    expect(plain).toContain("new tests pass.");
+    expect(plain).toContain("/approve-plan");
+    expect(plain).not.toContain("…");
+    expect(plain).not.toContain('{"requirements"');
+    expect(lines.map(stripAnsi).every((line) => line.length <= 52)).toBe(true);
   });
 
   it("adds padding around tool blocks", () => {
@@ -207,33 +260,7 @@ describe("MainViewport", () => {
     expect(spinnerGlyphs).toHaveLength(1);
   });
 
-  it("shows a small scrollbar pill at the transcript scroll position", () => {
-    const state = createInitialState();
-    state.blocks = Array.from({ length: 14 }, (_, index) => ({ type: "assistant" as const, text: `answer ${index}` }));
-    const viewport = new MainViewport(state);
-    const ctx = { theme: crewCoderTheme, size: { width: 50, height: 8 } };
-
-    const bottom = viewport.render(ctx);
-    expect(bottom.slice(0, 6).every((line) => !stripAnsi(line).endsWith("▐"))).toBe(true);
-    expect(bottom.slice(6).every((line) => stripAnsi(line).endsWith("▐"))).toBe(true);
-    expect(bottom.join("\n")).toContain(`${fg(crewCoderTheme.muted)}▐`);
-
-    state.viewportScroll = state.viewportMaxScroll;
-    const top = viewport.render(ctx);
-    expect(top.slice(0, 2).every((line) => stripAnsi(line).endsWith("▐"))).toBe(true);
-    expect(top.slice(2).every((line) => !stripAnsi(line).endsWith("▐"))).toBe(true);
-  });
-
-  it("does not show a scrollbar pill when the transcript fits", () => {
-    const state = createInitialState();
-    state.blocks = [{ type: "assistant", text: "short answer" }];
-
-    const rendered = new MainViewport(state).render({ theme: crewCoderTheme, size: { width: 50, height: 8 } });
-
-    expect(rendered.every((line) => !stripAnsi(line).endsWith("▐"))).toBe(true);
-  });
-
-  it("holds scrolled-back content in place while the transcript grows", () => {
+  it("snapshots only the latest lines when asked to fit a screen", () => {
     const state = createInitialState();
     state.blocks = [{ type: "assistant", text: "first answer" }];
     const viewport = new MainViewport(state);
@@ -241,21 +268,60 @@ describe("MainViewport", () => {
     const renderPlain = () => viewport.render({ theme: crewCoderTheme, size }).map(stripAnsi).join("\n");
 
     for (let i = 0; i < 12; i++) state.blocks.push({ type: "assistant", text: `filler ${i}` });
-    renderPlain();
+    expect(renderPlain()).not.toContain("first answer");
 
-    // Scroll back to the top of the transcript, then keep streaming.
-    state.viewportScroll = state.viewportMaxScroll;
-    const beforeGrowth = renderPlain();
-    expect(beforeGrowth).toContain("first answer");
-
-    state.running = true;
-    for (let i = 0; i < 20; i++) state.blocks.push({ type: "assistant", text: `streamed ${i}` });
-    expect(renderPlain()).toContain("first answer");
-
-    // At the bottom the transcript still follows the stream.
-    state.viewportScroll = 0;
     state.blocks.push({ type: "assistant", text: "latest answer" });
     expect(renderPlain()).toContain("latest answer");
+  });
+
+  it("keeps full history in the settled transcript layout for terminal scrollback", () => {
+    const state = createInitialState();
+    state.blocks = [{ type: "assistant", text: "first answer" }];
+    for (let i = 0; i < 12; i++) state.blocks.push({ type: "assistant", text: `filler ${i}` });
+    state.blocks.push({ type: "assistant", text: "latest answer" });
+    const layout = new MainViewport(state).layoutTranscript({ theme: crewCoderTheme, size: { width: 50, height: 8 } });
+    const settled = layout.lines.slice(0, layout.settledLineCount).map(stripAnsi).join("\n");
+
+    expect(settled).toContain("first answer");
+    expect(settled).toContain("latest answer");
+  });
+
+  it("keeps settled history out of the live tail while a tool is running", () => {
+    const state = createInitialState();
+    state.running = true;
+    state.blocks = [
+      { type: "user", text: "inspect src" },
+      { type: "assistant", text: "I will read the file." },
+      { type: "tool", name: "read", status: "running", args: { path: "src/a.ts" } }
+    ];
+    const viewport = new MainViewport(state);
+    const layout = viewport.layoutTranscript({ theme: crewCoderTheme, size: { width: 60, height: 24 } });
+    const settled = layout.lines.slice(0, layout.settledLineCount).map(stripAnsi).join("\n");
+    const live = layout.lines.slice(layout.settledLineCount).map(stripAnsi).join("\n");
+
+    expect(firstLiveBlockIndex(state.blocks, true)).toBe(2);
+    expect(settled).toContain("inspect src");
+    expect(settled).toContain("I will read the file.");
+    expect(settled).not.toContain("TOOL: READ");
+    expect(live).toContain("TOOL: READ");
+    expect(live).toContain("AGENT IS WORKING");
+  });
+
+  it("reuses cached layout for unchanged settled blocks", () => {
+    const state = createInitialState();
+    state.blocks = [
+      { type: "user", text: "hello" },
+      { type: "assistant", text: "world" }
+    ];
+    const viewport = new MainViewport(state);
+    const ctx = { theme: crewCoderTheme, size: { width: 48, height: 20 } };
+    const first = viewport.layoutTranscript(ctx);
+    state.running = true;
+    state.blocks.push({ type: "tool", name: "bash", status: "running", args: { command: "ls" } });
+    const second = viewport.layoutTranscript(ctx);
+
+    expect(second.lines.slice(0, first.settledLineCount)).toEqual(first.lines.slice(0, first.settledLineCount));
+    expect(second.settledLineCount).toBe(first.settledLineCount);
   });
 
   it("keeps tracked file changes out of the transcript", () => {

@@ -1,6 +1,6 @@
 {
    "name": "crewcoder",
-   "version": "0.6.5",
+   "version": "0.6.6",
    "description": "One-command installer and launcher for the CrewCoder agent and terminal UI",
    "private": false,
    "license": "Apache-2.0",

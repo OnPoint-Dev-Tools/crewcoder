@@ -369,12 +369,6 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     } : undefined
   };
 
-  await emitCrewCoderExtensionEvent(extensionRuntime, "session_start", { reason: "startup", cwd: request.cwd, sessionId }, { cwd: request.cwd, sessionId }, options.uiBridge);
-  await emit({ type: "agent_start", sessionId });
-  await emit({ type: "extension_safety_policies", policies: extensionApprovalPolicies });
-  await emit({ type: "message_start", message: newUserMessage });
-  await emit({ type: "message_end", message: newUserMessage });
-
   const drainFollowUps = async (): Promise<number> => {
     const queued = options.followUpSignal?.messages.splice(0) ?? [];
     for (const text of queued) {
@@ -439,6 +433,18 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       await emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "warn", source: "session-store", message: "incremental session save failed", details: { iteration, error: error instanceof Error ? error.message : String(error) } });
     }
   };
+
+  // Make the session resumable before announcing its id or entering the first
+  // provider request. The TUI adopts the id from `agent_start`; if the process is
+  // aborted during that first request, a later message must never resume an id
+  // whose directory was never created.
+  await persistCurrentSession();
+  await emitCrewCoderExtensionEvent(extensionRuntime, "session_start", { reason: "startup", cwd: request.cwd, sessionId }, { cwd: request.cwd, sessionId }, options.uiBridge);
+  await emit({ type: "agent_start", sessionId });
+  await emit({ type: "extension_safety_policies", policies: extensionApprovalPolicies });
+  await emit({ type: "message_start", message: newUserMessage });
+  await emit({ type: "message_end", message: newUserMessage });
+  await persistTurn(0);
 
   // Every billed model turn is appended to the cost ledger and the resolved
   // dollar figure rides along on the usage summary. A ledger failure degrades to

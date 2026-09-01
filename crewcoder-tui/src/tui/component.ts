@@ -19,6 +19,20 @@ export type RenderContext = {
   imagePlacements?: RenderedImagePlacement[];
 };
 
+/**
+ * How the renderer should write this frame.
+ *
+ * `screen` is a full-terminal snapshot (home, overlays, sidebar).
+ * `scrollback` appends settled transcript lines into the terminal's own
+ * history and only rewrites the live tail (streaming blocks + composer).
+ */
+export type TerminalFrame = {
+  mode: "screen" | "scrollback";
+  lines: string[];
+  settled?: string[];
+  images?: RenderedImagePlacement[];
+};
+
 export type MouseEventKind = "press" | "drag" | "release" | "wheel" | "hover";
 
 export type KeyEvent = {
@@ -37,6 +51,7 @@ export type KeyEvent = {
 
 export interface Component {
   render(ctx: RenderContext): string[];
+  frame?(ctx: RenderContext): TerminalFrame;
   handleInput?(event: KeyEvent): void | boolean;
   invalidate?(): void;
 }

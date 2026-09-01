@@ -1,12 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Renderer } from "../tui/renderer.js";
-import type { Component, RenderContext } from "../tui/component.js";
+import type { Component, RenderContext, TerminalFrame } from "../tui/component.js";
 import { crewCoderTheme } from "../theme/theme.js";
 import { encodeKittyDeleteImage, encodeKittyDeleteVisibleImages, encodeKittyImage } from "../tui/image-protocol.js";
 
 class StaticRoot implements Component {
   render(ctx: RenderContext): string[] {
     return ["ok".padEnd(ctx.size.width, " ")];
+  }
+}
+
+class ScrollbackRoot implements Component {
+  settled = ["one"];
+  live = ["composer"];
+  screen = false;
+
+  render(): string[] {
+    return this.screen ? ["screen"] : this.live;
+  }
+
+  frame(): TerminalFrame {
+    if (this.screen) return { mode: "screen", lines: this.render() };
+    return { mode: "scrollback", lines: this.live, settled: this.settled };
   }
 }
 
@@ -161,6 +176,80 @@ describe("Renderer terminal integration", () => {
     expect(out.output).toContain(encodeKittyDeleteVisibleImages());
     vi.advanceTimersByTime(100);
     expect(out.output).toContain(encodeKittyImage("/tmp/img_test.png", { cols: 5, rows: 2 }, "img_test"));
+  });
+
+  it("appends settled transcript lines instead of repainting history", () => {
+    const out = fakeWriteStream();
+    const root = new ScrollbackRoot();
+    const renderer = new Renderer(root, crewCoderTheme, out);
+    renderer.start();
+    expect(out.output).toContain("one");
+    expect(out.output).not.toContain("\x1b[?1000h");
+
+    out.output = "";
+    root.settled = ["one", "two"];
+    renderer.render();
+
+    expect(out.output).toContain("two");
+    expect(out.output).not.toContain("one");
+    expect(out.output).toContain("\r\n");
+    expect(out.output).not.toContain("\x1b[1;1H");
+
+    out.output = "";
+    root.settled = ["one", "two", "three"];
+    renderer.render();
+    expect(out.output).toContain("three");
+    expect(out.output).not.toContain("one");
+  });
+
+  it("preserves committed scrollback across a full-screen surface", () => {
+    const out = fakeWriteStream();
+    const root = new ScrollbackRoot();
+    const renderer = new Renderer(root, crewCoderTheme, out);
+    renderer.start();
+
+    root.screen = true;
+    out.output = "";
+    renderer.render();
+    expect(out.output).toContain("screen");
+
+    root.screen = false;
+    root.settled = ["one", "two"];
+    out.output = "";
+    renderer.render();
+
+    expect(out.output).toContain("\x1b[2J\x1b[H");
+    expect(out.output).not.toContain("\x1b[3J");
+    expect(out.output).toContain("two");
+    expect(out.output).not.toContain("one");
+  });
+
+  it("clears and rebuilds native history only for a forced repaint", () => {
+    const out = fakeWriteStream();
+    const renderer = new Renderer(new ScrollbackRoot(), crewCoderTheme, out);
+    renderer.start();
+
+    out.output = "";
+    renderer.render(true);
+
+    expect(out.output).toContain("\x1b[3J");
+    expect(out.output).toContain("one");
+  });
+
+  it("preserves native history when the bounded transcript drops old rows", () => {
+    const out = fakeWriteStream();
+    const root = new ScrollbackRoot();
+    root.settled = Array.from({ length: 24 }, (_, index) => `row-${String(index).padStart(2, "0")}`);
+    const renderer = new Renderer(root, crewCoderTheme, out);
+    renderer.start();
+
+    root.settled = [...root.settled.slice(4), "new-row"];
+    out.output = "";
+    renderer.render();
+
+    expect(out.output).not.toContain("\x1b[3J");
+    expect(out.output).toContain("new-row");
+    expect(out.output).not.toContain("row-04");
   });
 
   it("debounces kitty image redraws on diff renders", () => {

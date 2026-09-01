@@ -1,4 +1,4 @@
-import type { Component, KeyEvent, RenderContext, RenderedImagePlacement } from "./component.js";
+import type { Component, KeyEvent, RenderContext, RenderedImagePlacement, TerminalFrame } from "./component.js";
 import { box, emptyLine, padRight } from "./layout.js";
 import { bg, reset, stripAnsi } from "./ansi.js";
 
@@ -35,6 +35,11 @@ export class OverlayManager implements Component {
   pop(): void { this.stack.pop(); }
   clear(): void { this.stack = []; }
   get hasOverlay(): boolean { return this.stack.length > 0; }
+
+  frame(ctx: RenderContext): TerminalFrame {
+    if (this.stack.length) return { mode: "screen", lines: this.render(ctx) };
+    return this.base.frame?.(ctx) ?? { mode: "screen", lines: this.base.render(ctx) };
+  }
 
   render(ctx: RenderContext): string[] {
     const baseLines = this.base.render(ctx);

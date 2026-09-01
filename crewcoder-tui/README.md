@@ -6,7 +6,7 @@ Custom TUI architecture:
 
 - Component interface
 - Component tree
-- Differential-ish line rendering
+- Terminal-scrollback transcript with a live tail
 - Overlay stack
 - Keyboard/input dispatch
 - TUI-owned theme
@@ -138,9 +138,9 @@ Inside the TUI:
 /quit
 ```
 
-File-changing `edit` and `write` tool calls render an inline side-by-side diff with line numbers and theme-aware added/removed backgrounds. Tool metadata containing a unified `diff` string is rendered the same way. Press `n` or `p` while the composer is empty to jump to the next or previous diff hunk.
+File-changing `edit` and `write` tool calls render an inline side-by-side diff with line numbers and theme-aware added/removed backgrounds. Tool metadata containing a unified `diff` string is rendered the same way.
 
-Conversation view has no persistent header: the transcript uses the full surface above the composer. Safety policy and focused Live UI status appear at the top of the right sidebar, above modified files; workspace location and Git state remain in its anchored footer. When the transcript exceeds the viewport, a muted two-row pill at the right edge tracks the current scroll position. Tool-call labels, details, and plain output are muted while semantic syntax and status highlights remain visible. A blank row separates the transcript viewport from the composer so the newest block does not visually merge into the input. The centered fresh-home landing screen keeps its landing logo, and there is no persistent bottom runtime row.
+Conversation view has no persistent header: settled transcript lines are written into the terminal's own scrollback, and only the bounded live tail (streaming output, working indicator, composer) is rewritten. Scroll history with the terminal — trackpad, scrollbar, or Shift+PageUp — not a CrewCoder-owned pager. Safety policy and focused Live UI status appear at the top of the right sidebar, above modified files; workspace location and Git state remain in its anchored footer. Opening the sidebar temporarily shows a full-screen snapshot of the latest transcript tail; close it to return to native terminal scrollback. Tool-call labels, details, and plain output are muted while semantic syntax and status highlights remain visible. A blank row separates the live transcript tail from the composer so the newest block does not visually merge into the input. The centered fresh-home landing screen keeps its landing logo, and there is no persistent bottom runtime row. See [`docs/TRANSCRIPT.md`](docs/TRANSCRIPT.md).
 
 Press `Ctrl+B` or run `/sidebar` to open and close the right sidebar. Drag its vertical divider left or right to resize it; the width is instance-local and bounded so the main conversation remains usable. The upper sections organize modified files, live crew workers (`AGENTS: builder`), and current-session crew tasks, wrapping long paths, worker labels, and task descriptions instead of truncating them. An anchored workspace footer combines the wrapped CWD and Git branch/dirty marker as `<cwd>:<branch>` above `CrewCoder` branding. `/file-changes off` hides paths without discarding them. Task data is reread from the project store as it changes. The `CREW TASKS` heading shows completed/total progress; `◉` marks active work, `○` marks queued work, `!` marks blocked work, and `✓` plus strikethrough marks completed work. Active tasks use their `activeForm` text, and older sessions' tasks stay out of the list. `/sidebar on|off|status` provides explicit control. The sidebar applies to both home and conversation views and does not render on terminals narrower than 60 columns.
 
@@ -152,7 +152,7 @@ When resuming from `/sessions` (or its `/resume` alias), the TUI restores the sa
 
 The sidebar workspace footer renders `<cwd>:<branch>` with `*` for a dirty work tree, for example `~/projects/crewcoder:main*`. Outside a Git repository the final segment is `local`.
 
-Mouse reporting is on by default for CrewCoder's mouse-drag copy behavior. If you want terminal right-click/context menus instead, start with `CREWCODER_TUI_MOUSE=0`.
+Conversation view leaves mouse reporting off so the terminal owns wheel scrolling and text selection. Mouse reporting turns on for home, modal overlays, the sidebar, and Live UI (clicks, drag-resize, overlay hover). `CREWCODER_TUI_MOUSE=0` forces it off in those surfaces too, which restores terminal right-click/context menus.
 
 Each TUI instance also enables terminal focus reporting and ignores keyboard input while its tab, pane, or window is unfocused. This keeps concurrent CrewCoder instances isolated even if a terminal emulator routes a key event to more than one surface.
 

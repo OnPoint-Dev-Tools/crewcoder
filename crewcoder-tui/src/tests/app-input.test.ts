@@ -791,6 +791,19 @@ describe("App input", () => {
     expect(state.systemPrompt).toBeUndefined();
   });
 
+  it("does not capture terminal scroll keys for an in-app conversation pager", () => {
+    const state = createInitialState();
+    state.blocks = [{ type: "user", text: "hello" }, { type: "assistant", text: "there" }];
+    const app = new App(state);
+
+    app.handleInput({ name: "pageup", sequence: "", ctrl: false, meta: false, shift: false });
+    app.handleInput({ name: "wheelup", sequence: "", ctrl: false, meta: false, shift: false });
+    app.handleInput({ name: "b", sequence: "", ctrl: true, meta: false, shift: false });
+    app.handleInput({ name: "pageup", sequence: "", ctrl: false, meta: false, shift: false });
+
+    expect(state.viewportScroll).toBe(0);
+  });
+
   it("reloads CLI metadata and rescans home ~/.crewcoder files", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-tui-home-"));
     process.env.HOME = home;
@@ -868,14 +881,14 @@ describe("App input", () => {
   it("forces a renderer repaint with /repaint", () => {
     const state = createInitialState();
     const app = new App(state);
-    let repaintCount = 0;
-    app.repaint = () => { repaintCount += 1; };
+    const repaintForces: Array<boolean | undefined> = [];
+    app.repaint = (force) => { repaintForces.push(force); };
 
     for (const event of parseInputEvents("/repaint\r")) {
       app.handleInput(event);
     }
 
-    expect(repaintCount).toBe(1);
+    expect(repaintForces).toEqual([true]);
     expect(app.render({ theme: crewCoderTheme, size: { width: 80, height: 24 } }).map(stripAnsi).join("\n")).toContain("✓ Repainted TUI");
   });
 

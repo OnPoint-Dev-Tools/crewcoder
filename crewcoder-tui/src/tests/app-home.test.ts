@@ -230,21 +230,71 @@ describe("App home screen", () => {
     expect(renderApp(app).some((line) => line.includes("esc close"))).toBe(false);
   });
 
-  it("uses the full conversation surface while the transcript scrolls", () => {
+  it("does not page conversation history with an in-app viewport", () => {
     const state = createInitialState();
     state.blocks = [{ type: "user", text: "build me a spinner" }];
     for (let i = 0; i < 18; i++) state.blocks.push({ type: "assistant", text: `answer ${i}` });
     const app = new App(state);
 
-    const bottomLines = renderApp(app);
-    expect(bottomLines.some((line) => line.includes("build me a spinner"))).toBe(false);
-    expect(bottomLines.some((line) => line.includes("Code with a Crew") || line.includes("CrewCoder Agent"))).toBe(false);
-    expect(bottomLines.slice(0, 4).some((line) => line.includes("answer"))).toBe(true);
+    const snapshot = renderApp(app);
+    expect(snapshot.some((line) => line.includes("Code with a Crew") || line.includes("CrewCoder Agent"))).toBe(false);
+    expect(snapshot.some((line) => line.includes("answer 17"))).toBe(true);
 
     state.viewportScroll = Number.MAX_SAFE_INTEGER;
-    const topLines = renderApp(app);
-    expect(topLines.some((line) => line.includes("Code with a Crew") || line.includes("CrewCoder Agent"))).toBe(false);
-    expect(topLines.some((line) => line.includes("build me a spinner"))).toBe(true);
+    const stillLatest = renderApp(app);
+    expect(stillLatest.some((line) => line.includes("build me a spinner"))).toBe(false);
+    expect(stillLatest.some((line) => line.includes("answer 17"))).toBe(true);
+  });
+
+  it("puts conversation history in terminal scrollback instead of a private viewport", () => {
+    const state = createInitialState();
+    state.blocks = [{ type: "user", text: "build me a spinner" }];
+    for (let i = 0; i < 18; i++) state.blocks.push({ type: "assistant", text: `answer ${i}` });
+    const app = new App(state);
+
+    const frame = app.frame({ theme: crewCoderTheme, size: SIZE });
+    const settled = (frame.settled ?? []).map(stripAnsi).join("\n");
+
+    expect(frame.mode).toBe("scrollback");
+    expect(settled).toContain("build me a spinner");
+    expect(settled).toContain("answer 0");
+    expect(settled).toContain("answer 17");
+  });
+
+  it("keeps conversation history in terminal scrollback when the sidebar is closed", () => {
+    const state = createInitialState();
+    state.blocks = [{ type: "user", text: "open sidebar" }, { type: "assistant", text: "ok" }];
+    const app = new App(state);
+
+    const frame = app.frame({ theme: crewCoderTheme, size: SIZE });
+    expect(frame.mode).toBe("scrollback");
+    expect((frame.settled ?? []).map(stripAnsi).join("\n")).toContain("open sidebar");
+  });
+
+  it("bounds expanded running output to the mutable terminal region", () => {
+    const state = createInitialState();
+    state.running = true;
+    state.toolOutputExpanded = true;
+    state.blocks = [
+      { type: "user", text: "run the verbose check" },
+      {
+        type: "tool",
+        name: "bash",
+        status: "running",
+        args: { command: "verbose-check" },
+        text: Array.from({ length: 100 }, (_, index) => `output-${index}`).join("\n")
+      }
+    ];
+    const app = new App(state);
+
+    const frame = app.frame({ theme: crewCoderTheme, size: SIZE });
+    const live = frame.lines.map(stripAnsi).join("\n");
+
+    expect(frame.mode).toBe("scrollback");
+    expect(frame.lines.length).toBeLessThanOrEqual(SIZE.height);
+    expect(live).toContain("output-99");
+    expect(live).not.toContain("output-0");
+    expect((frame.settled ?? []).map(stripAnsi).join("\n")).toContain("run the verbose check");
   });
 
   it("renders crew tasks in the right sidebar", () => {

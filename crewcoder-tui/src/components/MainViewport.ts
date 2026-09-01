@@ -14,79 +14,94 @@ const TEXT_PADDING = 2;
 
 type ViewportPoint = { row: number; col: number };
 type ViewportImagePlacement = Omit<RenderedImagePlacement, "row" | "col"> & { lineIndex: number };
+type CachedBlockLayout = {
+  signature: string;
+  lines: string[];
+  images: ViewportImagePlacement[];
+  hunks: number[];
+};
+
+export type TranscriptLayout = {
+  lines: string[];
+  settledLineCount: number;
+  imagePlacements: ViewportImagePlacement[];
+  diffHunkLines: number[];
+};
 
 export class MainViewport implements Component {
   private visiblePlainLines: string[] = [];
   private selectionAnchor: ViewportPoint | undefined;
   private selectionFocus: ViewportPoint | undefined;
   private diffHunkLines: number[] = [];
-  private activeDiffHunk = -1;
-  private renderedLineCount = 0;
-  /** Layout of the previous render; growth compensation is only valid when it is unchanged. */
-  private lastLayout: { width: number; maxLines: number } | undefined;
+  private readonly blockCache = new Map<number, CachedBlockLayout>();
 
   constructor(private readonly state: TuiState) {}
 
-  render(ctx: RenderContext): string[] {
+  layoutTranscript(ctx: RenderContext): TranscriptLayout {
     const lines: string[] = [];
     const diffHunkLines: number[] = [];
-    const transcriptStart = 0;
     const imagePlacements: ViewportImagePlacement[] = [];
-    const maxLines = Math.max(1, ctx.size.height);
+    const liveIndex = firstLiveBlockIndex(this.state.blocks, this.state.running);
+    const spinner = spinnerFrame();
+    let settledLineCount = 0;
 
-    for (const block of this.state.blocks) {
+    for (let index = 0; index < this.state.blocks.length; index++) {
+      if (index === liveIndex) settledLineCount = lines.length;
+      const block = this.state.blocks[index]!;
       if (lines.length > 0) lines.push(emptyLine(ctx.size.width));
-      if (block.type === "system") renderSystem(lines, block.text, ctx);
-      else if (block.type === "user") renderUser(lines, block, ctx);
-      else if (block.type === "assistant") renderAssistant(lines, block, ctx);
-      else if (block.type === "thinking") renderThinking(lines, block.text, ctx);
-      else if (block.type === "compaction") renderCompaction(lines, block, ctx);
-      else if (block.type === "review_summary") renderReviewSummary(lines, block, ctx);
-      else if (block.type === "why") renderWhy(lines, block, ctx);
-      else if (block.type === "goal") renderGoal(lines, block, ctx);
-      else if (block.type === "crew") renderCrew(lines, block, ctx);
-      else if (block.type === "checkpoint") renderCheckpoint(lines, block, ctx);
-      else if (block.type === "checkpoint_diff") renderCheckpointDiff(lines, block, ctx);
-      else if (block.type === "background_job") renderBackgroundJob(lines, block, ctx);
-      else if (block.type === "tool") renderTool(lines, block, ctx, this.state.toolOutputExpanded, this.state.rendererHooks, diffHunkLines);
-      else if (block.type === "validation") renderValidation(lines, block, ctx);
-      else if (block.type === "approval") renderApproval(lines, block, ctx);
-      else if (block.type === "extension_ui") renderExtensionUi(lines, block, ctx);
-      else if (block.type === "image") renderImage(lines, block, ctx, imagePlacements);
-      else if (block.type === "live_ui") renderLiveUi(lines, block, ctx, this.state.liveUiFrames);
-      else if (block.type === "error") renderError(lines, block.text, ctx);
+      const signature = blockLayoutSignature(block, ctx, this.state, spinner);
+      const cached = this.blockCache.get(index);
+      if (cached && cached.signature === signature) {
+        const base = lines.length;
+        lines.push(...cached.lines);
+        for (const image of cached.images) imagePlacements.push({ ...image, lineIndex: image.lineIndex + base });
+        for (const hunk of cached.hunks) diffHunkLines.push(hunk + base);
+        continue;
+      }
+      const piece: string[] = [];
+      const pieceImages: ViewportImagePlacement[] = [];
+      const pieceHunks: number[] = [];
+      this.renderBlock(piece, block, ctx, pieceHunks, pieceImages);
+      this.blockCache.set(index, { signature, lines: piece, images: pieceImages, hunks: pieceHunks });
+      const base = lines.length;
+      lines.push(...piece);
+      for (const image of pieceImages) imagePlacements.push({ ...image, lineIndex: image.lineIndex + base });
+      for (const hunk of pieceHunks) diffHunkLines.push(hunk + base);
     }
+    for (const key of this.blockCache.keys()) {
+      if (key >= this.state.blocks.length) this.blockCache.delete(key);
+    }
+    if (liveIndex >= this.state.blocks.length) settledLineCount = lines.length;
 
     if (this.state.running) {
       if (lines.length > 0) lines.push(emptyLine(ctx.size.width));
       renderWorkingIndicator(lines, ctx);
     }
 
-    // `viewportScroll` is an offset from the bottom, so a live run that keeps
-    // appending lines would drag scrolled-back content out from under the reader.
-    // While the user is scrolled up, absorb the growth so the same content stays
-    // put; at the bottom (scroll 0) the transcript still follows the stream.
-    const growth = lines.length - this.renderedLineCount;
-    const layoutUnchanged = this.lastLayout?.width === ctx.size.width && this.lastLayout?.maxLines === maxLines;
-    if (this.state.viewportScroll > 0 && growth > 0 && layoutUnchanged) this.state.viewportScroll += growth;
+    this.diffHunkLines = diffHunkLines;
+    return { lines, settledLineCount, imagePlacements, diffHunkLines };
+  }
+
+  render(ctx: RenderContext): string[] {
+    const transcriptStart = 0;
+    const maxLines = Math.max(1, ctx.size.height);
+    const layout = this.layoutTranscript(ctx);
+    const lines = layout.lines;
+    const imagePlacements = layout.imagePlacements;
+    const diffHunkLines = layout.diffHunkLines;
 
     this.diffHunkLines = diffHunkLines;
-    this.renderedLineCount = lines.length;
-    this.lastLayout = { width: ctx.size.width, maxLines };
-    if (this.activeDiffHunk >= diffHunkLines.length) this.activeDiffHunk = diffHunkLines.length - 1;
-    const maxScroll = Math.max(0, lines.length - maxLines);
     this.state.viewportHeight = maxLines;
-    this.state.viewportMaxScroll = maxScroll;
-    this.state.viewportScroll = Math.max(0, Math.min(this.state.viewportScroll, maxScroll));
-    const end = lines.length - this.state.viewportScroll;
-    const start = Math.max(0, end - maxLines);
-    const result = lines.slice(start, end);
+    this.state.viewportMaxScroll = 0;
+    this.state.viewportScroll = 0;
+    const start = Math.max(0, lines.length - maxLines);
+    const result = lines.slice(start);
     const shortContentPadding = Math.max(0, maxLines - result.length);
     if (shortContentPadding > 0) {
       result.splice(transcriptStart, 0, ...Array.from({ length: shortContentPadding }, () => emptyLine(ctx.size.width)));
     }
 
-    const visibleEnd = end + shortContentPadding;
+    const visibleEnd = start + result.length;
     const visibleImagePlacements = imagePlacements.flatMap((image) => {
       const lineIndex = image.lineIndex >= transcriptStart ? image.lineIndex + shortContentPadding : image.lineIndex;
       if (lineIndex < start || lineIndex + image.placement.rows > visibleEnd) return [];
@@ -103,18 +118,35 @@ export class MainViewport implements Component {
     else ctx.imagePlacements = visibleImagePlacements;
 
     this.visiblePlainLines = result.map(stripAnsi);
-    const rendered = result.map((line, row) => this.renderSelection(line, row, ctx.theme.selectedBg));
-    return renderScrollbarPill(rendered, this.state.viewportScroll, maxScroll, ctx.size.width, ctx.theme.muted);
+    return result.map((line, row) => this.renderSelection(line, row, ctx.theme.selectedBg));
   }
 
-  jumpDiffHunk(direction: "next" | "previous"): boolean {
-    if (!this.diffHunkLines.length) return false;
-        if (direction === "next") this.activeDiffHunk = (this.activeDiffHunk + 1 + this.diffHunkLines.length) % this.diffHunkLines.length;
-        else this.activeDiffHunk = (this.activeDiffHunk - 1 + this.diffHunkLines.length) % this.diffHunkLines.length;
-        const target = this.diffHunkLines[this.activeDiffHunk]!;
-        const desiredStart = Math.max(0, target - Math.max(1, Math.floor(this.state.viewportHeight / 2)));
-        this.state.viewportScroll = Math.max(0, this.renderedLineCount - this.state.viewportHeight - desiredStart);
-        return true;
+  private renderBlock(
+    lines: string[],
+    block: TuiEventBlock,
+    ctx: RenderContext,
+    diffHunkLines: number[],
+    imagePlacements: ViewportImagePlacement[]
+  ): void {
+    if (block.type === "system") renderSystem(lines, block.text, ctx);
+    else if (block.type === "user") renderUser(lines, block, ctx);
+    else if (block.type === "assistant") renderAssistant(lines, block, ctx);
+    else if (block.type === "thinking") renderThinking(lines, block.text, ctx);
+    else if (block.type === "compaction") renderCompaction(lines, block, ctx);
+    else if (block.type === "review_summary") renderReviewSummary(lines, block, ctx);
+    else if (block.type === "why") renderWhy(lines, block, ctx);
+    else if (block.type === "goal") renderGoal(lines, block, ctx);
+    else if (block.type === "crew") renderCrew(lines, block, ctx);
+    else if (block.type === "checkpoint") renderCheckpoint(lines, block, ctx);
+    else if (block.type === "checkpoint_diff") renderCheckpointDiff(lines, block, ctx);
+    else if (block.type === "background_job") renderBackgroundJob(lines, block, ctx);
+    else if (block.type === "tool") renderTool(lines, block, ctx, this.state.toolOutputExpanded, this.state.rendererHooks, diffHunkLines);
+    else if (block.type === "validation") renderValidation(lines, block, ctx);
+    else if (block.type === "approval") renderApproval(lines, block, ctx);
+    else if (block.type === "extension_ui") renderExtensionUi(lines, block, ctx);
+    else if (block.type === "image") renderImage(lines, block, ctx, imagePlacements);
+    else if (block.type === "live_ui") renderLiveUi(lines, block, ctx, this.state.liveUiFrames);
+    else if (block.type === "error") renderError(lines, block.text, ctx);
   }
 
   handleMouse(event: KeyEvent, topRow: number, copy: (text: string) => boolean = writeClipboard, onCopied?: () => void): boolean {
@@ -189,6 +221,43 @@ export class MainViewport implements Component {
 }
 
 /**
+ * Index of the first block that may still change. Everything before this is
+ * safe to print once into the terminal scrollback.
+ */
+export function firstLiveBlockIndex(blocks: TuiEventBlock[], running: boolean): number {
+  for (let index = 0; index < blocks.length; index++) {
+    if (blockHasLiveStatus(blocks[index]!)) return index;
+  }
+  if (running && blocks.length) {
+    const last = blocks[blocks.length - 1]!;
+    if (last.type === "assistant" || last.type === "thinking") return blocks.length - 1;
+  }
+  return blocks.length;
+}
+
+function blockHasLiveStatus(block: TuiEventBlock): boolean {
+  if (block.type === "tool") return block.status === "running";
+  if (block.type === "compaction") return block.status === "running";
+  if (block.type === "background_job") return block.status === "running";
+  if (block.type === "validation") return block.status === "running";
+  if (block.type === "live_ui") return block.status === "loading" || block.status === "ready";
+  if (block.type === "crew") return !block.completed;
+  if (block.type === "goal") {
+    return block.goal.status === "running" || block.goal.status === "queued" || block.goal.status === "awaiting_approval" || block.goal.status === "paused";
+  }
+  if (block.type === "approval") return block.status === "pending";
+  if (block.type === "extension_ui") return block.status === "pending";
+  return false;
+}
+
+function blockLayoutSignature(block: TuiEventBlock, ctx: RenderContext, state: TuiState, spinner: string): string {
+  const last = state.blocks[state.blocks.length - 1];
+  const live = blockHasLiveStatus(block) || (state.running && last === block && (block.type === "assistant" || block.type === "thinking"));
+  const frame = block.type === "live_ui" ? (state.liveUiFrames?.get(block.key)?.join("\n") ?? "") : "";
+  return `${ctx.size.width}|${state.toolOutputExpanded ? 1 : 0}|${live ? spinner : ""}|${JSON.stringify(block)}|${frame}`;
+}
+
+/**
  * Single-line working indicator.
  *
  * This used to be a 3x3 spinner mosaic plus two captions and surrounding blank
@@ -196,28 +265,6 @@ export class MainViewport implements Component {
  * long run. Since the bottom `RuntimeBar` chrome was removed, this line is the
  * only running indicator, so keep it (and keep it one line).
  */
-function renderScrollbarPill(lines: string[], viewportScroll: number, maxScroll: number, width: number, color: string): string[] {
-  if (maxScroll <= 0 || lines.length === 0 || width <= 0) return lines;
-  const pillHeight = Math.min(2, lines.length);
-  const travel = Math.max(0, lines.length - pillHeight);
-  // viewportScroll is measured from the bottom, while the pill travels top-to-bottom.
-  const progressFromTop = (maxScroll - viewportScroll) / maxScroll;
-  const pillStart = Math.round(progressFromTop * travel);
-  return lines.map((line, row) => row >= pillStart && row < pillStart + pillHeight
-    ? replaceFinalVisibleCell(padRight(line, width), `${fg(color)}▐${reset()}`)
-    : line);
-}
-
-function replaceFinalVisibleCell(line: string, replacement: string): string {
-  const tokens = line.match(/\x1b\[[0-9;?]*[A-Za-z]|./gsu) ?? [];
-  for (let index = tokens.length - 1; index >= 0; index--) {
-    if (tokens[index]?.startsWith("\x1b[")) continue;
-    tokens[index] = `${reset()}${replacement}`;
-    break;
-  }
-  return tokens.join("");
-}
-
 function renderWorkingIndicator(lines: string[], ctx: RenderContext): void {
   const label = `${fg(ctx.theme.accent)}${bold()}${spinnerFrame()}${reset()} ${fg(ctx.theme.text)}${bold()}AGENT IS WORKING${reset()} ${fg(ctx.theme.muted)}· Esc to abort${reset()}`;
   lines.push(padRight(`${" ".repeat(TEXT_PADDING)}${label}`, ctx.size.width));
@@ -437,7 +484,15 @@ function renderBackgroundJob(lines: string[], block: Extract<TuiEventBlock, { ty
   lines.push(blockPaddingLine(ctx, ctx.theme.panel));
 }
 
+const CREWCODER_CLARIFY_TOOL = "crewcoder_clarify";
+const CREWCODER_PROPOSE_PLAN_TOOL = "crewcoder_propose_plan";
+
+function isCrewcoderWorkflowTool(name: string): boolean {
+  return name === CREWCODER_CLARIFY_TOOL || name === CREWCODER_PROPOSE_PLAN_TOOL;
+}
+
 export function toolHasExpandableOutput(block: Extract<TuiEventBlock, { type: "tool" }>, renderers: TuiState["rendererHooks"] = []): boolean {
+  if (isCrewcoderWorkflowTool(block.name)) return false;
   return !findToolRenderer(block, renderers) && !toolDiff(block) && toolBody(block).length > 10;
 }
 
@@ -445,6 +500,10 @@ function renderTool(lines: string[], block: Extract<TuiEventBlock, { type: "tool
   const renderer = findToolRenderer(block, renderers);
   if (renderer) {
     renderCustomTool(lines, block, renderer, ctx);
+    return;
+  }
+  if (isCrewcoderWorkflowTool(block.name)) {
+    renderCrewcoderWorkflowTool(lines, block, ctx);
     return;
   }
   const action = toolDisplayLabel(block);
@@ -470,6 +529,66 @@ function renderTool(lines: string[], block: Extract<TuiEventBlock, { type: "tool
   if (!expanded && body.length > 10) lines.push(backgroundLine(`${fg(ctx.theme.success)}... (${body.length - 10} more lines, ctrl+o to expand)${reset()}`, ctx.size.width, ctx.theme.panel));
   if (expanded && body.length > 10) lines.push(backgroundLine(`${fg(ctx.theme.muted)}expanded · ctrl+o to collapse${reset()}`, ctx.size.width, ctx.theme.panel));
   lines.push(blockPaddingLine(ctx, ctx.theme.panel));
+}
+
+function renderCrewcoderWorkflowTool(lines: string[], block: Extract<TuiEventBlock, { type: "tool" }>, ctx: RenderContext): void {
+  const action = toolDisplayLabel(block);
+  const icon = toolDisplayIcon(block);
+  const suffix = block.status === "running" ? " running" : block.status === "error" ? " failed" : "";
+  const marker = block.status === "running" ? `${renderSpinner(ctx.theme.warning)} ` : `${fg(ctx.theme.accent)}${icon}${reset()} `;
+  lines.push(blockPaddingLine(ctx, ctx.theme.panel));
+  lines.push(backgroundLine(`${marker}${fg(ctx.theme.muted)}${bold()}TOOL: ${action.toUpperCase()}${reset()}${fg(ctx.theme.muted)}${suffix}${reset()}`, ctx.size.width, ctx.theme.panel));
+  if (block.name === CREWCODER_CLARIFY_TOOL) renderClarifyQuestions(lines, block, ctx);
+  else renderProposedPlan(lines, block, ctx);
+  lines.push(blockPaddingLine(ctx, ctx.theme.panel));
+}
+
+function renderClarifyQuestions(lines: string[], block: Extract<TuiEventBlock, { type: "tool" }>, ctx: RenderContext): void {
+  const questions = stringListArg(block.args, "questions");
+  if (questions.length > 0) {
+    for (const [index, question] of questions.entries()) {
+      pushWrappedToolText(lines, question, ctx, `${index + 1}. `);
+    }
+    return;
+  }
+  pushWrappedToolText(lines, block.text?.trim() ?? "", ctx);
+}
+
+function renderProposedPlan(lines: string[], block: Extract<TuiEventBlock, { type: "tool" }>, ctx: RenderContext): void {
+  const requirements = stringArg(block.args ?? {}, "requirements");
+  const plan = stringArg(block.args ?? {}, "plan");
+  const acceptanceCriteria = stringArg(block.args ?? {}, "acceptanceCriteria");
+  if (requirements || plan || acceptanceCriteria) {
+    if (requirements) {
+      pushToolSectionHeading(lines, "Requirements", ctx);
+      pushWrappedToolText(lines, requirements, ctx);
+    }
+    if (plan) {
+      pushToolSectionHeading(lines, "Plan", ctx);
+      pushWrappedToolText(lines, plan, ctx);
+    }
+    if (acceptanceCriteria) {
+      pushToolSectionHeading(lines, "Acceptance criteria", ctx);
+      pushWrappedToolText(lines, acceptanceCriteria, ctx);
+    }
+    pushWrappedToolText(lines, "Approve with /approve-plan, or reply approve.", ctx);
+    return;
+  }
+  pushWrappedToolText(lines, block.text?.trim() ?? "", ctx);
+}
+
+function pushToolSectionHeading(lines: string[], label: string, ctx: RenderContext): void {
+  lines.push(backgroundLine(`${fg(ctx.theme.muted)}│${reset()} ${fg(ctx.theme.accent2)}${bold()}${label}${reset()}`, ctx.size.width, ctx.theme.panel));
+}
+
+function pushWrappedToolText(lines: string[], text: string, ctx: RenderContext, prefix = ""): void {
+  if (!text) return;
+  const indent = " ".repeat(prefix.length);
+  const wrapped = wrapText(text, textWidth(ctx, 2 + prefix.length));
+  for (const [index, line] of wrapped.entries()) {
+    const lead = index === 0 ? prefix : indent;
+    lines.push(backgroundLine(`${fg(ctx.theme.muted)}│${reset()} ${fg(ctx.theme.text)}${lead}${line}${reset()}`, ctx.size.width, ctx.theme.panel));
+  }
 }
 
 function renderCustomTool(lines: string[], block: Extract<TuiEventBlock, { type: "tool" }>, renderer: TuiState["rendererHooks"][number], ctx: RenderContext): void {
@@ -889,7 +1008,6 @@ function renderSideBySideDiff(lines: string[], rows: DiffRow[], ctx: RenderConte
   const codeWidth = Math.max(1, columnWidth - gutterWidth);
   if (!rows.some((row) => row.hunk)) hunkLines.push(lines.length);
   lines.push(backgroundLine(`${fg(ctx.theme.muted)}${padRight("BEFORE", columnWidth)} │ ${padRight("AFTER", columnWidth)}${reset()}`, ctx.size.width, ctx.theme.panel));
-  lines.push(backgroundLine(`${fg(ctx.theme.subtle)}n/p jump hunks${reset()}`, ctx.size.width, ctx.theme.panel));
   for (const row of rows) {
     if (row.hunk) {
       hunkLines.push(lines.length);
@@ -921,6 +1039,12 @@ function formatArgs(args?: Record<string, unknown>): string {
 function stringArg(args: Record<string, unknown>, key: string): string | undefined {
   const value = args[key];
   return typeof value === "string" && value ? value : undefined;
+}
+
+function stringListArg(args: Record<string, unknown> | undefined, key: string): string[] {
+  const value = args?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
 }
 
 function numberArg(args: Record<string, unknown>, key: string): number | undefined {

@@ -12,9 +12,14 @@ crewcoder config set defaultMode crewcoder
 ```
 
 In the TUI, open `/modes` and select `crewcoder`. The selected mode is saved with the
-session and restored when that session resumes. After a plan is proposed, approve it
-with `/approve-plan` (this is not the same as `/approve`, which is for pending tool
-calls).
+session and restored when that session resumes. Clarification questions and the
+proposed plan wrap to the terminal width so the full text stays readable. After a
+plan is proposed, approve it with `/approve-plan` (this is not the same as
+`/approve`, which is for pending tool calls).
+
+CrewCoder mode uses the regular durable session store. The initial user message and
+workflow state are written before the first provider request starts, so aborting an
+in-progress first turn still leaves a session that can be resumed normally.
 
 ## Workflow contract
 

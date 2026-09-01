@@ -1,6 +1,6 @@
 {
    "name": "@onpoint-dev-tools/crewcoder-tui",
-   "version": "0.6.3",
+   "version": "0.6.4",
    "private": false,
    "description": "CrewCoder custom terminal UI connected to crewcoder-agent with wired backend process bridge.",
    "license": "Apache-2.0",

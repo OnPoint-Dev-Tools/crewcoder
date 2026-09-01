@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runAgentLoop } from "../core/agent-loop.js";
+import { loadSession } from "../core/session-loader.js";
 import { assistantText, getText, type AssistantMessage } from "../core/messages.js";
 import type { ModelClient, ModelInput } from "../core/model-client.js";
 import { buildSystemPrompt } from "../core/system-prompt.js";
@@ -83,6 +84,49 @@ describe("crewcoder mode", () => {
     expect(result.activatedSkills).toEqual([]);
     expect(result.retrievedDocs).toEqual([]);
     expect(result.notes.join(" ")).toContain("Runtime-enforced");
+  });
+
+  it("persists a resumable session before the first provider turn finishes", async () => {
+    const originalHome = process.env.CREWCODER_HOME;
+    process.env.CREWCODER_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-home-")) + "/.crewcoder";
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-durable-start-"));
+    let sessionId = "";
+    let providerStarted: (() => void) | undefined;
+    let finishProvider: (() => void) | undefined;
+    const providerStart = new Promise<void>((resolve) => { providerStarted = resolve; });
+    const providerGate = new Promise<void>((resolve) => { finishProvider = resolve; });
+
+    try {
+      const run = runAgentLoop(
+        { prompt: "add a settings page", requestedMode: "crewcoder", cwd },
+        {
+          maxIterations: 1,
+          modelClient: {
+            async complete(input) {
+              sessionId = input.session?.sessionId ?? "";
+              providerStarted?.();
+              await providerGate;
+              return assistantText("done");
+            }
+          }
+        }
+      );
+
+      await providerStart;
+      const savedWhileProviderWasRunning = await loadSession(sessionId);
+      expect(savedWhileProviderWasRunning).toMatchObject({
+        id: sessionId,
+        requestedMode: "crewcoder",
+        resolvedMode: "crewcoder"
+      });
+      expect(getText(savedWhileProviderWasRunning.messages.at(-1)!)).toBe("add a settings page");
+
+      finishProvider?.();
+      await run;
+    } finally {
+      finishProvider?.();
+      if (originalHome === undefined) delete process.env.CREWCODER_HOME; else process.env.CREWCODER_HOME = originalHome;
+    }
   });
 
   it("blocks writes until the plan is approved, even after the user answers a question", async () => {

@@ -1,8 +1,14 @@
 export const clearScreen = () => "\x1b[2J\x1b[H";
+export const clearScrollback = () => "\x1b[3J";
 export const hideCursor = () => "\x1b[?25l";
 export const showCursor = () => "\x1b[?25h";
 export const enableMouse = () => "\x1b[?1000h\x1b[?1003h\x1b[?1006h";
 export const disableMouse = () => "\x1b[?1006l\x1b[?1003l\x1b[?1000l";
+export const disableAutowrap = () => "\x1b[?7l";
+export const enableAutowrap = () => "\x1b[?7h";
+export const eraseDown = () => "\x1b[J";
+export const cursorToColumn = (col: number) => `\x1b[${col}G`;
+export const cursorUp = (count: number) => count > 0 ? `\x1b[${count}A` : "";
 // Focus reports (CSI I / CSI O) let each TUI reject input delivered to an
 // unfocused terminal surface. This is process-local input isolation for tabs,
 // panes, and windows, including terminals that route keys too broadly.

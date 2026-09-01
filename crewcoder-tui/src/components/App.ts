@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Component, KeyEvent, RenderContext, RenderedImagePlacement } from "../tui/component.js";
+import type { Component, KeyEvent, RenderContext, RenderedImagePlacement, TerminalFrame } from "../tui/component.js";
 import { MainViewport } from "./MainViewport.js";
 import { Composer } from "./Composer.js";
 import { RightSidebar } from "./RightSidebar.js";
@@ -244,7 +244,7 @@ export class App implements Component {
   readonly liveUiController: LiveUiController;
   pushOverlay?: (component: Component, options?: OverlayOptions) => void;
   closeOverlay?: () => void;
-  repaint?: () => void;
+  repaint?: (force?: boolean) => void;
 
   constructor(private readonly state: TuiState) {
     this.viewport = new MainViewport(state);
@@ -293,12 +293,31 @@ export class App implements Component {
     this.repaint?.();
   }
 
+  frame(ctx: RenderContext): TerminalFrame {
+    this.prepareLayout(ctx);
+    if (this.usesNativeTranscriptScroll()) return this.renderScrollback(ctx);
+    return { mode: "screen", lines: this.render(ctx) };
+  }
+
   render(ctx: RenderContext): string[] {
+    this.prepareLayout(ctx);
+    const sidebarWidth = this.sidebarOpen ? rightSidebarWidth(ctx.size.width, this.sidebarPreferredWidth) : 0;
+    const contentWidth = this.layoutContentWidth;
+    const contentCtx = { ...ctx, size: { width: contentWidth, height: ctx.size.height } };
+    const body = this.homeActive ? this.renderHome(contentCtx) : this.renderNormal(contentCtx);
+    const base = body.slice(0, contentCtx.size.height);
+    const composed = this.isModalPopover() ? this.compositeModal(base, contentCtx) : base;
+    const content = this.renderNoticePopup(composed, contentCtx);
+    if (sidebarWidth <= 0) return content;
+    const sidebarLines = this.rightSidebar.render({ ...ctx, size: { width: sidebarWidth, height: ctx.size.height } });
+    return renderRightSidebar(content, sidebarLines, contentWidth, ctx);
+  }
+
+  private prepareLayout(ctx: RenderContext): void {
     this.layoutTotalWidth = ctx.size.width;
     const sidebarWidth = this.sidebarOpen ? rightSidebarWidth(ctx.size.width, this.sidebarPreferredWidth) : 0;
-    const contentWidth = ctx.size.width - sidebarWidth - (sidebarWidth > 0 ? 1 : 0);
-    this.layoutContentWidth = contentWidth;
-    const contentCtx = { ...ctx, size: { width: contentWidth, height: ctx.size.height } };
+    this.layoutContentWidth = ctx.size.width - sidebarWidth - (sidebarWidth > 0 ? 1 : 0);
+    const contentCtx = { ...ctx, size: { width: this.layoutContentWidth, height: ctx.size.height } };
     const wasHome = this.homeActive;
     this.homeActive = this.isHomeScreen();
     if (this.homeActive) {
@@ -307,13 +326,10 @@ export class App implements Component {
       this.homeIdleSince = undefined;
     }
     this.refreshLiveUiFrames(contentCtx);
-    const body = this.homeActive ? this.renderHome(contentCtx) : this.renderNormal(contentCtx);
-    const base = body.slice(0, contentCtx.size.height);
-    const composed = this.isModalPopover() ? this.compositeModal(base, contentCtx) : base;
-    const content = this.renderNoticePopup(composed, contentCtx);
-    if (sidebarWidth <= 0) return content;
-    const sidebarLines = this.rightSidebar.render({ ...ctx, size: { width: sidebarWidth, height: ctx.size.height } });
-    return renderRightSidebar(content, sidebarLines, contentWidth, ctx);
+  }
+
+  private usesNativeTranscriptScroll(): boolean {
+    return !this.isHomeScreen() && !this.sidebarOpen && !this.isModalPopover();
   }
 
   private renderNormal(ctx: RenderContext): string[] {
@@ -336,9 +352,49 @@ export class App implements Component {
     return [...viewportLines, ...gapLines, ...composerLines, ...inlineLines];
   }
 
+  private renderScrollback(ctx: RenderContext): TerminalFrame {
+    const mainWidth = ctx.size.width;
+    const viewportComposerGap = 1;
+    const maxComposerHeight = Math.max(5, Math.floor(ctx.size.height * 0.35));
+    const composerHeight = Math.min(this.composer.height(mainWidth), maxComposerHeight);
+    const inlinePopover = this.activePopover?.kind === "mentions" || this.activePopover?.kind === "commands" ? this.activePopover : undefined;
+    const inlineHeight = inlinePopover ? Math.min(inlinePopover.height, Math.max(0, ctx.size.height - composerHeight - viewportComposerGap)) : 0;
+    const viewportHeight = Math.max(1, ctx.size.height - composerHeight - inlineHeight - viewportComposerGap);
+    this.viewportTop = 1;
+    this.composerTop = viewportHeight + viewportComposerGap + 1;
+    const layout = this.viewport.layoutTranscript({ ...ctx, size: { width: mainWidth, height: viewportHeight } });
+    // A running block can contain thousands of expanded output lines. Keep the
+    // mutable region bounded to the viewport; the complete block is committed
+    // to native scrollback as soon as it settles.
+    const liveStartLine = Math.max(layout.settledLineCount, layout.lines.length - viewportHeight);
+    const liveTranscript = layout.lines.slice(liveStartLine);
+    const composerLines = this.composer.render({ ...ctx, size: { width: mainWidth, height: composerHeight } });
+    const gapLines = Array.from({ length: viewportComposerGap }, () => emptyLine(mainWidth));
+    this.inlinePopoverTop = this.composerTop + composerLines.length;
+    const inlineLines = inlinePopover ? this.renderPopover({ ...ctx, size: { width: mainWidth, height: inlineHeight } }, inlineHeight) : [];
+    const live = this.renderNoticePopup([...liveTranscript, ...gapLines, ...composerLines, ...inlineLines], ctx);
+    const images: RenderedImagePlacement[] = layout.imagePlacements.flatMap((image) => {
+      if (image.lineIndex < liveStartLine || image.lineIndex + image.placement.rows > layout.lines.length) return [];
+      return [{
+        id: image.id,
+        row: image.lineIndex - liveStartLine + 1,
+        col: 3,
+        protocol: image.protocol,
+        attachment: image.attachment,
+        placement: image.placement
+      }];
+    });
+    this.state.viewportHeight = viewportHeight;
+    this.state.viewportMaxScroll = 0;
+    this.state.viewportScroll = 0;
+    if (ctx.imagePlacements) ctx.imagePlacements.push(...images);
+    else ctx.imagePlacements = images;
+    return { mode: "scrollback", lines: live, settled: layout.lines.slice(0, layout.settledLineCount), images };
+  }
+
   private isModalPopover(): boolean {
     if (!this.activePopover || this.activePopover.kind === "mentions") return false;
-    if (this.activePopover.kind === "commands") return this.homeActive;
+    if (this.activePopover.kind === "commands") return this.isHomeScreen();
     return true;
   }
 
@@ -605,21 +661,11 @@ export class App implements Component {
   }
 
   private handleViewportInput(event: KeyEvent): boolean {
-    const page = Math.max(3, this.state.viewportHeight - 2);
-    if (!this.state.input && !event.ctrl && !event.meta && event.name === "n" && this.viewport.jumpDiffHunk("next")) return true;
-    if (!this.state.input && !event.ctrl && !event.meta && event.name === "p" && this.viewport.jumpDiffHunk("previous")) return true;
     if (event.ctrl && event.name === "o") {
       this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
-      this.state.viewportScroll = 0;
       pushSystemLog(this.state, `Tool output ${this.state.toolOutputExpanded ? "expanded" : "collapsed"}.`);
       return true;
     }
-    if (event.name === "up" || event.name === "wheelup") { this.state.viewportScroll += 3; return true; }
-    if (event.name === "down" || event.name === "wheeldown") { this.state.viewportScroll = Math.max(0, this.state.viewportScroll - 3); return true; }
-    if (event.name === "pageup") { this.state.viewportScroll += page; return true; }
-    if (event.name === "pagedown") { this.state.viewportScroll = Math.max(0, this.state.viewportScroll - page); return true; }
-    if (event.name === "home" && event.ctrl) { this.state.viewportScroll = Number.MAX_SAFE_INTEGER; return true; }
-    if (event.name === "end" || (event.name === "home" && !event.ctrl)) { this.state.viewportScroll = 0; return true; }
     return false;
   }
 
@@ -783,7 +829,7 @@ export class App implements Component {
   }
 
   private forceRepaint(): void {
-    this.repaint?.();
+    this.repaint?.(true);
     this.showNoticePopup("✓ Repainted TUI", "success");
   }
 
