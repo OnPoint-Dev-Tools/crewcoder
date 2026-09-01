@@ -51,8 +51,8 @@
       "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
    },
    "dependencies": {
-      "@onpoint-dev-tools/crewcoder-agent": "0.6.5",
-      "@onpoint-dev-tools/crewcoder-tui": "0.6.3",
+      "@onpoint-dev-tools/crewcoder-agent": "0.6.6",
+      "@onpoint-dev-tools/crewcoder-tui": "0.6.4",
       "typescript": "^5.7.2"
    },
    "devDependencies": {
