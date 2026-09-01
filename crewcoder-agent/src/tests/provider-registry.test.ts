@@ -8,6 +8,17 @@ describe("provider registry", () => {
     vi.unstubAllEnvs();
   });
 
+  it("does not hydrate catalogs from the operator environment", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("OPENCODE_API_KEY", "");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    await listProviders();
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("includes built-in providers", async () => {
     const providers = await listProviders();
     expect(providers.map(p => p.id)).toEqual(expect.arrayContaining(["codex", "opencode", "opencode-go"]));
@@ -50,6 +61,8 @@ describe("provider registry", () => {
   });
 
   it("keeps static OpenCode models when auth is unavailable", async () => {
+    vi.stubEnv("OPENCODE_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 

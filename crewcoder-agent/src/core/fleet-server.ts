@@ -8,6 +8,7 @@ import { createExtensionUiBridge, type ExtensionUiBridge } from "./extension-ui-
 import { runAgentLoop, type AgentLoopResult } from "./agent-loop.js";
 import { runAgentLoopContinue } from "./agent-loop-continue.js";
 import { createBackendDebugLogger } from "./backend-debug-logger.js";
+import { HeuristicModelClient } from "./model-client.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
 import { resolveModel } from "../providers/model-registry.js";
 import type { ApprovalMode } from "./approval.js";
@@ -196,14 +197,15 @@ async function runFleetLoop(state: FleetRunState, fallbackCwd: string): Promise<
   const cwd = state.request.cwd ?? fallbackCwd;
   const debug = createBackendDebugLogger({ emit: async (event) => dispatchEvent(state, event), runId: `fleet-${state.runId}` });
   try {
-    const contextWindow = (await resolveModel(providerId, model))?.metadata?.contextWindow;
+    const heuristic = state.request.heuristic === true;
+    const contextWindow = heuristic ? undefined : (await resolveModel(providerId, model))?.metadata?.contextWindow;
     const common = {
       providerId,
       model,
       contextWindow,
       maxIterations: state.request.maxIterations ?? config.maxIterations,
       approvalMode: state.request.approval ?? "never",
-      modelClient: state.request.heuristic ? undefined : new ProviderModelClient(providerId, cwd, model, debug, state.request.effort),
+      modelClient: heuristic ? new HeuristicModelClient() : new ProviderModelClient(providerId, cwd, model, debug, state.request.effort),
       systemPromptName: state.request.systemPrompt,
       workerName: state.request.worker,
       manualCompactSignal: state.manualCompactSignal,

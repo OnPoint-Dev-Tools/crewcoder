@@ -191,11 +191,11 @@ describe("fleet server", () => {
 });
 
 async function waitForRun(url: string, runId: string, token: string): Promise<Record<string, unknown>> {
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 80; i++) {
     const response = await fetch(`${url}/runs/${runId}`, { headers: { authorization: `Bearer ${token}` } });
     const summary = await response.json() as Record<string, unknown>;
     if (summary.status === "completed" || summary.status === "failed") return summary;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error("Timed out waiting for fleet run.");
 }

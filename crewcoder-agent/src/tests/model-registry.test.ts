@@ -33,6 +33,8 @@ describe("model registry context windows", () => {
 
   it("uses the declared gpt-5.6-sol context window without catalog lookup", async () => {
     await useTemporaryHome();
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("OPENCODE_API_KEY", "");
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 
@@ -63,6 +65,8 @@ describe("model registry context windows", () => {
         }]
       }
     }), "utf8");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("OPENCODE_API_KEY", "");
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 
