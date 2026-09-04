@@ -46,7 +46,10 @@ auto-compact. Claude's SDK-native auto-compaction is
 also enabled as defense in depth for its opaque resumed session. While running as an ACP agent,
 CrewCoder publishes its own compaction lifecycle on the additive
 `_crewcoder/compaction_update` session-update kind so capable hosts can show progress before the
-next usage snapshot arrives. Codex app-server durable threads
+next usage snapshot arrives. CrewCode's compact button must call ACP `session/compact`
+(advertised on `initialize._meta["crewcoder/sessionCompact"]`); that rewrites the durable
+session the same way `crewcoder session compact` does and returns the summary. Do not
+leave host compact as a local transcript summary-reset. Codex app-server durable threads
 avoid repeatedly uploading full context across restarts, but they do not change the
 model's context-window limit; see
 [`CODEX_TRANSPORT.md`](./CODEX_TRANSPORT.md).
@@ -153,6 +156,10 @@ Wired in `cli.ts` for both `run --json-events` and `session resume --json-events
 detached in a `finally` so it never keeps the process alive.
 
 ### Idle — saved-session command
+
+ACP clients use the same idle path over `session/compact` instead of the CLI. The method
+accepts `{ sessionId, preview?, summary? }`, refuses while a prompt is in flight, and
+returns the installed summary so the host can update its local transcript.
 
 When no run is active, the TUI shells out to the backend, which atomically replaces the saved
 session history and clears native provider continuation before the next resume:

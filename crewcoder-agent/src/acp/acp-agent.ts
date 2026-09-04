@@ -27,6 +27,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { runAgentLoop, type AgentLoopResult } from "../core/agent-loop.js";
 import { runAgentLoopContinue } from "../core/agent-loop-continue.js";
+import { compactDurableSession } from "../core/compact-session.js";
 import { createSessionId } from "../core/session-store.js";
 import { setSessionExternalDirectories, validateExternalDirectories } from "../core/external-directories.js";
 import { loadSession as loadSessionRecord } from "../core/session-loader.js";
@@ -36,7 +37,7 @@ import { DEFAULT_AGENT_MODE } from "../core/mode-router.js";
 import type { AgentEvent } from "../core/events.js";
 import type { ApprovalMode } from "../core/approval.js";
 import type { AgentMode } from "../core/types.js";
-import type { ModelQuestion } from "../core/model-client.js";
+import { HeuristicModelClient, type ModelQuestion } from "../core/model-client.js";
 import type { ApprovalControlDecision } from "../core/stdin-control.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
 import { listBuiltinProviderModels, resolveModel } from "../providers/model-registry.js";
@@ -81,6 +82,22 @@ type AcpSession = {
 type AcpModelInfo = { modelId: string; name: string; description?: string };
 type AcpModelState = { availableModels: AcpModelInfo[]; currentModelId: string };
 
+/** Advertised on `initialize._meta` so CrewCode can call compact instead of local summary-reset. */
+export const CREWCODER_SESSION_COMPACT_META = {
+  method: "session/compact",
+  preview: true,
+  editedSummary: true
+} as const;
+
+const EXT_METHODS = new Set([
+  "session/set_model",
+  "session/set_reasoning_effort",
+  "session/set_approval_mode",
+  "session/set_external_directories",
+  "session/follow_up",
+  "session/compact"
+]);
+
 const PERMISSION_OPTIONS: PermissionOption[] = [
   { optionId: "allow_once", name: "Allow", kind: "allow_once" },
   { optionId: "allow_always", name: "Always allow", kind: "allow_always" },
@@ -120,7 +137,8 @@ export class CrewCoderAcpAgent implements Agent {
           embeddedContext: false
         }
       },
-      authMethods: []
+      authMethods: [],
+      _meta: { "crewcoder/sessionCompact": CREWCODER_SESSION_COMPACT_META }
     };
   }
 
@@ -179,9 +197,13 @@ export class CrewCoderAcpAgent implements Agent {
    * respawning CrewCoder.
    */
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (method !== "session/set_model" && method !== "session/set_reasoning_effort" && method !== "session/set_approval_mode" && method !== "session/set_external_directories" && method !== "session/follow_up") throw RequestError.methodNotFound(method);
+    if (!EXT_METHODS.has(method)) throw RequestError.methodNotFound(method);
     const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
     const session = this.session(sessionId);
+
+    if (method === "session/compact") {
+      return this.compactSession(session, params);
+    }
 
     if (method === "session/follow_up") {
       const message = typeof params.message === "string" ? params.message.trim() : "";
@@ -236,6 +258,51 @@ export class CrewCoderAcpAgent implements Agent {
       session.model = modelId;
     }
     return {};
+  }
+
+  private async compactSession(session: AcpSession, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (session.abort) {
+      throw RequestError.invalidParams({ reason: "Cannot compact while a prompt is running. Wait for the current turn to finish." });
+    }
+    if (!session.started) {
+      throw RequestError.invalidParams({ reason: "session has no durable transcript yet" });
+    }
+    const preview = params.preview === true;
+    const summary = typeof params.summary === "string" ? params.summary : undefined;
+    const emit = async (event: AgentEvent): Promise<void> => {
+      const update = translateEvent(event);
+      if (update) await this.conn.sessionUpdate({ sessionId: session.sessionId, update: update as unknown as SessionUpdate });
+    };
+    try {
+      const result = await compactDurableSession({
+        sessionId: session.sessionId,
+        modelClient: this.modelClientFor(session),
+        cwd: session.cwd,
+        preview,
+        editedSummary: summary,
+        emit,
+        automatic: false
+      });
+      return {
+        compacted: result.compacted,
+        preview: result.preview,
+        edited: result.edited,
+        compactionId: result.compactionId,
+        source: result.source,
+        fallbackReason: result.fallbackReason,
+        originalMessageCount: result.originalMessageCount,
+        retainedMessageCount: result.retainedMessageCount,
+        summary: result.summary
+      };
+    } catch (error) {
+      throw RequestError.internalError({ message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private modelClientFor(session: AcpSession): ProviderModelClient | HeuristicModelClient {
+    return this.options.heuristic
+      ? new HeuristicModelClient()
+      : new ProviderModelClient(session.providerId, session.cwd, session.model, undefined, session.reasoningEffort);
   }
 
   async cancel(params: CancelNotification): Promise<void> {

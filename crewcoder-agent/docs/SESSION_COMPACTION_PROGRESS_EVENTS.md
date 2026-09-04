@@ -36,9 +36,12 @@ Fields:
 `status: "started"`, failures to `"failed"`, and `session_compacted` to
 `"completed"`. A skipped no-op closes an already-open progress indicator with a
 completed lifecycle status while preserving the explicit skip message and phase.
-The payload is marked `automatic: true` because ACP currently exposes no native
-manual-compaction request; host-triggered manual compaction remains host-owned.
-The summary body is not sent over this notification channel.
+Token-triggered live compaction marks the payload `automatic: true` and omits the
+summary body. Host-requested `session/compact` marks it `automatic: false` and
+includes `summary` on the completed update plus the RPC result, so CrewCode can
+replace local history with CrewCoder's durable compact instead of a host-side
+summary-reset. ACP still has no standard compact method; this is the namespaced
+CrewCoder extension advertised on `initialize._meta["crewcoder/sessionCompact"]`.
 
 Standard-only ACP clients may ignore the unknown namespaced update. CrewCode
 parses it into its provider-neutral compaction meter and therefore does not infer

@@ -196,6 +196,28 @@ describe("acp event translation", () => {
     expect(update).not.toHaveProperty("summary");
   });
 
+  it("marks host-requested compact as manual and includes the summary body", () => {
+    const update = translateEvent({
+      type: "session_compacted",
+      compactionId: "compact-1",
+      originalMessageCount: 24,
+      retainedMessageCount: 8,
+      summary: "host compact summary",
+      automatic: false
+    });
+    expect(update).toEqual({
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: "completed",
+      automatic: false,
+      percent: 100,
+      message: "Context compacted. Continuing with the retained recent messages and summary.",
+      compactionId: "compact-1",
+      originalMessageCount: 24,
+      retainedMessageCount: 8,
+      summary: "host compact summary"
+    });
+  });
+
   it("drops events with no faithful ACP representation", () => {
     const unmapped: AgentEvent = { type: "session_saved", sessionId: "s-1", path: "/tmp/s-1.json" };
     expect(translateEvent(unmapped)).toBeUndefined();
@@ -310,6 +332,9 @@ describe("acp server", () => {
     expect(capabilities.loadSession).toBe(true);
     // CrewCoder takes images as on-disk paths, so the ACP image block stays off.
     expect((capabilities.promptCapabilities as Record<string, unknown>).image).toBe(false);
+    expect(result._meta).toEqual({
+      "crewcoder/sessionCompact": { method: "session/compact", preview: true, editedSummary: true }
+    });
   });
 
   it("returns provider:model choice ids on session/new for the client model picker", async () => {
@@ -542,5 +567,155 @@ describe("acp server", () => {
     });
     const { response } = await awaitResponse(2);
     expect(response.error).toBeTruthy();
+  });
+
+  it("compacts a loaded durable session through session/compact and returns the summary", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-compact-"));
+    const sessionId = createSessionId();
+    const messages = Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? textMessage("user", `user ${i}`) : assistantText(`assistant ${i}`)));
+    await saveSession({
+      id: sessionId,
+      startedAt: new Date().toISOString(),
+      cwd,
+      requestedMode: "general",
+      resolvedMode: "general",
+      prompt: "user 0",
+      events: [],
+      messages,
+      mutationLog: [],
+      providerSessionIds: { codex: "stale-thread" }
+    });
+
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/load", params: { sessionId, cwd, mcpServers: [] } });
+    await awaitResponse(2);
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/compact", params: { sessionId } });
+    const { response, notifications } = await awaitResponse(3);
+    expect(response.error).toBeUndefined();
+    const result = response.result as {
+      compacted: boolean;
+      summary: string;
+      originalMessageCount: number;
+      retainedMessageCount: number;
+      compactionId: string;
+    };
+    expect(result.compacted).toBe(true);
+    expect(result.originalMessageCount).toBe(20);
+    expect(result.summary.length).toBeGreaterThan(0);
+    expect(result.compactionId).toBeTruthy();
+
+    const updates = notifications
+      .filter((message) => message.method === "session/update")
+      .map((message) => (message.params as { update: { sessionUpdate: string; automatic?: boolean; summary?: string; status?: string } }).update)
+      .filter((update) => update.sessionUpdate === "_crewcoder/compaction_update");
+    expect(updates.some((update) => update.status === "started" && update.automatic === false)).toBe(true);
+    const completed = updates.find((update) => update.status === "completed" && update.summary);
+    expect(completed?.automatic).toBe(false);
+    expect(completed?.summary).toBe(result.summary);
+
+    const stored = await loadSessionRecord(sessionId);
+    expect(stored.messages.length).toBeLessThan(20);
+    expect(stored.providerSessionIds).toEqual({});
+    expect(stored.compactions?.some((entry) => entry.id === result.compactionId)).toBe(true);
+  });
+
+  it("previews compaction without rewriting the saved session", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-compact-preview-"));
+    const sessionId = createSessionId();
+    const messages = Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? textMessage("user", `user ${i}`) : assistantText(`assistant ${i}`)));
+    await saveSession({
+      id: sessionId,
+      startedAt: new Date().toISOString(),
+      cwd,
+      requestedMode: "general",
+      resolvedMode: "general",
+      prompt: "user 0",
+      events: [],
+      messages,
+      mutationLog: []
+    });
+
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/load", params: { sessionId, cwd, mcpServers: [] } });
+    await awaitResponse(2);
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/compact", params: { sessionId, preview: true } });
+    const { response } = await awaitResponse(3);
+    expect(response.result).toMatchObject({ compacted: false, preview: true });
+    expect(((response.result as { summary: string }).summary).length).toBeGreaterThan(0);
+    expect((await loadSessionRecord(sessionId)).messages).toHaveLength(20);
+  });
+
+  it("applies a host-edited summary from session/compact", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-compact-edit-"));
+    const sessionId = createSessionId();
+    const messages = Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? textMessage("user", `user ${i}`) : assistantText(`assistant ${i}`)));
+    await saveSession({
+      id: sessionId,
+      startedAt: new Date().toISOString(),
+      cwd,
+      requestedMode: "general",
+      resolvedMode: "general",
+      prompt: "user 0",
+      events: [],
+      messages,
+      mutationLog: []
+    });
+
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/load", params: { sessionId, cwd, mcpServers: [] } });
+    await awaitResponse(2);
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/compact", params: { sessionId, summary: "Keep the auth rewrite and skip the abandoned cache branch." } });
+    const { response } = await awaitResponse(3);
+    expect(response.result).toMatchObject({ compacted: true, edited: true, summary: "Keep the auth rewrite and skip the abandoned cache branch." });
+    const stored = await loadSessionRecord(sessionId);
+    expect(stored.messages[0] && "content" in stored.messages[0] ? stored.messages[0] : undefined).toBeTruthy();
+    expect(JSON.stringify(stored.messages[0])).toContain("Keep the auth rewrite and skip the abandoned cache branch.");
+  });
+
+  it("returns compacted false when the loaded session is too small to compact", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-compact-small-"));
+    const sessionId = createSessionId();
+    await saveSession({
+      id: sessionId,
+      startedAt: new Date().toISOString(),
+      cwd,
+      requestedMode: "general",
+      resolvedMode: "general",
+      prompt: "hello",
+      events: [],
+      messages: [textMessage("user", "hello"), assistantText("hi")],
+      mutationLog: []
+    });
+
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/load", params: { sessionId, cwd, mcpServers: [] } });
+    await awaitResponse(2);
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/compact", params: { sessionId } });
+    const { response } = await awaitResponse(3);
+    expect(response.result).toMatchObject({ compacted: false, originalMessageCount: 2 });
+    expect((await loadSessionRecord(sessionId)).messages).toHaveLength(2);
+  });
+
+  it("rejects session/compact on a session that has not been persisted yet", async () => {
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: "/tmp", mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/compact", params: { sessionId } });
+    expect((await awaitResponse(3)).response.error).toBeTruthy();
   });
 });

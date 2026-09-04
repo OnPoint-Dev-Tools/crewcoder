@@ -60,12 +60,14 @@ see "Deliberate deviations" below.
 | `session/set_model` | Switches provider/model. Routed through `extMethod` |
 | `session/set_approval_mode` | Switches the active session approval/sandbox mode without respawning CrewCoder |
 | `session/set_external_directories` | Replaces and persists the session's explicitly granted filesystem roots |
+| `session/compact` | Compacts the durable CrewCoder session in place and returns the summary |
 | `authenticate` | No-op; credentials are managed by `crewcoder auth` |
 
 Capabilities are reported **honestly**: `loadSession: true`,
 `promptCapabilities.image: false`. CrewCoder takes images as on-disk paths, not
 inline base64, so advertising the ACP image block would invite a request it cannot
-serve.
+serve. Manual compact is advertised on `initialize._meta["crewcoder/sessionCompact"]`,
+not as a standard ACP session capability.
 
 ## Deliberate deviations from the 1.x schema
 
@@ -100,6 +102,30 @@ dangerous-command tripwire should keep CrewCoder in `review` and auto-resolve or
 permission requests instead; setting `full-access` makes Codex unrestricted and prevents that
 host from inspecting provider-native commands before execution.
 
+`session/compact` is the host compact-button path. It is an additive extension method
+routed through `extMethod`, same as `session/set_model`. `initialize._meta["crewcoder/sessionCompact"]`
+advertises `{ method: "session/compact", preview: true, editedSummary: true }` so CrewCode can
+stop local summary-reset and compact CrewCoder's durable session instead.
+
+Request: `{ sessionId, preview?, summary? }`. `preview: true` generates the summary without
+saving. A non-empty `summary` installs that text as the compacted background. The method
+refuses while `session/prompt` is running and refuses sessions that have not been persisted
+yet. It is the same rewrite as `crewcoder session compact`: older messages become a
+synthetic background summary, recent messages stay, native provider continuation is
+cleared, and `lastInputTokens` is reset.
+
+Response:
+
+```txt
+compacted, preview, edited, compactionId?, source?, fallbackReason?,
+originalMessageCount, retainedMessageCount, summary
+```
+
+Host-requested compact emits `_crewcoder/compaction_update` with `automatic: false`. The
+completed update **includes `summary`** so the client can replace its local history with
+CrewCoder's summary rather than inventing one. Automatic live compaction still omits the
+summary body on the update channel.
+
 `session/prompt` reports usage **twice**: `_meta["crewcoder/usage"]` (spec-correct,
 full `UsageSummary` including `contextWindow` and `lastInputTokens`) and a top-level
 `usage` mirror, which is where hermes-derived clients look.
@@ -130,10 +156,12 @@ overlay can render the current session list without reconstructing mutations.
 
 Compaction has no standard ACP lifecycle shape, so CrewCoder uses the additive
 `_crewcoder/compaction_update` session-update kind. It carries `status`,
-`automatic`, `percent`, `message`, and optional phase/count/id metadata. The
-compacted summary body stays in CrewCoder's durable session and is deliberately
-not broadcast to the client. CrewCode understands this extension; standard-only
-ACP clients safely ignore the unknown update kind.
+`automatic`, `percent`, `message`, and optional phase/count/id metadata. Automatic
+live compaction keeps the summary body in CrewCoder's durable session and does not
+put it on the update. Host-requested `session/compact` sets `automatic: false` and
+includes `summary` on both the RPC result and the completed update. CrewCode
+understands this extension; standard-only ACP clients safely ignore the unknown
+update kind.
 
 Everything else returns `undefined` and is dropped. CrewCoder's richer vocabulary —
 checkpoints, cost ledger, durable goals, compaction preview, token budget,

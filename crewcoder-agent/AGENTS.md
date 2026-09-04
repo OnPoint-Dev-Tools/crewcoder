@@ -539,7 +539,8 @@ summary:       LLM-generated via the active model client, deterministic fallback
                 retained recent messages are authoritative for completion status and must be visible to
                 the summarizer so completed work is not revived as an open thread
 events:        reuses session_compacted + SessionCompaction[] (no event-stream/schema changes)
-manual:        crewcoder session compact <id>; TUI /compact, /compact on|off|status
+manual:        crewcoder session compact <id>; TUI /compact, /compact on|off|status;
+                ACP session/compact (idle durable rewrite; advertised on initialize._meta)
 ```
 
 Do not change `currentContextTokens` to use cumulative `totalTokens` as the primary metric — the
@@ -919,6 +920,12 @@ ACP extension: CrewCode calls it after new/load, including with `[]` to revoke s
 CrewCoder validates roots on the agent host, persists them in session metadata, and authorizes file
 tools through `ToolContext.externalDirectories`; never replace this with a process-global allowlist
 or an environment variable. See `docs/EXTERNAL_DIRECTORIES.md`.
+`session/compact` is the other host-owned session extension: it compacts the durable session in
+place (same rewrite as `crewcoder session compact`), returns the summary, and emits
+`_crewcoder/compaction_update` with `automatic: false`. Advertise it on
+`initialize._meta["crewcoder/sessionCompact"]`. Do not let CrewCode fall back to local
+summary-reset when this method exists. Refuse compact during an in-flight `session/prompt`.
+Automatic live compaction still omits the summary body on the update channel.
 
 When a client advertises `clientCapabilities.fs`, `read`/`write`/`edit` route text I/O
 through `fs/read_text_file`/`fs/write_text_file` instead of `node:fs`, which is how

@@ -15,7 +15,7 @@ import { createJsonEventSink } from "./core/json-event-stream.js";
 import { loadSession } from "./core/session-loader.js";
 import { branchSession } from "./core/session-branch.js";
 import { whenSessionWritesSettle } from "./core/session-store.js";
-import { prepareLiveCompaction, applyCompactionProposal } from "./core/session-compaction.js";
+import { compactDurableSession } from "./core/compact-session.js";
 import { renderSessionHtml, renderSessionMarkdown } from "./core/session-export.js";
 import { attachStdinControlListener, type CompactionPreviewDecision } from "./core/stdin-control.js";
 import { runAcpStdioServer } from "./acp/acp-server.js";
@@ -35,7 +35,6 @@ import { createModelClientFromEnv } from "./core/model-client.js";
 import { listProviderModelIds } from "./providers/model-resolution.js";
 import { resolveModel } from "./providers/model-registry.js";
 import { loginCodexDeviceCode } from "./providers/oauth-codex.js";
-import { closeCodexWebSocketSessions } from "./providers/codex-websocket-transport.js";
 import { removeAuthCredential, setAuthCredential, readAuthFile, getAuthPath } from "./providers/auth-store.js";
 import { getActiveWorker, listWorkers, createWorker, deleteWorker, setActiveWorker, setWorkerIdentityValue, getWorkerIdentityMdPath, type IdentitySetKey } from "./core/identity.js";
 import { loadCrewCoderExtensions } from "./extensions/extension-loader.js";
@@ -60,7 +59,7 @@ import { getAvailablePromptCommand, listAvailablePromptCommands, parsePromptComm
 import { listTrustedExtensionRenderers } from "./extensions/extension-renderers.js";
 import { listLiveUiContributions } from "./extensions/extension-live-ui.js";
 import { loadTrustedExtensionApprovalPolicies } from "./extensions/extension-approval-policies.js";
-import { loadTrustedExtensionHooks, runCompactionHooks } from "./extensions/extension-hooks.js";
+import { loadTrustedExtensionHooks } from "./extensions/extension-hooks.js";
 import { createGitWorkflowHelpers } from "./core/git-workflow.js";
 import { getAuditLogPath, readAuditLog } from "./core/audit-log.js";
 import { getCostLedgerPath, readCostLedger, recordModelUsageCost, startOfToday, summarizeCosts, type CostGroupBy, type CostTotals } from "./core/cost-ledger.js";
@@ -608,59 +607,40 @@ session.command("compact").argument("<id>")
     const config = readConfig();
     const providerId = options.provider ?? process.env.CREWCODER_PROVIDER ?? config.defaultProvider;
     const model = options.model ?? process.env.CREWCODER_MODEL ?? config.defaultModel;
-    const record = await loadSession(id);
     const debug = createBackendDebugLogger({ runId: `compact-${id}-${Date.now()}` });
     const modelClient = new ProviderModelClient(providerId, process.cwd(), model, debug, normalizeEffortOption(options.effort));
-    const prepared = await prepareLiveCompaction(record.messages, { modelClient });
-    if (!prepared) {
+    const editedSummary = options.summaryFile ? fs.readFileSync(path.resolve(options.summaryFile), "utf8") : undefined;
+    const result = await compactDurableSession({
+      sessionId: id,
+      modelClient,
+      cwd: process.cwd(),
+      preview: Boolean(options.preview && !options.summaryFile),
+      editedSummary
+    });
+    if (!result.compacted && !result.preview) {
       if (options.json) { console.log(JSON.stringify({ compacted: false }, null, 2)); return; }
       console.log(pc.yellow("Nothing to compact: session is already small enough."));
       return;
     }
-    // Compaction hooks must fire here too, not just in the live agent loop. Otherwise a hook
-    // that pins facts into the summary would silently do nothing for manual `session compact`.
-    const compactionHooks = await loadTrustedExtensionHooks();
-    if (prepared.fallbackReason && !options.json) {
-      console.log(pc.yellow(`Summary quality degraded: the model summarizer was not used. ${prepared.fallbackReason}`));
+    if (result.fallbackReason && !options.json) {
+      console.log(pc.yellow(`Summary quality degraded: the model summarizer was not used. ${result.fallbackReason}`));
     }
-    const hookOutcome = await runCompactionHooks(compactionHooks, {
-      summary: prepared.summary,
-      source: prepared.source,
-      fallbackReason: prepared.fallbackReason,
-      originalMessageCount: prepared.originalMessageCount,
-      retainedMessageCount: prepared.retainedMessageCount,
-      cwd: process.cwd(),
-      sessionId: id
-    });
-    const proposal = hookOutcome.summary === prepared.summary ? prepared : { ...prepared, summary: hookOutcome.summary };
-    for (const note of hookOutcome.notes) if (!options.json) console.log(pc.gray(`  ${note}`));
-    if (options.preview && !options.summaryFile) {
+    for (const note of result.hookNotes) if (!options.json) console.log(pc.gray(`  ${note}`));
+    if (result.preview) {
       if (options.json) {
-        console.log(JSON.stringify({ compacted: false, preview: true, source: proposal.source, fallbackReason: proposal.fallbackReason, originalMessageCount: proposal.originalMessageCount, retainedMessageCount: proposal.retainedMessageCount, summary: proposal.summary }, null, 2));
+        console.log(JSON.stringify({ compacted: false, preview: true, source: result.source, fallbackReason: result.fallbackReason, originalMessageCount: result.originalMessageCount, retainedMessageCount: result.retainedMessageCount, summary: result.summary }, null, 2));
         return;
       }
-      console.log(pc.cyan(`Compaction preview for ${id} (${proposal.source} summary, ${proposal.originalMessageCount} -> ${proposal.retainedMessageCount + 1} messages):`));
-      console.log(proposal.summary);
+      console.log(pc.cyan(`Compaction preview for ${id} (${result.source} summary, ${result.originalMessageCount} -> ${result.retainedMessageCount + 1} messages):`));
+      console.log(result.summary);
       console.log(pc.gray("\nEdit this summary and apply with: crewcoder session compact <id> --summary-file <path>"));
       return;
     }
-    const editedSummary = options.summaryFile ? fs.readFileSync(path.resolve(options.summaryFile), "utf8") : undefined;
-    const result = applyCompactionProposal(proposal, { editedSummary });
-    const updated: SessionRecord = {
-      ...record,
-      messages: result.messages,
-      compactions: [...(record.compactions ?? []), result.compaction],
-      usage: record.usage ? { ...record.usage, lastInputTokens: 0 } : record.usage,
-      // Compaction replaces provider history; stale native continuation would reattach it.
-      providerSessionIds: {}
-    };
-    await saveSession(updated);
-    closeCodexWebSocketSessions(id);
     if (options.json) {
-      console.log(JSON.stringify({ compacted: true, compactionId: result.compaction.id, edited: Boolean(editedSummary), source: proposal.source, fallbackReason: proposal.fallbackReason, originalMessageCount: result.compaction.originalMessageCount, retainedMessageCount: result.compaction.retainedMessageCount }, null, 2));
+      console.log(JSON.stringify({ compacted: true, compactionId: result.compactionId, edited: result.edited, source: result.source, fallbackReason: result.fallbackReason, originalMessageCount: result.originalMessageCount, retainedMessageCount: result.retainedMessageCount }, null, 2));
       return;
     }
-    console.log(pc.green(`Compacted session ${id}: ${result.compaction.originalMessageCount} -> ${result.compaction.retainedMessageCount + 1} messages${editedSummary ? " (edited summary)" : ""}`));
+    console.log(pc.green(`Compacted session ${id}: ${result.originalMessageCount} -> ${result.retainedMessageCount + 1} messages${result.edited ? " (edited summary)" : ""}`));
   });
 
 session.command("export").argument("<id>")

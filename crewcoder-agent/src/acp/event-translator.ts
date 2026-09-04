@@ -16,13 +16,15 @@ export type SessionUpdate = SessionNotification["update"];
 export interface CrewCoderCompactionUpdate {
   sessionUpdate: "_crewcoder/compaction_update";
   status: "started" | "completed" | "failed";
-  automatic: true;
+  automatic: boolean;
   phase?: "requested" | "summarizing" | "saving" | "skipped" | "failed";
   percent?: number;
   message: string;
   compactionId?: string;
   originalMessageCount?: number;
   retainedMessageCount?: number;
+  /** Present only for host-requested compact, so CrewCode can replace local history. */
+  summary?: string;
 }
 
 export type CrewCoderSessionUpdate = SessionUpdate | CrewCoderCompactionUpdate;
@@ -81,7 +83,7 @@ export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | unde
     return {
       sessionUpdate: "_crewcoder/compaction_update",
       status: event.phase === "failed" ? "failed" : event.phase === "skipped" ? "completed" : "started",
-      automatic: true,
+      automatic: event.automatic !== false,
       phase: event.phase,
       percent: event.percent,
       message: event.message,
@@ -91,15 +93,17 @@ export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | unde
   }
 
   if (event.type === "session_compacted") {
+    const automatic = event.automatic !== false;
     return {
       sessionUpdate: "_crewcoder/compaction_update",
       status: "completed",
-      automatic: true,
+      automatic,
       percent: 100,
       message: "Context compacted. Continuing with the retained recent messages and summary.",
       compactionId: event.compactionId,
       originalMessageCount: event.originalMessageCount,
-      retainedMessageCount: event.retainedMessageCount
+      retainedMessageCount: event.retainedMessageCount,
+      ...(automatic ? {} : { summary: event.summary })
     };
   }
 

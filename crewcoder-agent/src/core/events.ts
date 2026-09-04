@@ -11,9 +11,9 @@ export type AgentEvent =
   | { type: "crew_worker_start"; worker: string; index: number; total: number; sessionId?: string }
   | { type: "crew_worker_end"; worker: string; index: number; total: number; status: "completed" | "failed"; sessionId?: string; error?: string }
   | { type: "crew_end"; total: number; completed: number; failed: number }
-  | { type: "session_compaction_progress"; phase: "requested" | "summarizing" | "saving" | "skipped" | "failed"; percent: number; message: string; originalMessageCount?: number; retainedMessageCount?: number }
+  | { type: "session_compaction_progress"; phase: "requested" | "summarizing" | "saving" | "skipped" | "failed"; percent: number; message: string; originalMessageCount?: number; retainedMessageCount?: number; automatic?: boolean }
   | { type: "session_compaction_preview"; previewId: string; summary: string; source: "model" | "deterministic"; originalMessageCount: number; retainedMessageCount: number }
-  | { type: "session_compacted"; compactionId: string; originalMessageCount: number; retainedMessageCount: number; summary: string }
+  | { type: "session_compacted"; compactionId: string; originalMessageCount: number; retainedMessageCount: number; summary: string; automatic?: boolean }
   | BackendDebugEvent
   | { type: "agent_error"; sessionId?: string; message: string; stack?: string }
   | { type: "agent_stalled"; sessionId: string; reason: string; toolName: string }
