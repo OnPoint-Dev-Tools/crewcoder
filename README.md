@@ -153,6 +153,14 @@ npm run test
 npm run check
 ```
 
+Create a coordinated version commit and tag, then push both atomically:
+
+```sh
+npm run release -- 0.7.0
+```
+
+See [RELEASING.md](docs/RELEASING.md) for release safeguards, dry runs, and the separate protected npm publishing workflow.
+
 Run one workspace directly:
 
 ```sh

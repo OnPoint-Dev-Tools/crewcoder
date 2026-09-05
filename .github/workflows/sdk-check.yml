@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "crewcoder-agent/**"
+      - "crewcoder-client/**"
       - "crewcoder-tui/**"
       - "crewcoder-sdk/**"
       - "bin/**"
@@ -12,12 +13,15 @@ on:
       - "scripts/check-package.cjs"
       - "scripts/check-crewcoder-package.cjs"
       - "scripts/check-sdk-release.cjs"
+      - "scripts/release.cjs"
+      - "test/release.test.js"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/sdk-*.yml"
   push:
     paths:
       - "crewcoder-agent/**"
+      - "crewcoder-client/**"
       - "crewcoder-tui/**"
       - "crewcoder-sdk/**"
       - "bin/**"
@@ -26,6 +30,8 @@ on:
       - "scripts/check-package.cjs"
       - "scripts/check-crewcoder-package.cjs"
       - "scripts/check-sdk-release.cjs"
+      - "scripts/release.cjs"
+      - "test/release.test.js"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/sdk-*.yml"
