@@ -1,6 +1,6 @@
 {
   "name": "@onpoint-dev-tools/crewcoder-client",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Browser-safe TypeScript client for authenticated CrewCoder runners.",
   "license": "Apache-2.0",
   "repository": {
@@ -13,10 +13,28 @@
   "type": "module",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
-  "files": ["dist", "LICENSE", "README.md"],
-  "keywords": ["ai", "coding-agent", "crewcoder", "browser", "client"],
-  "publishConfig": { "access": "public", "provenance": true },
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "crewcoder",
+    "browser",
+    "client"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",

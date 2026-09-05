@@ -6,7 +6,9 @@ Create a coordinated release from a clean branch with one command:
 npm run release -- 0.7.0
 ```
 
-The command updates the umbrella, agent, browser client, and SDK package versions as one coordinated release group. It preserves the TUI package version and the umbrella package's existing exact TUI dependency. It also updates the release group's exact internal dependencies, runtime version constants, and `package-lock.json`; runs the SDK release checks; creates a `chore(release): v0.7.0` commit and annotated `v0.7.0` tag; then atomically pushes the current branch and tag to its configured remote.
+The command updates the umbrella, agent, browser client, and SDK package versions as one coordinated release group. It preserves the TUI package version and the umbrella package's existing exact TUI dependency. It also updates the release group's exact internal dependencies, runtime version constants, generated client and SDK version API baselines, and `package-lock.json`; runs the SDK release checks; creates a `chore(release): v0.7.0` commit and annotated `v0.7.0` tag; then atomically pushes the current branch and tag to its configured remote.
+
+Only `crewcoder-client/api/version.d.ts` and `crewcoder-sdk/api/version.d.ts` may change during the automatic API baseline refresh. Any other public declaration change stops the release for explicit review.
 
 Only stable semantic versions in `major.minor.patch` form are accepted. Do not include the leading `v`; it is added to the Git tag automatically.
 

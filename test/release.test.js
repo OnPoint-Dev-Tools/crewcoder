@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { compareVersions, stableVersionParts, updateReleaseMetadata } = require("../scripts/release.cjs");
+const { compareVersions, releaseFiles, stableVersionParts, updateReleaseMetadata } = require("../scripts/release.cjs");
 const temporaryDirectories = [];
 
 afterEach(() => {
@@ -13,6 +13,12 @@ afterEach(() => {
 });
 
 describe("release automation", () => {
+  it("commits version API baselines without including the independent TUI manifest", () => {
+    expect(releaseFiles).toContain("crewcoder-client/api/version.d.ts");
+    expect(releaseFiles).toContain("crewcoder-sdk/api/version.d.ts");
+    expect(releaseFiles).not.toContain("crewcoder-tui/package.json");
+  });
+
   it("accepts stable semantic versions and compares them numerically", () => {
     expect(stableVersionParts("0.2.3")).toEqual([0, 2, 3]);
     expect(compareVersions("0.10.0", "0.9.9")).toBeGreaterThan(0);

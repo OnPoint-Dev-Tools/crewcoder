@@ -11,7 +11,9 @@ const releaseFiles = [
   "crewcoder-sdk/package.json",
   "crewcoder-agent/src/core/version.ts",
   "crewcoder-client/src/version.ts",
+  "crewcoder-client/api/version.d.ts",
   "crewcoder-sdk/src/version.ts",
+  "crewcoder-sdk/api/version.d.ts",
   "package-lock.json"
 ];
 const releasePackageFiles = [
@@ -145,6 +147,8 @@ function main(args) {
 
   updateReleaseMetadata(root, version);
   run("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]);
+  run("npm", ["run", "api:update", "-w", "@onpoint-dev-tools/crewcoder-client"]);
+  run("npm", ["run", "api:update", "-w", "@onpoint-dev-tools/crewcoder-sdk"]);
 
   const changedFiles = run("git", ["diff", "--name-only"], { capture: true }).split("\n").filter(Boolean).sort();
   const unexpectedFiles = changedFiles.filter((file) => !releaseFiles.includes(file));
@@ -184,4 +188,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { compareVersions, stableVersionParts, updateReleaseMetadata };
+module.exports = { compareVersions, releaseFiles, stableVersionParts, updateReleaseMetadata };
