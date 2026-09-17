@@ -647,6 +647,15 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
               return;
             }
             await emit({ type: "usage_update", usage, summary: usageSummary });
+          },
+          async onProviderCompaction(update) {
+            await emit({
+              type: "provider_compaction",
+              providerId: options.providerId ?? "provider",
+              status: update.status,
+              message: update.message,
+              percent: update.percent
+            });
           }
         });
         generationDurationMs = performance.now() - generationStartedAt;

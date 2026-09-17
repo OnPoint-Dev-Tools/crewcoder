@@ -18,7 +18,9 @@ Context windows are resolved in this order:
 
 Provider metadata wins because a provider-specific endpoint may expose less context than the
 underlying model supports. The built-in Codex catalog declares `gpt-5.6-sol` at 1,050,000 tokens;
-its tiered auto-compaction trigger is therefore 630,000 tokens (60%).
+its tiered auto-compaction trigger is therefore 630,000 tokens (60%). Codex app-server's
+`thread/tokenUsage/updated.modelContextWindow` is an effective per-request prompt budget and must
+not replace that full model capacity; only `last.inputTokens` is used as the live occupancy.
 
 ## OpenRouter matching
 

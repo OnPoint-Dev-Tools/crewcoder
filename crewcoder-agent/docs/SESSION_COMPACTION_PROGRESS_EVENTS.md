@@ -43,9 +43,17 @@ replace local history with CrewCoder's durable compact instead of a host-side
 summary-reset. ACP still has no standard compact method; this is the namespaced
 CrewCoder extension advertised on `initialize._meta["crewcoder/sessionCompact"]`.
 
+Provider-native compaction uses the same channel. The Codex app-server adapter
+maps `contextCompaction` item start/completion and the legacy
+`thread/compacted` notification into a deduplicated provider-compaction
+lifecycle. Claude's `compact_boundary` maps to provider completion. The agent
+loop forwards those events without claiming that CrewCoder rewrote its own
+durable transcript or exposing a provider summary.
+
 Standard-only ACP clients may ignore the unknown namespaced update. CrewCode
 parses it into its provider-neutral compaction meter and therefore does not infer
-a second event from the later context-usage drop.
+a second event from the later context-usage drop. A large verified occupancy
+drop remains an after-the-fact fallback only when no native event arrived.
 
 ## TUI behavior
 

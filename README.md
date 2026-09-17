@@ -47,8 +47,10 @@ The global installation of Agent + TUI provides both command names:
 
 ```sh
 crewcoder
-cc
+crew
 ```
+
+The former `cc` alias was removed because it shadows the standard Unix C compiler command. After upgrading an existing installation, use `crew` instead.
 
 A command with no arguments opens the TUI. Arguments run the agent CLI:
 
@@ -81,7 +83,7 @@ Installing only `@onpoint-dev-tools/crewcoder-agent` does not install the TUI. M
 | Package | npm name | Runs on | What it is | Install command |
 |---|---|---|---|---|
 | CrewCoder umbrella | `crewcoder` | Node.js 22+ terminal | Recommended CLI package containing both the agent and TUI. |
-| [`crewcoder-agent`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-agent) | [`@onpoint-dev-tools/crewcoder-agent`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-agent) | Node.js 22+ / standalone binary | The agent harness: evented agent loop, providers, local tools, durable sessions, goals, crews, extensions, ACP and fleet servers, and the `crewcoder` / `cc` CLI. | `npm install --global @onpoint-dev-tools/crewcoder-agent` |
+| [`crewcoder-agent`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-agent) | [`@onpoint-dev-tools/crewcoder-agent`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-agent) | Node.js 22+ / standalone binary | The agent harness: evented agent loop, providers, local tools, durable sessions, goals, crews, extensions, ACP and fleet servers, and the `crewcoder` / `crew` CLI. | `npm install --global @onpoint-dev-tools/crewcoder-agent` |
 | [`crewcoder-tui`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-tui) | [`@onpoint-dev-tools/crewcoder-tui`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-tui) | Node.js 22+ terminal | Custom terminal UI (no Ink/React/blessed/curses) driven by the agent's JSON event stream, locally or over SSH. | `npm install --global @onpoint-dev-tools/crewcoder-tui` |
 | [`crewcoder-sdk`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-sdk) | [`@onpoint-dev-tools/crewcoder-sdk`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-sdk) | Node.js 22+ host process | Supported TypeScript API for embedding CrewCoder in-process, plus an authenticated fleet client for remote runners. | `npm install --global @onpoint-dev-tools/crewcoder-sdk` |
 | [`crewcoder-client`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-client) | [`@onpoint-dev-tools/crewcoder-client`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-client) | Browsers, Electron renderers, webviews | Browser-safe client for authenticated CrewCoder runners. Web-platform APIs only: no Node.js imports, no local files, no tool execution, no stored provider credentials. | `npm install --global @onpoint-dev-tools/crewcoder-client` |

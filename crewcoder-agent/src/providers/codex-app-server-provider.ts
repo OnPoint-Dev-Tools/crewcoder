@@ -51,6 +51,29 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   const abort = () => child.kill("SIGTERM");
   signal?.addEventListener("abort", abort, { once: true });
   let turnRequestSent = false;
+  let nativeCompactionStarted = false;
+  let nativeCompactionSettled = false;
+  const emitNativeCompaction = async (status: "started" | "completed" | "failed") => {
+    if (status === "started") {
+      if (nativeCompactionStarted || nativeCompactionSettled) return;
+      nativeCompactionStarted = true;
+    } else if (status === "completed") {
+      if (nativeCompactionSettled) return;
+      nativeCompactionSettled = true;
+    } else {
+      if (!nativeCompactionStarted || nativeCompactionSettled) return;
+      nativeCompactionSettled = true;
+    }
+    await input.stream?.onProviderCompaction?.({
+      status,
+      percent: status === "completed" ? 100 : undefined,
+      message: status === "started"
+        ? "Codex is compacting its native context…"
+        : status === "completed"
+          ? "Codex compacted its native context. Continuing normally."
+          : "Codex native context compaction failed."
+    });
+  };
   try {
     await spawned;
     await rpc.request("initialize", { clientInfo: { name: "crewcoder", title: "CrewCoder", version: CREWCODER_VERSION }, capabilities: { experimentalApi: true } });
@@ -99,7 +122,13 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
         rpc.respond(message.id, await permissionDecision(params, input));
         return;
       }
-      if (method === "item/started" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.id === "string") {
+      if (method === "item/started" && isRecord(params.item) && params.item.type === "contextCompaction") {
+        await emitNativeCompaction("started");
+      } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "contextCompaction") {
+        await emitNativeCompaction("completed");
+      } else if (method === "thread/compacted") {
+        await emitNativeCompaction("completed");
+      } else if (method === "item/started" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.id === "string") {
         if (typeof params.item.phase === "string") agentMessagePhases.set(params.item.id, params.item.phase);
       } else if (method === "item/started" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolStart?.({ type: "toolCall", id: params.item.id, name: "Codex command", arguments: { command: params.item.command, cwd: params.item.cwd } });
@@ -141,7 +170,10 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
         usage = { providerId: input.provider.id, model: input.model, inputTokens: number(last.inputTokens), outputTokens: number(last.outputTokens), totalTokens: number(last.totalTokens), cachedInputTokens: number(last.cachedInputTokens), cacheWriteTokens: number(last.cacheWriteInputTokens), reasoningTokens: number(last.reasoningOutputTokens), contextTokens: number(last.inputTokens) };
       } else if (method === "turn/completed" && isRecord(params.turn)) {
         completed = true;
-        if (params.turn.status === "failed") turnError = isRecord(params.turn.error) && typeof params.turn.error.message === "string" ? params.turn.error.message : "Codex turn failed";
+        if (params.turn.status === "failed") {
+          turnError = isRecord(params.turn.error) && typeof params.turn.error.message === "string" ? params.turn.error.message : "Codex turn failed";
+          await emitNativeCompaction("failed");
+        }
       }
     };
 
@@ -154,6 +186,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     const assistant: AssistantMessage = { role: "assistant", content: [{ type: "text", text }], stopReason: "end", timestamp: Date.now() };
     return { providerId: input.provider.id, text: JSON.stringify(assistant), stdout: text, stderr: "", exitCode: 0, timedOut: false, usage };
   } catch (error) {
+    await emitNativeCompaction("failed");
     // Before turn/start there can be no model output or tool side effect, so the
     // direct full-context transport is a safe fallback. Never replay after the
     // turn request was sent: it may have started despite a broken local stream.
@@ -164,6 +197,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     }
     return failure(input, message, stderr, undefined);
   } finally {
+    await emitNativeCompaction("failed");
     signal?.removeEventListener("abort", abort);
     // App-server may rotate the refresh token. Copy its validated result back to
     // CrewCoder's 0600 auth store so the direct fallback and next process do not

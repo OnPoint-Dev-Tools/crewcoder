@@ -115,6 +115,13 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
         providerSessionId = sid;
         await input.stream.onProviderSessionId?.(sid);
       }
+      if (message.type === "system" && message.subtype === "compact_boundary") {
+        await input.stream?.onProviderCompaction?.({
+          status: "completed",
+          percent: 100,
+          message: "Claude compacted its native context. Continuing normally."
+        });
+      }
       await handleClaudeMessage(message, input, textParts, emittedThinking, nativeToolNames, startedNativeToolIds, streamBlockTypes, (reported) => { usage = reported; }, (error) => { resultError = error; });
     }
     try {

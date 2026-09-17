@@ -50,23 +50,33 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
  else if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'thread-durable'}}});
  else if(m.method==='thread/resume') send({id:m.id,result:{thread:{id:m.params.threadId}}});
  else if(m.method==='turn/start'){turn++;send({id:m.id,result:{turn:{id:'turn-'+turn,status:'inProgress'}}});send({id:900,method:'item/tool/call',params:{callId:'call-1',tool:'noop',arguments:{value:'safe'}}});}
- else if(m.id===900&&m.result){send({method:'item/agentMessage/delta',params:{delta:'durable reply'}});send({method:'turn/completed',params:{turn:{status:'completed',error:null}}});}
+ else if(m.id===900&&m.result){send({method:'item/started',params:{item:{type:'contextCompaction',id:'compact-1'}}});send({method:'item/completed',params:{item:{type:'contextCompaction',id:'compact-1'}}});send({method:'thread/compacted',params:{threadId:'thread-durable',turnId:'turn-'+turn}});send({method:'item/agentMessage/delta',params:{delta:'durable reply'}});send({method:'thread/tokenUsage/updated',params:{tokenUsage:{total:{inputTokens:90000,outputTokens:700,totalTokens:90700},last:{inputTokens:42000,outputTokens:700,totalTokens:42700},modelContextWindow:258400}}});send({method:'turn/completed',params:{turn:{status:'completed',error:null}}});}
 });`, { mode: 0o755 });
     process.env.CREWCODER_HOME = home;
     process.env.CREWCODER_CODEX_PATH = server;
     setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account", idToken: "id-token" });
     let sessionId = "";
     const executed: string[] = [];
+    const compactions: string[] = [];
     const baseInput = {
       provider, prompt: "new prompt", cwd: home, model: "gpt-test",
       modelInput: { systemPrompt: "system", messages: [textMessage("user", "old prompt"), textMessage("user", "new prompt")], approvalMode: "never" as const, availableTools: [{ name: "noop", description: "safe test tool", parameters: { type: "object" as const, properties: { value: { type: "string" as const } } } }], session: { sessionId: "crew", continuation: true } },
       stream: {
         onProviderSessionId: (id: string) => { sessionId = id; },
+        onProviderCompaction: (update: { status: string }) => { compactions.push(update.status); },
         executeTool: async (call: ToolCallPart) => { executed.push(call.name); return { role: "toolResult" as const, toolCallId: "call-1", toolName: call.name, content: [{ type: "text" as const, text: "ok" }], isError: false, timestamp: Date.now() }; }
       }
     };
     const first = await runCodexAppServerProvider(baseInput);
     expect(first?.exitCode).toBe(0);
+    expect(first?.usage).toMatchObject({
+      inputTokens: 42_000,
+      outputTokens: 700,
+      totalTokens: 42_700,
+      contextTokens: 42_000,
+    });
+    expect(first?.usage).not.toHaveProperty("contextWindow");
+    expect(compactions).toEqual(["started", "completed"]);
     expect(sessionId).toContain("thread-durable");
     const initialRequests = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     const threadStart = initialRequests.find((request) => request.method === "thread/start") as { params: Record<string, unknown> };
@@ -78,6 +88,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     fs.writeFileSync(log, "");
     const second = await runCodexAppServerProvider({ ...baseInput, modelInput: { ...baseInput.modelInput, session: { ...baseInput.modelInput.session, providerSessionId: sessionId } } });
     expect(second?.exitCode).toBe(0);
+    expect(compactions).toEqual(["started", "completed", "started", "completed"]);
     expect(executed).toEqual(["noop", "noop"]);
     const requests = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(requests.some((request) => request.method === "thread/resume")).toBe(true);

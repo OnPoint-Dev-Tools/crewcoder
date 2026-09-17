@@ -50,9 +50,9 @@ Update corresponding Docs `crewcoder-agent/docs/*`, `crewcoder-tui/docs/*`, and 
 
 ## CLI umbrella package
 
-The public root `crewcoder` package is the one-command installer and launcher for both scoped runtime packages. Its `crewcoder` and `cc` bins must open `@onpoint-dev-tools/crewcoder-tui` with no arguments and forward argument-bearing invocations to `@onpoint-dev-tools/crewcoder-agent`. Keep both runtime dependencies in the root package and publish the umbrella only after those exact versions exist on npm.
+The public root `crewcoder` package is the one-command installer and launcher for both scoped runtime packages. Its `crewcoder` and `crew` bins must open `@onpoint-dev-tools/crewcoder-tui` with no arguments and forward argument-bearing invocations to `@onpoint-dev-tools/crewcoder-agent`. Never restore the `cc` alias because it shadows the standard Unix C compiler command. Keep both runtime dependencies in the root package and publish the umbrella only after those exact versions exist on npm.
 
-The scoped agent package still provides `crewcoder`, `cc`, and `crewcoder-agent`; the scoped TUI package provides `crewcoder-tui` for independent development and packaging.
+The scoped agent package still provides `crewcoder`, `crew`, and `crewcoder-agent`; the scoped TUI package provides `crewcoder-tui` for independent development and packaging.
 
 ## MonoRepo DIR
 

@@ -63,4 +63,16 @@ describe("usage accounting", () => {
     expect(currentContextTokens(summary)).toBe(4200);
     expect(currentContextTokens(emptyUsageSummary())).toBe(0);
   });
+
+  it("keeps the registered model capacity when live occupancy changes", () => {
+    const summary = addUsage(
+      { ...emptyUsageSummary(), contextWindow: 1_050_000 },
+      { providerId: "codex", model: "gpt-5.6-sol", contextTokens: 42_000 }
+    );
+
+    expect(summary).toMatchObject({
+      lastInputTokens: 42_000,
+      contextWindow: 1_050_000,
+    });
+  });
 });

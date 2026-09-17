@@ -92,6 +92,20 @@ export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | unde
     };
   }
 
+  if (event.type === "provider_compaction") {
+    return {
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: event.status,
+      automatic: true,
+      percent: event.percent ?? (event.status === "completed" ? 100 : undefined),
+      message: event.message ?? (event.status === "started"
+        ? `${event.providerId} is compacting its native context…`
+        : event.status === "completed"
+          ? `${event.providerId} compacted its native context. Continuing normally.`
+          : `${event.providerId} native context compaction failed.`)
+    };
+  }
+
   if (event.type === "session_compacted") {
     const automatic = event.automatic !== false;
     return {

@@ -58,12 +58,14 @@ See `docs/CREWCODER_MODE.md` and `docs/EXTENSION_MODE.md`.
 
 ## Terminal UI
 
-Launch the interactive terminal UI from any workspace with no arguments. `cc` is an equivalent short alias:
+Launch the interactive terminal UI from any workspace with no arguments. `crew` is an equivalent short alias:
 
 ```bash
 crewcoder
-cc
+crew
 ```
+
+The former `cc` alias was removed because it shadows the standard Unix C compiler command.
 
 The recommended `crewcoder` umbrella package installs both this agent and the TUI:
 

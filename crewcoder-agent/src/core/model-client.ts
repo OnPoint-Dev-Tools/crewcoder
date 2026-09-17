@@ -8,11 +8,13 @@ import type { ApprovalMode } from "./approval.js";
 export type ModelSessionContext = { sessionId: string; resumeFromSessionId?: string; continuation: boolean; providerSessionId?: string };
 export type ModelInput = { systemPrompt: string; messages: AgentMessage[]; externalDirectories?: string[]; useProviderNativeFileTools?: boolean; approvalMode?: ApprovalMode; availableTools: Array<{ name: string; description: string; parameters?: JsonObjectSchema }>; session?: ModelSessionContext };
 export type ModelQuestion = { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string };
+export type ProviderCompactionUpdate = { status: "started" | "completed" | "failed"; message?: string; percent?: number };
 export type ModelStreamCallbacks = {
   onAssistantDelta?(text: string): Promise<void> | void;
   onThinkingDelta?(text: string): Promise<void> | void;
   onUsage?(usage: ModelUsage): Promise<void> | void;
   onProviderSessionId?(sessionId: string): Promise<void> | void;
+  onProviderCompaction?(update: ProviderCompactionUpdate): Promise<void> | void;
   executeTool?(call: ToolCallPart): Promise<ToolResultMessage>;
   onProviderToolStart?(call: ToolCallPart): Promise<void> | void;
   onProviderToolEnd?(result: { toolCallId: string; toolName: string; text: string; isError: boolean }): Promise<void> | void;

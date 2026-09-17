@@ -20,6 +20,7 @@ export type AgentEvent =
   | { type: "provider_start"; providerId: string; model?: string }
   | { type: "provider_end"; providerId: string; model?: string; exitCode?: number | null; timedOut?: boolean; usage?: ModelUsage }
   | { type: "provider_error"; providerId: string; model?: string; message: string }
+  | { type: "provider_compaction"; providerId: string; status: "started" | "completed" | "failed"; message?: string; percent?: number }
   | { type: "turn_start"; iteration: number }
   | { type: "message_start"; message: AgentMessage }
   | { type: "assistant_delta"; text: string }

@@ -18,8 +18,8 @@ for (const dependency of requiredDependencies) {
     process.exit(1);
   }
 }
-if (manifest.bin?.crewcoder !== "./bin/crewcoder.js" || manifest.bin?.cc !== "./bin/crewcoder.js") {
-  console.error("The crewcoder and cc bins must point to ./bin/crewcoder.js.");
+if (manifest.bin?.crewcoder !== "./bin/crewcoder.js" || manifest.bin?.crew !== "./bin/crewcoder.js" || manifest.bin?.cc !== undefined) {
+  console.error("The crewcoder and crew bins must point to ./bin/crewcoder.js, and cc must remain available to the system compiler.");
   process.exit(1);
 }
 

@@ -27,12 +27,19 @@ npm install --global crewcoder
 crewcoder
 ```
 
-The global install provides `crewcoder` and `cc`. Bare invocations open the TUI; argument-bearing invocations run the agent CLI:
+The global install provides `crewcoder` and `crew`. Bare invocations open the TUI; argument-bearing invocations run the agent CLI:
 
 ```sh
-cc
+crew
 crewcoder providers
 crewcoder run "fix the failing tests"
+```
+
+The former `cc` alias was removed because `cc` is the standard Unix C compiler command. Upgrade or reinstall CrewCoder to remove the old npm bin link, then use `crew`:
+
+```sh
+npm install --global crewcoder@latest
+crew
 ```
 
 Node.js 22 or newer is required.

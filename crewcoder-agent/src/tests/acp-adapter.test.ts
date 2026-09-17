@@ -196,6 +196,30 @@ describe("acp event translation", () => {
     expect(update).not.toHaveProperty("summary");
   });
 
+  it("publishes provider-native compaction on the same namespaced lifecycle", () => {
+    expect(translateEvent({
+      type: "provider_compaction",
+      providerId: "codex",
+      status: "started"
+    })).toMatchObject({
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: "started",
+      automatic: true,
+      message: expect.stringContaining("codex")
+    });
+
+    expect(translateEvent({
+      type: "provider_compaction",
+      providerId: "codex",
+      status: "completed"
+    })).toMatchObject({
+      sessionUpdate: "_crewcoder/compaction_update",
+      status: "completed",
+      automatic: true,
+      percent: 100
+    });
+  });
+
   it("marks host-requested compact as manual and includes the summary body", () => {
     const update = translateEvent({
       type: "session_compacted",

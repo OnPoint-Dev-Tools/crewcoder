@@ -38,7 +38,7 @@
    },
    "bin": {
       "crewcoder": "./dist/cli.js",
-      "cc": "./dist/cli.js",
+      "crew": "./dist/cli.js",
       "crewcoder-agent": "./dist/cli.js"
    },
    "scripts": {

@@ -19,7 +19,7 @@
    ],
    "bin": {
       "crewcoder": "./bin/crewcoder.js",
-      "cc": "./bin/crewcoder.js"
+      "crew": "./bin/crewcoder.js"
    },
    "files": [
       "bin",
