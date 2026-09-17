@@ -12,8 +12,6 @@ developer.md
 crewcoder-tui/dist/*
 crewcoder-tui/node_modules/
 crewcoder-tui/.crewcoder/
-crewcoder-client
-crewcoder-sdk
 images/
 .crewcode
 .crewcoder

@@ -1,6 +1,6 @@
 {
    "name": "crewcoder",
-   "version": "0.6.7",
+   "version": "0.7.0",
    "description": "One-command installer and launcher for the CrewCoder agent and terminal UI",
    "private": false,
    "license": "Apache-2.0",
@@ -53,7 +53,7 @@
       "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
    },
    "dependencies": {
-      "@onpoint-dev-tools/crewcoder-agent": "0.6.7",
+      "@onpoint-dev-tools/crewcoder-agent": "0.7.0",
       "@onpoint-dev-tools/crewcoder-tui": "0.6.4",
       "typescript": "^5.7.2"
    },
