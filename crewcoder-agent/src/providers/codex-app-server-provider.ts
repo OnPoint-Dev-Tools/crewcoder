@@ -241,6 +241,13 @@ function resolveCodexInvocation(): { command: string; args: string[] } | undefin
   try { return { command: process.execPath, args: [require.resolve("@openai/codex/bin/codex.js")] }; } catch { return undefined; }
 }
 function codexHomeDir(): string { return path.join(ensureCrewCoderHome().root, "codex-app-server"); }
+export function saveCodexAppServerCredential(credential: CodexOAuthCredentials): void {
+  const dir = codexHomeDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const authPath = path.join(dir, "auth.json");
+  fs.writeFileSync(authPath, JSON.stringify({ auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: { id_token: credential.idToken, access_token: credential.access, refresh_token: credential.refresh, account_id: credential.accountId }, last_refresh: new Date().toISOString() }, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+  try { fs.chmodSync(authPath, 0o600); } catch {}
+}
 function prepareCodexHome(credential: CodexOAuthCredentials): string {
   const dir = codexHomeDir();
   fs.mkdirSync(dir, { recursive: true });
@@ -248,7 +255,7 @@ function prepareCodexHome(credential: CodexOAuthCredentials): string {
   // Preserve a newer app-server token set instead of replacing a refresh-token
   // rotation with CrewCoder's predecessor credentials.
   if (!readCodexHomeCredential()) {
-    fs.writeFileSync(authPath, JSON.stringify({ auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: { id_token: credential.idToken, access_token: credential.access, refresh_token: credential.refresh, account_id: credential.accountId }, last_refresh: new Date().toISOString() }, null, 2), { mode: 0o600 });
+    saveCodexAppServerCredential(credential);
   }
   return dir;
 }

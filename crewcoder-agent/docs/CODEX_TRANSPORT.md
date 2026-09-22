@@ -12,6 +12,13 @@ writes the minimum official auth shape with mode `0600` under
 `~/.crewcoder/codex-app-server/auth.json`; secrets are never placed in session files or logs. Codex
 stores its durable rollouts under that isolated home.
 
+Codex desktop/CLI login and CrewCoder login use separate credential stores. If Codex reports a
+revoked refresh token, run `crewcoder login codex` (or `crew login codex`) and complete the device
+login. A successful CrewCoder login replaces credentials in both its provider auth store and the
+isolated app-server home, so a stale app-server refresh token cannot override the new login. Check
+the active CrewCoder credentials with `crewcoder auth`; Codex OAuth is refreshed before it is
+reported as ready.
+
 For a new CrewCoder session, the provider:
 
 1. Starts `codex app-server --stdio` from the pinned `@openai/codex` package.

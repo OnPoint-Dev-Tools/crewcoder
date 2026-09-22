@@ -68,7 +68,7 @@ function replaceVersionConstant(filePath, constantName, version) {
   fs.writeFileSync(filePath, source.replace(pattern, `$1${version}$2`));
 }
 
-function updateReleaseMetadata(repositoryRoot, version) {
+function updateReleaseMetadata(repositoryRoot, version, codexVersion) {
   const manifests = new Map();
   for (const relativePath of releasePackageFiles) {
     const filePath = path.join(repositoryRoot, relativePath);
@@ -79,6 +79,7 @@ function updateReleaseMetadata(repositoryRoot, version) {
   }
 
   manifests.get("package.json").manifest.dependencies["@onpoint-dev-tools/crewcoder-agent"] = version;
+  manifests.get("crewcoder-agent/package.json").manifest.dependencies["@openai/codex"] = codexVersion;
   manifests.get("crewcoder-sdk/package.json").manifest.dependencies["@onpoint-dev-tools/crewcoder-agent"] = version;
   manifests.get("crewcoder-sdk/package.json").manifest.dependencies["@onpoint-dev-tools/crewcoder-client"] = version;
 
@@ -86,6 +87,12 @@ function updateReleaseMetadata(repositoryRoot, version) {
   replaceVersionConstant(path.join(repositoryRoot, "crewcoder-agent/src/core/version.ts"), "CREWCODER_VERSION", version);
   replaceVersionConstant(path.join(repositoryRoot, "crewcoder-client/src/version.ts"), "CREWCODER_CLIENT_VERSION", version);
   replaceVersionConstant(path.join(repositoryRoot, "crewcoder-sdk/src/version.ts"), "CREWCODER_SDK_VERSION", version);
+}
+
+function resolveLatestCodexVersion() {
+  const version = run("npm", ["view", "@openai/codex", "dist-tags.latest"], { capture: true });
+  stableVersionParts(version);
+  return version;
 }
 
 function resolveRemote(branch) {
@@ -111,6 +118,7 @@ function main(args) {
   if (run("git", ["status", "--porcelain", "--untracked-files=all"], { capture: true })) {
     fail("The worktree must be completely clean so release checks match the tagged commit.");
   }
+  const codexVersion = resolveLatestCodexVersion();
 
   const branch = run("git", ["branch", "--show-current"], { capture: true });
   if (!branch) fail("Releases cannot be created from a detached HEAD.");
@@ -134,8 +142,9 @@ function main(args) {
 
   console.log(`Preparing ${tag} from ${branch} for ${remote}.`);
   console.log(`Packages: ${currentVersions.join(", ")} -> ${version}`);
+  console.log(`Codex runtime: @openai/codex@${codexVersion}`);
   if (dryRun) {
-    console.log("Dry run passed; no files, commits, tags, or remotes were changed.");
+    console.log("Dry run passed; no files, commits, tags, or Git remotes were changed.");
     return;
   }
 
@@ -145,7 +154,7 @@ function main(args) {
   run("git", ["fetch", "--quiet", remote, `refs/heads/${branch}`]);
   run("git", ["merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD"], { capture: true });
 
-  updateReleaseMetadata(root, version);
+  updateReleaseMetadata(root, version, codexVersion);
   run("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]);
   run("npm", ["run", "api:update", "-w", "@onpoint-dev-tools/crewcoder-client"]);
   run("npm", ["run", "api:update", "-w", "@onpoint-dev-tools/crewcoder-sdk"]);
@@ -188,4 +197,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { compareVersions, releaseFiles, stableVersionParts, updateReleaseMetadata };
+module.exports = { compareVersions, releaseFiles, resolveLatestCodexVersion, stableVersionParts, updateReleaseMetadata };

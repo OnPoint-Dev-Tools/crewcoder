@@ -35,7 +35,8 @@ import { createModelClientFromEnv } from "./core/model-client.js";
 import { listProviderModelIds } from "./providers/model-resolution.js";
 import { resolveModel } from "./providers/model-registry.js";
 import { loginCodexDeviceCode } from "./providers/oauth-codex.js";
-import { removeAuthCredential, setAuthCredential, readAuthFile, getAuthPath } from "./providers/auth-store.js";
+import { removeAuthCredential, setAuthCredential, readAuthFile, getAuthPath, getProviderAuth } from "./providers/auth-store.js";
+import { saveCodexAppServerCredential } from "./providers/codex-app-server-provider.js";
 import { getActiveWorker, listWorkers, createWorker, deleteWorker, setActiveWorker, setWorkerIdentityValue, getWorkerIdentityMdPath, type IdentitySetKey } from "./core/identity.js";
 import { loadCrewCoderExtensions } from "./extensions/extension-loader.js";
 import { inspectExtension, setExtensionEnabled, setExtensionTrusted, setExtensionTrustTier, getExtensionTrustTier, validateExtensionPath } from "./extensions/extension-registry.js";
@@ -1076,6 +1077,7 @@ program.command("login").argument("<provider>").description("Login to a subscrip
     onPoll: (message) => console.log(pc.gray(message))
   });
   setAuthCredential("codex", credential);
+  saveCodexAppServerCredential(credential);
   console.log(pc.green(`Logged in to codex. Auth saved to ${getAuthPath()}`));
 });
 
@@ -1092,7 +1094,18 @@ auth.action(async () => {
   for (const provider of providers) {
     const credential = auth[provider.id];
     if (credential) {
-      console.log(`${pc.cyan(provider.id)}: ${credential.type} stored`);
+      if (provider.id === "codex" && credential.type === "oauth") {
+        try {
+          const active = await getProviderAuth(provider);
+          if (active?.credential?.type === "oauth") saveCodexAppServerCredential(active.credential);
+          console.log(`${pc.cyan(provider.id)}: oauth ready`);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.log(`${pc.red(provider.id + ": oauth needs login")} Run: crewcoder login codex (${detail})`);
+        }
+      } else {
+        console.log(`${pc.cyan(provider.id)}: ${credential.type} stored`);
+      }
       printed = true;
       continue;
     }

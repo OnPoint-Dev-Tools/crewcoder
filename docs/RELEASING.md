@@ -6,7 +6,7 @@ Create a coordinated release from a clean branch with one command:
 npm run release -- 0.7.0
 ```
 
-The command updates the umbrella, agent, browser client, and SDK package versions as one coordinated release group. It preserves the TUI package version and the umbrella package's existing exact TUI dependency. It also updates the release group's exact internal dependencies, runtime version constants, generated client and SDK version API baselines, and `package-lock.json`; runs the SDK release checks; creates a `chore(release): v0.7.0` commit and annotated `v0.7.0` tag; then atomically pushes the current branch and tag to its configured remote.
+The command checks npm's `latest` dist-tag for `@openai/codex` and pins that exact version for the agent package. It then updates the umbrella, agent, browser client, and SDK package versions as one coordinated release group. It preserves the TUI package version and the umbrella package's existing exact TUI dependency. It also updates the release group's exact internal dependencies, runtime version constants, generated client and SDK version API baselines, and `package-lock.json`; runs the SDK release checks; creates a `chore(release): v0.7.0` commit and annotated `v0.7.0` tag; then atomically pushes the current branch and tag to its configured remote.
 
 Only `crewcoder-client/api/version.d.ts` and `crewcoder-sdk/api/version.d.ts` may change during the automatic API baseline refresh. Any other public declaration change stops the release for explicit review.
 
@@ -24,7 +24,7 @@ The release stops before changing files when:
 
 It also stops before committing if version metadata, lockfile generation, or release checks fail. A failure after metadata generation intentionally leaves those changes visible for inspection. A failed atomic push leaves the local release commit and tag intact; fix the remote issue and retry the exact `git push --atomic` command printed by the release script.
 
-Preview local validation without changing files or contacting the remote:
+Preview validation without changing files or contacting the Git remote. The dry run still queries npm for the current Codex version:
 
 ```sh
 npm run release -- 0.7.0 --dry-run

@@ -10,7 +10,7 @@ const directCapabilities = {
 };
 
 const codexModelCatalog: ProviderModel[] = [
-   { id: "gpt-6-astra", contextWindow: 1_050_000 },
+  { id: "gpt-6-astra", contextWindow: 1_050_000 },
   { id: "gpt-6-sol", contextWindow: 1_050_000 },
   { id: "gpt-6-luna", contextWindow: 1_050_000 },
   { id: "gpt-5.6-sol", contextWindow: 1_050_000 },
@@ -38,7 +38,7 @@ export const builtinProviders: ProviderDefinition[] = [
     command: "http",
     args: [],
     endpoint: process.env.CREWCODER_CODEX_ENDPOINT ?? "https://chatgpt.com/backend-api/codex/responses",
-    models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+    models: ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
     modelCatalog: codexModelCatalog,
     defaultModel: "gpt-5.6-luna",
     capabilities: directCapabilities,
