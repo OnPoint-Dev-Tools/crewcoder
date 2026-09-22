@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveModel } from "../providers/model-registry.js";
+import { builtinProviders } from "../providers/builtins.js";
 
 let temporaryHome: string | undefined;
 
@@ -23,25 +24,34 @@ describe("model registry context windows", () => {
   it("enriches models from the OpenRouter catalog", async () => {
     await useTemporaryHome();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      data: [{ id: "openai/gpt-5.4-mini", context_length: 400_000 }]
+      data: [{ id: "openai/catalog-only-model", context_length: 400_000 }]
     }), { status: 200 })));
 
-    const resolved = await resolveModel("codex", "gpt-5.4-mini");
+    const resolved = await resolveModel("codex", "catalog-only-model");
 
-    expect(resolved?.metadata).toEqual({ id: "gpt-5.4-mini", contextWindow: 400_000 });
+    expect(resolved?.metadata).toEqual({ id: "catalog-only-model", contextWindow: 400_000 });
   });
 
-  it("uses the declared gpt-5.6-sol context window without catalog lookup", async () => {
+  it.each(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])("uses the declared %s context window without catalog lookup", async (model) => {
     await useTemporaryHome();
     vi.stubEnv("OPENAI_API_KEY", "");
     vi.stubEnv("OPENCODE_API_KEY", "");
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 
-    const resolved = await resolveModel("codex", "gpt-5.6-sol");
+    const resolved = await resolveModel("codex", model);
 
     expect(resolved?.metadata?.contextWindow).toBe(1_050_000);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("requires every built-in model to declare a positive context window", () => {
+    for (const provider of builtinProviders) {
+      expect(provider.modelCatalog?.map((model) => model.id), provider.id).toEqual(provider.models);
+      for (const model of provider.modelCatalog ?? []) {
+        expect(model.contextWindow, `${provider.id}:${model.id}`).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("prefers provider-declared metadata without fetching OpenRouter", async () => {

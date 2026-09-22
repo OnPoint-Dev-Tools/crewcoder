@@ -1,4 +1,4 @@
-import type { ProviderDefinition } from "./types.js";
+import type { ProviderDefinition, ProviderModel } from "./types.js";
 
 const directCapabilities = {
   streaming: true,
@@ -8,6 +8,26 @@ const directCapabilities = {
   acceptsSystemPrompt: true,
   acceptsWorkingDirectory: false
 };
+
+const codexModelCatalog: ProviderModel[] = [
+   { id: "gpt-6-astra", contextWindow: 1_050_000 },
+  { id: "gpt-6-sol", contextWindow: 1_050_000 },
+  { id: "gpt-6-luna", contextWindow: 1_050_000 },
+  { id: "gpt-5.6-sol", contextWindow: 1_050_000 },
+  { id: "gpt-5.6-terra", contextWindow: 1_050_000 },
+  { id: "gpt-5.6-luna", contextWindow: 1_050_000 },
+  { id: "gpt-5.5", contextWindow: 1_050_000 },
+  { id: "gpt-5.4", contextWindow: 1_050_000 },
+  { id: "gpt-5.4-mini", contextWindow: 400_000 }
+];
+
+const claudeModelCatalog: ProviderModel[] = [
+  { id: "claude-sonnet-5", contextWindow: 1_000_000 },
+  { id: "claude-opus-5", contextWindow: 1_000_000 },
+  { id: "claude-haiku-4-5", contextWindow: 200_000 },
+  { id: "claude-opus-4-8", contextWindow: 1_000_000 },
+  { id: "claude-sonnet-4-6", contextWindow: 1_000_000 }
+];
 
 export const builtinProviders: ProviderDefinition[] = [
   {
@@ -19,14 +39,7 @@ export const builtinProviders: ProviderDefinition[] = [
     args: [],
     endpoint: process.env.CREWCODER_CODEX_ENDPOINT ?? "https://chatgpt.com/backend-api/codex/responses",
     models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
-    modelCatalog: [
-      { id: "gpt-5.6-sol", contextWindow: 1_050_000 },
-      { id: "gpt-5.6-terra" },
-      { id: "gpt-5.6-luna" },
-      { id: "gpt-5.5" },
-      { id: "gpt-5.4" },
-      { id: "gpt-5.4-mini" }
-    ],
+    modelCatalog: codexModelCatalog,
     defaultModel: "gpt-5.6-luna",
     capabilities: directCapabilities,
     transport: { channel: "process", continuation: "provider-session", fallback: "http-sse", replay: "never" },
@@ -40,6 +53,7 @@ export const builtinProviders: ProviderDefinition[] = [
     command: "sdk",
     args: [],
     models: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5", "claude-opus-4-8", "claude-sonnet-4-6"],
+    modelCatalog: claudeModelCatalog,
     defaultModel: "claude-sonnet-5",
     capabilities: directCapabilities,
     transport: { channel: "process", continuation: "provider-session", replay: "never" },
@@ -59,6 +73,10 @@ export const builtinProviders: ProviderDefinition[] = [
     // exposes only what the signed-in account grants, and these are NOT the xAI
     // HTTP API ids (`grok-4.1-fast`, `grok-code-fast-1`) carried by `xai`.
     models: ["grok-4.5", "grok-4.6"],
+    modelCatalog: [
+      { id: "grok-4.5", contextWindow: 500_000 },
+      { id: "grok-4.6", contextWindow: 500_000 }
+    ],
     defaultModel: "grok-4.6",
     // ACP `session/new` carries an explicit cwd, unlike the direct HTTP providers.
     capabilities: { ...directCapabilities, acceptsWorkingDirectory: true },
@@ -75,6 +93,10 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_OPENAI_ENDPOINT ?? "https://api.openai.com/v1/responses",
     apiKeyEnv: "OPENAI_API_KEY",
     models: ["gpt-5.4", "gpt-5.4-mini"],
+    modelCatalog: [
+      { id: "gpt-5.4", contextWindow: 1_050_000 },
+      { id: "gpt-5.4-mini", contextWindow: 400_000 }
+    ],
     defaultModel: "gpt-5.4",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -91,6 +113,7 @@ export const builtinProviders: ProviderDefinition[] = [
     apiKeyEnv: "ANTHROPIC_API_KEY",
     authScheme: "anthropic-key",
     models: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5", "claude-opus-4-8", "claude-sonnet-4-6"],
+    modelCatalog: claudeModelCatalog,
     defaultModel: "claude-sonnet-5",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -106,6 +129,11 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_OPENROUTER_ENDPOINT ?? "https://openrouter.ai/api/v1/chat/completions",
     apiKeyEnv: "OPENROUTER_API_KEY",
     models: ["anthropic/claude-sonnet-4.6", "openai/gpt-5.4", "google/gemini-3.1-pro-preview"],
+    modelCatalog: [
+      { id: "anthropic/claude-sonnet-4.6", contextWindow: 1_000_000 },
+      { id: "openai/gpt-5.4", contextWindow: 1_050_000 },
+      { id: "google/gemini-3.1-pro-preview", contextWindow: 1_048_576 }
+    ],
     defaultModel: "anthropic/claude-sonnet-4.6",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -121,6 +149,10 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_XAI_ENDPOINT ?? "https://api.x.ai/v1/chat/completions",
     apiKeyEnv: "XAI_API_KEY",
     models: ["grok-4.1-fast", "grok-code-fast-1"],
+    modelCatalog: [
+      { id: "grok-4.1-fast", contextWindow: 2_000_000 },
+      { id: "grok-code-fast-1", contextWindow: 256_000 }
+    ],
     defaultModel: "grok-4.1-fast",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -136,6 +168,10 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_DEEPSEEK_ENDPOINT ?? "https://api.deepseek.com/chat/completions",
     apiKeyEnv: "DEEPSEEK_API_KEY",
     models: ["deepseek-chat", "deepseek-reasoner"],
+    modelCatalog: [
+      { id: "deepseek-chat", contextWindow: 1_048_576 },
+      { id: "deepseek-reasoner", contextWindow: 1_048_576 }
+    ],
     defaultModel: "deepseek-chat",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -151,6 +187,10 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_MISTRAL_ENDPOINT ?? "https://api.mistral.ai/v1/chat/completions",
     apiKeyEnv: "MISTRAL_API_KEY",
     models: ["mistral-large-latest", "codestral-latest"],
+    modelCatalog: [
+      { id: "mistral-large-latest", contextWindow: 256_000 },
+      { id: "codestral-latest", contextWindow: 128_000 }
+    ],
     defaultModel: "mistral-large-latest",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -166,6 +206,12 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_OPENCODE_ENDPOINT ?? "https://opencode.ai/zen/v1/messages",
     apiKeyEnv: "OPENCODE_API_KEY",
     models: ["gpt-5.5", "gpt-5.4", "claude-opus-4-8", "grok-build-0.1"],
+    modelCatalog: [
+      { id: "gpt-5.5", contextWindow: 1_050_000 },
+      { id: "gpt-5.4", contextWindow: 1_050_000 },
+      { id: "claude-opus-4-8", contextWindow: 1_000_000 },
+      { id: "grok-build-0.1", contextWindow: 256_000 }
+    ],
     defaultModel: "gpt-5.5",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
@@ -181,6 +227,11 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_OPENCODE_GO_ENDPOINT ?? "https://opencode.ai/zen/go/v1/messages",
     apiKeyEnv: "OPENCODE_API_KEY",
     models: ["minimax-m3", "kimi-k2.7-code", "deepseek-v4-flash"],
+    modelCatalog: [
+      { id: "minimax-m3", contextWindow: 1_048_576 },
+      { id: "kimi-k2.7-code", contextWindow: 262_144 },
+      { id: "deepseek-v4-flash", contextWindow: 1_048_576 }
+    ],
     defaultModel: "minimax-m3",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },

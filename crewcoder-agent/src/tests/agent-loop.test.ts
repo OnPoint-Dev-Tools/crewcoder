@@ -367,12 +367,17 @@ describe("agent loop", () => {
       ? textMessage("user", `history user ${index}`)
       : assistantText(`history reply ${index}`));
     let summarizing = false;
+    let providerContextPolicy: { contextWindow?: number; autoCompactTokenLimit?: number } | undefined;
     const modelClient: ModelClient = {
       async complete(input, _signal, stream) {
         if (input.availableTools.length === 0) {
           summarizing = true;
           return assistantText("- Work completed; no open tasks");
         }
+        providerContextPolicy = {
+          contextWindow: input.contextWindow,
+          autoCompactTokenLimit: input.autoCompactTokenLimit
+        };
         await stream?.onUsage?.({ providerId: "test", model: "large", contextTokens: 631_000, inputTokens: 631_000 });
         return assistantText("final answer");
       }
@@ -388,8 +393,45 @@ describe("agent loop", () => {
     });
 
     expect(summarizing).toBe(true);
+    expect(providerContextPolicy).toEqual({ contextWindow: 1_050_000, autoCompactTokenLimit: 630_000 });
     expect(result.compactions).toHaveLength(1);
     expect(result.compactions[0]?.summary).toContain("Work completed");
+  });
+
+  it("recalculates compaction from a provider-reported runtime context window", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const initialMessages = Array.from({ length: 16 }, (_, index) => index % 2 === 0
+      ? textMessage("user", `history user ${index}`)
+      : assistantText(`history reply ${index}`));
+    let summarizing = false;
+    const modelClient: ModelClient = {
+      async complete(input, _signal, stream) {
+        if (input.availableTools.length === 0) {
+          summarizing = true;
+          return assistantText("- Runtime window compaction summary");
+        }
+        await stream?.onUsage?.({
+          providerId: "grok",
+          model: "alias",
+          contextTokens: 101_000,
+          contextWindow: 200_000
+        });
+        return assistantText("final answer");
+      }
+    };
+
+    const result = await runAgentLoop({ prompt: "finish", requestedMode: "general", cwd }, {
+      maxIterations: 1,
+      modelClient,
+      contextWindow: 1_050_000,
+      autoCompact: true,
+      initialMessages,
+      persistSession: false
+    });
+
+    expect(summarizing).toBe(true);
+    expect(result.usage.contextWindow).toBe(200_000);
+    expect(result.compactions).toHaveLength(1);
   });
 
   it.each([

@@ -19,6 +19,13 @@ For a new CrewCoder session, the provider:
 3. Calls `thread/start` and sends the current CrewCoder conversation context for the first turn.
 4. Persists an encoded native thread ID in `providerSessionIds.codex`.
 
+The launch also passes CrewCoder's resolved model context and compaction policy
+as process-scoped Codex configuration. For every built-in GPT-5.6 variant this
+is `model_context_window=1050000` and, with normal auto-compaction enabled,
+`model_auto_compact_token_limit=630000` with `total` scope. This keeps Codex's
+native thread from compacting at its smaller catalog default before CrewCoder's
+60% boundary. It does not edit the user's Codex `config.toml`.
+
 CrewCoder disables Codex reasoning summaries because they are short heading-like descriptions of
 the next action rather than the native thought/progress text shown by Codex clients. Raw
 `item/reasoning/textDelta` events and the authoritative completed reasoning item's `content` blocks
@@ -83,8 +90,9 @@ must never be rendered as successful assistant text.
 
 Durable threads avoid repeated uploads; they do not create unlimited model context. CrewCoder
 compacts known million-token windows at 60% and smaller known windows at 50%, and retains an 80%
-emergency guard when normal auto-compaction is disabled. `gpt-5.6-sol` declares a 1,050,000-token
-window, so its normal trigger is 630,000 tokens. Applying compaction clears the Codex native
+emergency guard when normal auto-compaction is disabled. All built-in GPT-5.6
+variants declare a 1,050,000-token window, so their normal trigger is 630,000
+tokens in both CrewCoder and nested app-server. Applying compaction clears the Codex native
 thread and initializes a replacement from the compacted summary plus recent messages.
 
 See [`AUTO_COMPACTION.md`](./AUTO_COMPACTION.md).

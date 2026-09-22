@@ -17,10 +17,20 @@ Context windows are resolved in this order:
 3. No context-window value; the TUI keeps its token-only fallback.
 
 Provider metadata wins because a provider-specific endpoint may expose less context than the
-underlying model supports. The built-in Codex catalog declares `gpt-5.6-sol` at 1,050,000 tokens;
-its tiered auto-compaction trigger is therefore 630,000 tokens (60%). Codex app-server's
+underlying model supports. Every shipped built-in model has a positive declared
+window, so normal operation never depends on a network catalogue lookup. The
+built-in Codex catalog declares the Sol, Terra, and Luna GPT-5.6 variants at
+1,050,000 tokens; their tiered auto-compaction trigger is therefore 630,000
+tokens (60%). CrewCoder passes both values as process-scoped Codex app-server
+configuration. Codex app-server's
 `thread/tokenUsage/updated.modelContextWindow` is an effective per-request prompt budget and must
 not replace that full model capacity; only `last.inputTokens` is used as the live occupancy.
+
+ACP providers may report both live occupancy and the active window in
+`usage_update`. That runtime window overrides static registry metadata and
+immediately recalculates the active percentage threshold. This keeps provider
+aliases and server-side capacity changes from leaving the context meter or
+compaction boundary on a stale value.
 
 ## OpenRouter matching
 

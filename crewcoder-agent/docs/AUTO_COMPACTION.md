@@ -42,8 +42,10 @@ configured absolute value or the model-window percentage. This makes an apparent
 compaction diagnosable instead of showing only the configured cap. If a provider does not report
 usage or its model has no context-window metadata, enable `autoCompact` and optionally set a
 conservative explicit fallback. Without that explicit fallback, an unknown-window model does not
-auto-compact. Claude's SDK-native auto-compaction is
-also enabled as defense in depth for its opaque resumed session. While running as an ACP agent,
+auto-compact. Every shipped built-in model declares its window. Claude SDK-native
+auto-compaction is disabled so it cannot summarize the opaque resumed session
+before CrewCoder's durable policy fires. ACP runtime window reports override
+static metadata and recalculate that policy immediately. While running as an ACP agent,
 CrewCoder publishes its own compaction lifecycle on the additive
 `_crewcoder/compaction_update` session-update kind so capable hosts can show progress before the
 next usage snapshot arrives. CrewCode's compact button must call ACP `session/compact`
@@ -70,8 +72,12 @@ match line at 500 characters. Truncation notices are actionable rather than sile
 | 400,000 | 200,000 (50%) |
 | 200,000 | 100,000 (50%) |
 
-`gpt-5.6-sol` declares a 1,050,000-token context window in the built-in Codex model catalog, so
-its automatic trigger resolves deterministically to 630,000 tokens.
+All shipped built-in models declare a context window and are regression-tested
+as a complete catalogue. `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`
+declare 1,050,000 tokens, so their automatic trigger resolves deterministically
+to 630,000 tokens. CrewCoder passes that window and threshold into Codex
+app-server as process-scoped configuration so nested native compaction cannot
+fire first at a smaller default.
 
 ## Trigger metric — live context size
 

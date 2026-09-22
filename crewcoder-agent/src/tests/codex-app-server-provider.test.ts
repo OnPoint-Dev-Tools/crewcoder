@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { textMessage, type ToolCallPart } from "../core/messages.js";
 import { setAuthCredential } from "../providers/auth-store.js";
-import { codexTurnPermissions, formatCodexCommandResult, formatCodexFileChangeResult, runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
+import { codexAppServerContextArgs, codexTurnPermissions, formatCodexCommandResult, formatCodexFileChangeResult, runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
 import type { ProviderDefinition } from "../providers/types.js";
 
 const originalHome = process.env.CREWCODER_HOME;
@@ -17,6 +17,21 @@ afterEach(() => {
 });
 
 describe("Codex app-server provider", () => {
+  it("pins native Codex compaction to CrewCoder's resolved model policy", () => {
+    expect(codexAppServerContextArgs({
+      systemPrompt: "system",
+      messages: [],
+      availableTools: [],
+      contextWindow: 1_050_000,
+      autoCompactTokenLimit: 630_000
+    })).toEqual([
+      "-c", "model_context_window=1050000",
+      "-c", "model_auto_compact_token_limit=630000",
+      "-c", 'model_auto_compact_token_limit_scope="total"'
+    ]);
+    expect(codexAppServerContextArgs({ systemPrompt: "system", messages: [], availableTools: [] })).toEqual([]);
+  });
+
   it("does not start app-server when a virtual filesystem disables provider-native file tools", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
     const marker = path.join(home, "app-server-started");
@@ -44,6 +59,7 @@ describe("Codex app-server provider", () => {
     fs.writeFileSync(server, `#!/usr/bin/env node
 const fs=require('node:fs'),readline=require('node:readline');
 const log=${JSON.stringify(log)}; let turn=0;
+fs.appendFileSync(log,JSON.stringify({argv:process.argv.slice(2)})+'\\n');
 function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
 const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify(m)+'\\n');
  if(m.method==='initialize') send({id:m.id,result:{}});
@@ -60,7 +76,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     const compactions: string[] = [];
     const baseInput = {
       provider, prompt: "new prompt", cwd: home, model: "gpt-test",
-      modelInput: { systemPrompt: "system", messages: [textMessage("user", "old prompt"), textMessage("user", "new prompt")], approvalMode: "never" as const, availableTools: [{ name: "noop", description: "safe test tool", parameters: { type: "object" as const, properties: { value: { type: "string" as const } } } }], session: { sessionId: "crew", continuation: true } },
+      modelInput: { systemPrompt: "system", messages: [textMessage("user", "old prompt"), textMessage("user", "new prompt")], approvalMode: "never" as const, contextWindow: 1_050_000, autoCompactTokenLimit: 630_000, availableTools: [{ name: "noop", description: "safe test tool", parameters: { type: "object" as const, properties: { value: { type: "string" as const } } } }], session: { sessionId: "crew", continuation: true } },
       stream: {
         onProviderSessionId: (id: string) => { sessionId = id; },
         onProviderCompaction: (update: { status: string }) => { compactions.push(update.status); },
@@ -79,6 +95,12 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(compactions).toEqual(["started", "completed"]);
     expect(sessionId).toContain("thread-durable");
     const initialRequests = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(initialRequests[0]?.argv).toEqual([
+      "app-server", "--stdio",
+      "-c", "model_context_window=1050000",
+      "-c", "model_auto_compact_token_limit=630000",
+      "-c", 'model_auto_compact_token_limit_scope="total"'
+    ]);
     const threadStart = initialRequests.find((request) => request.method === "thread/start") as { params: Record<string, unknown> };
     expect(threadStart.params).not.toHaveProperty("baseInstructions");
     expect(threadStart.params.approvalPolicy).toBe("never");

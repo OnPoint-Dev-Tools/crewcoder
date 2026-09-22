@@ -57,7 +57,7 @@ describe("Claude Agent SDK provider", () => {
     expect(options.additionalDirectories).toEqual(expect.arrayContaining(["/shared"]));
     expect(options.systemPrompt).toMatchObject({ preset: "claude_code", append: "CrewCoder system" });
     expect(options.strictMcpConfig).toBe(true);
-    expect(options.settings.autoCompactEnabled).toBe(true);
+    expect(options.settings.autoCompactEnabled).toBe(false);
     const mcpOptions = options.mcpServers.crewcoder.options;
     expect(mcpOptions.tools.map((entry: { name: string }) => entry.name)).toEqual(["bash"]);
     await mcpOptions.tools[0].handler({ command: "pwd" });

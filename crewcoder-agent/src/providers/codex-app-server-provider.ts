@@ -19,6 +19,18 @@ const SESSION_PREFIX = "codex-thread-v1";
 type RpcRecord = Record<string, unknown>;
 type PendingRequest = { resolve(value: RpcRecord): void; reject(error: Error): void };
 
+export function codexAppServerContextArgs(modelInput: ProviderRunInput["modelInput"]): string[] {
+  const contextWindow = positiveInteger(modelInput?.contextWindow);
+  const autoCompactTokenLimit = positiveInteger(modelInput?.autoCompactTokenLimit);
+  const args: string[] = [];
+  if (contextWindow !== undefined) args.push("-c", `model_context_window=${contextWindow}`);
+  if (autoCompactTokenLimit !== undefined) {
+    args.push("-c", `model_auto_compact_token_limit=${autoCompactTokenLimit}`);
+    args.push("-c", 'model_auto_compact_token_limit_scope="total"');
+  }
+  return args;
+}
+
 export async function runCodexAppServerProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult | undefined> {
   if (!input.modelInput || input.provider.endpoint !== "https://chatgpt.com/backend-api/codex/responses") return undefined;
   // App-server owns its built-in shell/apply-patch tools and cannot route them
@@ -32,7 +44,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   const credential = existingAppServerAuth ?? (auth?.credential?.type === "oauth" ? auth.credential : undefined);
   if (!credential?.idToken) return undefined;
   const codexHome = prepareCodexHome(credential);
-  const child = spawn(invocation.command, [...invocation.args, "app-server", "--stdio"], {
+  const child = spawn(invocation.command, [...invocation.args, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)], {
     cwd: input.cwd,
     shell: false,
     stdio: ["pipe", "pipe", "pipe"],
@@ -276,6 +288,9 @@ function failure(input: ProviderRunInput, message: string, stderr: string, usage
 function isRecord(value: unknown): value is RpcRecord { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function nestedString(value: RpcRecord, parent: string, key: string): string | undefined { const item = value[parent]; return isRecord(item) && typeof item[key] === "string" ? item[key] : undefined; }
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
 function reasoningContent(value: unknown): string {
   return Array.isArray(value) ? value.filter((part): part is string => typeof part === "string").join("") : "";
 }

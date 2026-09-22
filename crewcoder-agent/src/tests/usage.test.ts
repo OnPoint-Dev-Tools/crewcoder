@@ -75,4 +75,14 @@ describe("usage accounting", () => {
       contextWindow: 1_050_000,
     });
   });
+
+  it("replaces static capacity with a provider runtime context window", () => {
+    const summary = addUsage(
+      { ...emptyUsageSummary(), contextWindow: 1_050_000 },
+      { providerId: "grok", model: "alias", contextTokens: 80_000, contextWindow: 200_000 }
+    );
+
+    expect(summary.contextWindow).toBe(200_000);
+    expect(summary.byModel?.["grok:alias"]?.contextWindow).toBe(200_000);
+  });
 });

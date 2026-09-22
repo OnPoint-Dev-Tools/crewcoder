@@ -92,10 +92,10 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
         },
         settingSources: ["project"],
         skills: [],
-        // Defense in depth: CrewCoder compacts provider-neutral persisted history, while
-        // Claude's native guard protects the opaque resumed SDK session if it grows faster
-        // than usage telemetry reaches the outer loop.
-        settings: { autoCompactEnabled: true },
+        // CrewCoder owns the durable transcript and compaction boundary. A second
+        // provider-native policy can otherwise summarize the opaque resumed SDK
+        // session before CrewCoder reaches its model-relative threshold.
+        settings: { autoCompactEnabled: false },
         ...(requestedEffort === "none" || requestedEffort === "off"
           ? { thinking: { type: "disabled" as const } }
           : claudeEffort ? { thinking: { type: "adaptive" as const }, effort: claudeEffort } : {}),

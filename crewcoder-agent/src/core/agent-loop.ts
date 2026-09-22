@@ -260,25 +260,32 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   // compact at 60%, smaller windows at 50%. The optional absolute threshold is only
   // a fallback for models whose window is unknown. Turning auto-compaction off keeps
   // the existing 80% safety boundary for known windows.
-  const contextCompactPercent = typeof options.contextWindow === "number"
-    ? autoCompactEnabled
-      ? (options.contextWindow >= 1_000_000 ? 0.6 : 0.5)
-      : 0.8
-    : undefined;
-  const contextCompactThreshold = typeof options.contextWindow === "number" && contextCompactPercent !== undefined
-    ? Math.floor(options.contextWindow * contextCompactPercent)
-    : undefined;
-  const autoCompactThreshold = contextCompactThreshold ?? (autoCompactEnabled ? configuredCompactThreshold : undefined);
-  const automaticCompactionMessage = autoCompactThreshold === undefined
-    ? undefined
-    : describeAutomaticCompactionTrigger({
-        autoCompactEnabled,
-        contextWindow: options.contextWindow,
-        contextPercent: contextCompactPercent,
-        effectiveThreshold: autoCompactThreshold,
-        currentTokens: currentContextTokens(usageSummary),
-        measurement: usageSummary.lastInputTokens === undefined ? "cumulative fallback" : "live context"
-      });
+  let contextCompactPercent: number | undefined;
+  let autoCompactThreshold: number | undefined;
+  let automaticCompactionMessage: string | undefined;
+  const refreshCompactionPolicy = () => {
+    const contextWindow = usageSummary.contextWindow;
+    contextCompactPercent = typeof contextWindow === "number"
+      ? autoCompactEnabled
+        ? (contextWindow >= 1_000_000 ? 0.6 : 0.5)
+        : 0.8
+      : undefined;
+    const contextCompactThreshold = typeof contextWindow === "number" && contextCompactPercent !== undefined
+      ? Math.floor(contextWindow * contextCompactPercent)
+      : undefined;
+    autoCompactThreshold = contextCompactThreshold ?? (autoCompactEnabled ? configuredCompactThreshold : undefined);
+    automaticCompactionMessage = autoCompactThreshold === undefined
+      ? undefined
+      : describeAutomaticCompactionTrigger({
+          autoCompactEnabled,
+          contextWindow,
+          contextPercent: contextCompactPercent,
+          effectiveThreshold: autoCompactThreshold,
+          currentTokens: currentContextTokens(usageSummary),
+          measurement: usageSummary.lastInputTokens === undefined ? "cumulative fallback" : "live context"
+        });
+  };
+  refreshCompactionPolicy();
   const compactionPreviewSignal = options.compactionPreviewSignal;
   const compactionPreviewEnabled = Boolean(compactionPreviewSignal) && (options.compactionPreview ?? runtimeConfig.compactionPreview);
   const approvalAuditContexts = new Map<string, { toolCallId: string; toolName: string; args: Record<string, unknown>; risk: string }>();
@@ -347,7 +354,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       const child = await runAgentLoop({ prompt: childPrompt, requestedMode: mode, cwd: request.cwd, externalDirectories }, {
         providerId: options.providerId,
         model: options.model,
-        contextWindow: options.contextWindow,
+        contextWindow: usageSummary.contextWindow,
         approvalMode,
         modelClient,
         // Unlimited unless the parent explicitly caps it. Child workers are
@@ -472,7 +479,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       percent: 5,
       message: describeAutomaticCompactionTrigger({
         autoCompactEnabled,
-        contextWindow: options.contextWindow,
+        contextWindow: usageSummary.contextWindow,
         contextPercent: contextCompactPercent,
         effectiveThreshold: autoCompactThreshold,
         currentTokens: currentContextTokens(usageSummary),
@@ -592,6 +599,10 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           // presence alone is not enough to classify the workspace as virtual.
           useProviderNativeFileTools: !virtualFilesystem,
           approvalMode,
+          // Native-session providers must use the same context policy as the
+          // outer CrewCoder loop or they can compact first at a smaller default.
+          contextWindow: usageSummary.contextWindow,
+          autoCompactTokenLimit: autoCompactThreshold,
           availableTools: tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
           session: { sessionId, resumeFromSessionId: options.resumeFromSessionId, continuation: Boolean(options.initialMessages?.length), providerSessionId: options.providerId ? providerSessionIds[options.providerId] : undefined }
         };
@@ -634,6 +645,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
             const usage = await priceTurn(reportedUsage);
             turnUsage = usage;
             usageSummary = addUsage(usageSummary, usage);
+            refreshCompactionPolicy();
             if (typeof tokenBudget === "number") {
               const status = tokenBudgetStatus(usageSummary, tokenBudget);
               budgetExceeded = status.exceeded;
@@ -762,7 +774,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           percent: 5,
           message: manualCompactRequested ? "Manual compaction requested." : budgetCompactRequested ? "Token budget reached 80%; compacting context before continuing." : describeAutomaticCompactionTrigger({
             autoCompactEnabled,
-            contextWindow: options.contextWindow,
+            contextWindow: usageSummary.contextWindow,
             contextPercent: contextCompactPercent,
             effectiveThreshold: autoCompactThreshold,
             currentTokens: currentContextTokens(usageSummary),

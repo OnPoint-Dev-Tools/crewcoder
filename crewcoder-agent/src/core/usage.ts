@@ -23,6 +23,8 @@ export type TokenUsage = {
 export type ModelUsage = TokenUsage & {
   providerId: string;
   model?: string;
+  /** Runtime-reported maximum context size, when the provider exposes it. */
+  contextWindow?: number;
 };
 
 export type ModelUsageBreakdown = ModelUsage & { turns: number };
@@ -56,7 +58,9 @@ export function addUsage(summary: UsageSummary, usage?: ModelUsage): UsageSummar
     reasoningTokens: addOptional(summary.reasoningTokens, usage.reasoningTokens),
     costUsd: addOptional(summary.costUsd, usage.costUsd),
     turns: summary.turns + 1,
-    contextWindow: summary.contextWindow,
+    // A runtime provider report is more authoritative than static registry
+    // metadata and lets aliases follow provider-side window changes safely.
+    contextWindow: usage.contextWindow ?? summary.contextWindow,
     lastInputTokens: typeof usage.contextTokens === "number" ? usage.contextTokens : typeof usage.inputTokens === "number" ? usage.inputTokens : summary.lastInputTokens,
     byModel: addModelUsage(summary.byModel, usage),
     tokenBudget: summary.tokenBudget,
@@ -97,6 +101,7 @@ function addModelUsage(
     cacheWriteTokens: addOptional(existing?.cacheWriteTokens, usage.cacheWriteTokens),
     reasoningTokens: addOptional(existing?.reasoningTokens, usage.reasoningTokens),
     costUsd: addOptional(existing?.costUsd, usage.costUsd),
+    contextWindow: usage.contextWindow ?? existing?.contextWindow,
     turns: (existing?.turns ?? 0) + 1
   };
   return { ...(byModel ?? {}), [key]: merged };

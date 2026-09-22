@@ -112,9 +112,9 @@ describe("acp client provider", () => {
     expect(result.stdout).not.toContain("--reasoning-effort");
   });
 
-  it("reports live context tokens but never the cumulative ACP cost", async () => {
+  it("reports live context tokens and the provider's runtime window but never the cumulative ACP cost", async () => {
     const result = await runAcpClientProvider(request("ok", cwd));
-    expect(result.usage).toEqual({ providerId: "grok", model: "grok-4.5", contextTokens: 4321 });
+    expect(result.usage).toEqual({ providerId: "grok", model: "grok-4.5", contextTokens: 4321, contextWindow: 200000 });
     // ACP `cost` is a running session total; feeding it to the per-turn ledger would overstate spend.
     expect(result.usage).not.toHaveProperty("costUsd");
   });

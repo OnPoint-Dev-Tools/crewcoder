@@ -248,7 +248,13 @@ async function applySessionUpdate(update: SessionUpdate, input: ProviderRunInput
     // `cost` is deliberately dropped: ACP reports it as a CUMULATIVE session
     // total, and the CrewCoder cost ledger appends per-turn amounts. Feeding a
     // running total into a per-turn ledger overstates spend on every turn.
-    state.usage = { providerId: input.provider.id, model: input.model, contextTokens: update.used };
+    const contextWindow = Number.isFinite(update.size) && update.size > 0 ? Math.floor(update.size) : undefined;
+    state.usage = {
+      providerId: input.provider.id,
+      model: input.model,
+      contextTokens: update.used,
+      ...(contextWindow === undefined ? {} : { contextWindow })
+    };
   }
 }
 
