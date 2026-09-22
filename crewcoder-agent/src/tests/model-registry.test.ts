@@ -32,7 +32,7 @@ describe("model registry context windows", () => {
     expect(resolved?.metadata).toEqual({ id: "catalog-only-model", contextWindow: 400_000 });
   });
 
-  it.each(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])("uses the declared %s context window without catalog lookup", async (model) => {
+  it.each(["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])("uses the declared %s context window without catalog lookup", async (model) => {
     await useTemporaryHome();
     vi.stubEnv("OPENAI_API_KEY", "");
     vi.stubEnv("OPENCODE_API_KEY", "");
