@@ -69,6 +69,7 @@ function replaceVersionConstant(filePath, constantName, version) {
 }
 
 function updateReleaseMetadata(repositoryRoot, version, codexVersion) {
+  stableVersionParts(codexVersion);
   const manifests = new Map();
   for (const relativePath of releasePackageFiles) {
     const filePath = path.join(repositoryRoot, relativePath);
