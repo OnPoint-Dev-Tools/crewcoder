@@ -160,6 +160,8 @@ Each TUI instance also enables terminal focus reporting and ignores keyboard inp
 
 While a CrewCoder provider run is active, submitting ordinary text in the composer automatically queues it as a follow-up over the backend stdin control channel. `/follow-up <message>` remains available as the explicit form. Follow-ups are applied at the next safe point and do not interrupt the current provider request; slash commands continue to run as commands.
 
+The composer accepts multiline terminal paste as one draft, including CRLF line endings. Pasting does not submit; press Enter to send. Shift+Enter inserts a newline.
+
 Crew JSON-event streams render a live roster from `crew_start`, `crew_worker_start`, `crew_worker_end`, and `crew_end`. The transcript shows pending/running/completed/failed agents and their session ids or errors. Crew execution remains sequential today, but the event/state model permits multiple active agents.
 
 To use one saved worker in the TUI, run `/modes` or `/workers` and select it. Create workers beforehand with `crewcoder workers create <name>`, then use `/reload`. Use `/handoff` to pass the active saved session to another worker, `/crew <worker1,worker2> <task>` to run named workers, `/teams` to list declared teams, and `/team <team-id> <task>` to run one. Native crew/team commands currently display their CLI output in the conversation viewport; lifecycle rosters apply when the TUI consumes a crew JSON-event stream. See [`docs/WORKER_CREWS.md`](docs/WORKER_CREWS.md) for syntax and common errors.

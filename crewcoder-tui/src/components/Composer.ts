@@ -113,6 +113,7 @@ export class Composer implements Component {
 
   handleInput(event: KeyEvent): void | boolean {
     this.clampCursor();
+    if (event.name === "paste") { this.insert(event.sequence.replace(/\r\n?/g, "\n")); return true; }
     if (event.ctrl && event.name === "c") process.exit(0);
     if (event.ctrl && event.name === "x" && this.state.attachments.length) {
       // Clear pending image attachments before they are sent.

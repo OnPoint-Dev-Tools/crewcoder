@@ -14,6 +14,8 @@ export const cursorUp = (count: number) => count > 0 ? `\x1b[${count}A` : "";
 // panes, and windows, including terminals that route keys too broadly.
 export const enableFocusReporting = () => "\x1b[?1004h";
 export const disableFocusReporting = () => "\x1b[?1004l";
+export const enableBracketedPaste = () => "\x1b[?2004h";
+export const disableBracketedPaste = () => "\x1b[?2004l";
 export const setTerminalBackground = (hex: string) => `\x1b]11;${hex}\x07`;
 export const resetTerminalBackground = () => "\x1b]111\x07";
 // Ask the terminal to report modified keys (e.g. Shift+Enter) as distinct escape

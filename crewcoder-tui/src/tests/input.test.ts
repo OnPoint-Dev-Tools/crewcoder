@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { InputFocusGate, parseInputEvents } from "../tui/input.js";
+import { InputFocusGate, InputStreamParser, parseInputEvents } from "../tui/input.js";
 
 describe("InputRouter parser", () => {
+  it("keeps multiline bracketed paste as one event across stdin chunks", () => {
+    const parser = new InputStreamParser();
+    expect(parser.push("before\u001b[20").map((event) => event.name).join("")).toBe("before");
+    expect(parser.push("0~one\r\ntwo\rthree\u001b[20")).toEqual([]);
+    expect(parser.push("1~after")).toEqual([
+      { name: "paste", sequence: "one\r\ntwo\rthree", ctrl: false, meta: false, shift: false },
+      { name: "a", sequence: "a", ctrl: false, meta: false, shift: false },
+      { name: "f", sequence: "f", ctrl: false, meta: false, shift: false },
+      { name: "t", sequence: "t", ctrl: false, meta: false, shift: false },
+      { name: "e", sequence: "e", ctrl: false, meta: false, shift: false },
+      { name: "r", sequence: "r", ctrl: false, meta: false, shift: false }
+    ]);
+  });
   it("normalizes common shift-enter terminal escape sequences", () => {
     for (const sequence of ["\u001b[13;2u", "\u001b[13;2~", "\u001b[13~", "\u001b[27;2;13~"]) {
       expect(parseInputEvents(sequence)).toEqual([{

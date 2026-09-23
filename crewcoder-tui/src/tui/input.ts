@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import type { KeyEvent } from "./component.js";
 
 export type InputHandler = (event: KeyEvent) => void;
@@ -5,12 +6,50 @@ export type InputHandler = (event: KeyEvent) => void;
 type ParsedKey = Omit<KeyEvent, "sequence"> & { sequence?: string };
 
 const CSI_FINAL = /[A-Za-z~u]/;
+const PASTE_START = "\u001b[200~";
+const PASTE_END = "\u001b[201~";
+
+export class InputStreamParser {
+  private pending = "";
+  private pasting = false;
+
+  push(chunk: string): KeyEvent[] {
+    this.pending += chunk;
+    const events: KeyEvent[] = [];
+    while (this.pending) {
+      if (this.pasting) {
+        const end = this.pending.indexOf(PASTE_END);
+        if (end < 0) return events;
+        events.push(toKeyEvent(key("paste"), this.pending.slice(0, end)));
+        this.pending = this.pending.slice(end + PASTE_END.length);
+        this.pasting = false;
+        continue;
+      }
+      const start = this.pending.indexOf(PASTE_START);
+      if (start >= 0) {
+        events.push(...parseInputEvents(this.pending.slice(0, start)));
+        this.pending = this.pending.slice(start + PASTE_START.length);
+        this.pasting = true;
+        continue;
+      }
+      const prefix = [...Array(PASTE_START.length - 1).keys()].reverse()
+        .find((index) => this.pending.endsWith(PASTE_START.slice(0, index + 1)));
+      const held = prefix === undefined ? 0 : prefix + 1;
+      events.push(...parseInputEvents(this.pending.slice(0, this.pending.length - held)));
+      this.pending = this.pending.slice(this.pending.length - held);
+      return events;
+    }
+    return events;
+  }
+}
 
 export class InputRouter {
   private handlers: InputHandler[] = [];
   private readonly focusGate = new InputFocusGate();
+  private readonly parser = new InputStreamParser();
+  private readonly decoder = new StringDecoder("utf8");
   private readonly onData = (chunk: Buffer | string) => {
-    for (const event of parseInputEvents(chunk.toString("utf8"))) {
+    for (const event of this.parser.push(typeof chunk === "string" ? chunk : this.decoder.write(chunk))) {
       if (!this.focusGate.accept(event)) continue;
       for (const handler of this.handlers) handler(event);
     }

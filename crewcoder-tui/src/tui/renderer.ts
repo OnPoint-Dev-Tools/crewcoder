@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { bg, clearScreen, clearScrollback, cursorToColumn, cursorUp, disableAutowrap, disableFocusReporting, disableKeyboardProtocol, disableMouse, enableAutowrap, enableFocusReporting, enableKeyboardProtocol, enableMouse, eraseDown, hideCursor, moveTo, reset, resetTerminalBackground, setTerminalBackground, showCursor } from "./ansi.js";
+import { bg, clearScreen, clearScrollback, cursorToColumn, cursorUp, disableAutowrap, disableBracketedPaste, disableFocusReporting, disableKeyboardProtocol, disableMouse, enableAutowrap, enableBracketedPaste, enableFocusReporting, enableKeyboardProtocol, enableMouse, eraseDown, hideCursor, moveTo, reset, resetTerminalBackground, setTerminalBackground, showCursor } from "./ansi.js";
 import type { Component, RenderContext, RenderedImagePlacement, Size, TerminalFrame } from "./component.js";
 import { encodeItermImage, encodeKittyDeleteImage, encodeKittyDeleteVisibleImages, encodeKittyImage } from "./image-protocol.js";
 import { padRight } from "./layout.js";
@@ -30,7 +30,7 @@ export class Renderer {
 
   start(): void {
     this.running = true;
-    this.out.write(setTerminalBackground(this.theme.background) + hideCursor() + enableFocusReporting() + enableKeyboardProtocol());
+    this.out.write(setTerminalBackground(this.theme.background) + hideCursor() + enableFocusReporting() + enableBracketedPaste() + enableKeyboardProtocol());
     this.render(true);
   }
 
@@ -44,7 +44,7 @@ export class Renderer {
     this.drawnImageSignature = "";
     this.setMouseEnabled(false);
     this.setAutowrap(true);
-    this.out.write(disableKeyboardProtocol() + disableFocusReporting() + showCursor() + reset() + resetTerminalBackground() + "\n");
+    this.out.write(disableKeyboardProtocol() + disableBracketedPaste() + disableFocusReporting() + showCursor() + reset() + resetTerminalBackground() + "\n");
   }
 
   render(force = false): void {

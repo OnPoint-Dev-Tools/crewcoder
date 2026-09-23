@@ -463,6 +463,11 @@ export class App implements Component {
   }
 
   handleInput(event: KeyEvent): void | boolean {
+    if (event.name === "paste") {
+      const handled = this.composer.handleInput(event);
+      this.syncInputPopovers();
+      return handled;
+    }
     // Any activity on the home screen restarts the pulse-freeze idle timer.
     if (this.homeActive) this.homeIdleSince = Date.now();
 

@@ -305,6 +305,7 @@ inserted directly after a matching completed tool block.
 - The in-transcript working indicator is **one line** (`AGENT IS WORKING · Esc to abort`) and is the only live running indicator: the bottom `RuntimeBar` chrome was removed at the owner's request, so conversation view is transcript + a one-row visual gap + composer. Do not reintroduce a persistent bottom bar or place status content in that gap. Guarded by `src/tests/main-viewport.test.ts` and `src/tests/app-live-ui.test.ts`.
 - Arrow-up/down in the composer resolve in this order: wrapped-line movement, then recall of this session's sent messages (each Up loads the next most recent user message; Down walks back and restores the draft), then the caller's fallback (viewport scroll). History is derived from `state.blocks` user entries, so it is session-scoped and covers resumed sessions. Guarded by `src/tests/composer-history.test.ts`.
 - `Shift+Enter` should insert a newline in the composer. Some terminals send CSI forms such as `ESC [ 13~`, `ESC [ 13;2~`, or `ESC [ 13;2u`; keep these normalized in `src/tui/input.ts`.
+- Keep terminal bracketed paste enabled while the renderer runs. `InputStreamParser` must buffer paste markers across stdin chunks and deliver pasted content as one composer draft event; only a separate Enter key submits it.
 
 ## Image attachments
 

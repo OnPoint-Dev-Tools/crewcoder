@@ -177,6 +177,17 @@ describe("Composer", () => {
     expect(state.input).toBe("");
   });
 
+  it("inserts pasted carriage returns without submitting", () => {
+    const state = createInitialState();
+    const submitted: string[] = [];
+    const composer = new Composer(state, (value) => submitted.push(value));
+    composer.handleInput({ name: "paste", sequence: "first\r\nsecond\rthird", ctrl: false, meta: false, shift: false });
+    expect(state.input).toBe("first\nsecond\nthird");
+    expect(submitted).toEqual([]);
+    composer.handleInput({ name: "return", sequence: "\r", ctrl: false, meta: false, shift: false });
+    expect(submitted).toEqual(["first\nsecond\nthird"]);
+  });
+
   it("edits at the cursor instead of only appending", () => {
     const state = createInitialState();
     state.input = "helo";
