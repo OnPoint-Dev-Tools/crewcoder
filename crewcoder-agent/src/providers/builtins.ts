@@ -23,12 +23,12 @@ const codexModelCatalog: ProviderModel[] = [
 ];
 
 const claudeModelCatalog: ProviderModel[] = [
-   { id: "claude-opus-5-5", contextWindow: 1_000_000 },
-   { id: "claude-fable-5-1", contextWindow: 1_000_000 },
-   { id: "claude-sonnet-5-5", contextWindow: 1_000_000 },
-   { id: "claude-sonnet-5", contextWindow: 1_000_000 },
-   { id: "claude-haiku-4-5", contextWindow: 200_000 },
+  { id: "claude-opus-5-5", contextWindow: 1_000_000 },
   { id: "claude-opus-5", contextWindow: 1_000_000 },
+  { id: "claude-fable-5-1", contextWindow: 1_000_000 },
+  { id: "claude-sonnet-5-5", contextWindow: 1_000_000 },
+  { id: "claude-sonnet-5", contextWindow: 1_000_000 },
+  { id: "claude-haiku-4-5", contextWindow: 200_000 },
   { id: "claude-opus-4-8", contextWindow: 1_000_000 },
   { id: "claude-sonnet-4-6", contextWindow: 1_000_000 }
 ];
