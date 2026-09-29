@@ -11,6 +11,7 @@ const directCapabilities = {
 
 const codexModelCatalog: ProviderModel[] = [
   { id: "gpt-6-astra", contextWindow: 1_050_000 },
+  { id: "gpt-6.1-sol", contextWindow: 1_050_000 },
   { id: "gpt-6-sol", contextWindow: 1_050_000 },
   { id: "gpt-6-luna", contextWindow: 1_050_000 },
   { id: "gpt-5.6-sol", contextWindow: 1_050_000 },
@@ -22,9 +23,12 @@ const codexModelCatalog: ProviderModel[] = [
 ];
 
 const claudeModelCatalog: ProviderModel[] = [
-  { id: "claude-sonnet-5", contextWindow: 1_000_000 },
+   { id: "claude-opus-5-5", contextWindow: 1_000_000 },
+   { id: "claude-fable-5-1", contextWindow: 1_000_000 },
+   { id: "claude-sonnet-5-5", contextWindow: 1_000_000 },
+   { id: "claude-sonnet-5", contextWindow: 1_000_000 },
+   { id: "claude-haiku-4-5", contextWindow: 200_000 },
   { id: "claude-opus-5", contextWindow: 1_000_000 },
-  { id: "claude-haiku-4-5", contextWindow: 200_000 },
   { id: "claude-opus-4-8", contextWindow: 1_000_000 },
   { id: "claude-sonnet-4-6", contextWindow: 1_000_000 }
 ];
@@ -38,7 +42,7 @@ export const builtinProviders: ProviderDefinition[] = [
     command: "http",
     args: [],
     endpoint: process.env.CREWCODER_CODEX_ENDPOINT ?? "https://chatgpt.com/backend-api/codex/responses",
-    models: ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+    models: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
     modelCatalog: codexModelCatalog,
     defaultModel: "gpt-5.6-luna",
     capabilities: directCapabilities,
@@ -52,9 +56,9 @@ export const builtinProviders: ProviderDefinition[] = [
     runtime: "claude-agent-sdk",
     command: "sdk",
     args: [],
-    models: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5", "claude-opus-4-8", "claude-sonnet-4-6"],
+    models: ["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-opus-4-8", "claude-sonnet-4-6"],
     modelCatalog: claudeModelCatalog,
-    defaultModel: "claude-sonnet-5",
+    defaultModel: "claude-sonnet-5-5",
     capabilities: directCapabilities,
     transport: { channel: "process", continuation: "provider-session", replay: "never" },
     description: "- Claude Code Agent SDK using the local Claude login. Run Claude Code login first."
@@ -112,9 +116,9 @@ export const builtinProviders: ProviderDefinition[] = [
     endpoint: process.env.CREWCODER_ANTHROPIC_ENDPOINT ?? "https://api.anthropic.com/v1/messages",
     apiKeyEnv: "ANTHROPIC_API_KEY",
     authScheme: "anthropic-key",
-    models: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5", "claude-opus-4-8", "claude-sonnet-4-6"],
+    models: ["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-opus-4-8", "claude-sonnet-4-6"],
     modelCatalog: claudeModelCatalog,
-    defaultModel: "claude-sonnet-5",
+    defaultModel: "claude-sonnet-5-5",
     capabilities: directCapabilities,
     transport: { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
     description: "- Official Anthropic Messages API. Set ANTHROPIC_API_KEY."

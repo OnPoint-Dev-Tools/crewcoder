@@ -8,6 +8,7 @@
 import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import { CrewCoderAcpAgent, type AcpAgentOptions } from "./acp-agent.js";
 import { claimStdout } from "./stdio.js";
+import { closeCodexAppServerPool, enableCodexAppServerPooling } from "../providers/codex-app-server-provider.js";
 
 export type AcpServerOptions = AcpAgentOptions & {
   output: WritableStream<Uint8Array>;
@@ -25,6 +26,8 @@ export function createAcpServer(options: AcpServerOptions): AgentSideConnection 
 /** Runs the ACP server over stdio until stdin closes. */
 export async function runAcpStdioServer(options: AcpAgentOptions = {}): Promise<void> {
   const { output, input, release } = claimStdout();
+  // ACP hosts drive many turns per process, so Codex app-servers are kept per session.
+  enableCodexAppServerPooling();
   createAcpServer({ ...options, output, input });
   try {
     await new Promise<void>((resolve) => {
@@ -32,6 +35,7 @@ export async function runAcpStdioServer(options: AcpAgentOptions = {}): Promise<
       process.stdin.once("close", resolve);
     });
   } finally {
+    closeCodexAppServerPool();
     release();
   }
 }

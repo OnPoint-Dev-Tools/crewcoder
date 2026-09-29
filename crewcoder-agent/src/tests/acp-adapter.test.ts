@@ -12,6 +12,21 @@ import { createSessionId, loadSessionRecord, saveSession } from "../core/session
 import type { ToolContext } from "../core/tool-types.js";
 import { readTextFile, writeTextFile } from "../tools/text-file-io.js";
 import { createClientTextFileHost } from "../acp/client-files.js";
+import type { ModelClient, ModelInput } from "../core/model-client.js";
+import { CLIENT_SYSTEM_PROMPT_HEADING, CLIENT_SYSTEM_PROMPT_MAX_CHARS, appendClientSystemPrompt } from "../core/system-prompt.js";
+import { getText } from "../core/messages.js";
+
+/** Records every model input so tests can assert what reached the system field versus the transcript. */
+function recordingModelClient(): ModelClient & { inputs: ModelInput[] } {
+  const inputs: ModelInput[] = [];
+  return {
+    inputs,
+    async complete(input) {
+      inputs.push(input);
+      return assistantText("recorded");
+    }
+  };
+}
 
 function toolResult(text: string, isError = false): ToolResultMessage {
   return { role: "toolResult", toolCallId: "tc-1", toolName: "read", content: [{ type: "text", text }], isError, timestamp: 0 };
@@ -357,7 +372,8 @@ describe("acp server", () => {
     // CrewCoder takes images as on-disk paths, so the ACP image block stays off.
     expect((capabilities.promptCapabilities as Record<string, unknown>).image).toBe(false);
     expect(result._meta).toEqual({
-      "crewcoder/sessionCompact": { method: "session/compact", preview: true, editedSummary: true }
+      "crewcoder/sessionCompact": { method: "session/compact", preview: true, editedSummary: true },
+      "crewcoder/sessionSystemPrompt": { method: "session/set_system_prompt", maxChars: CLIENT_SYSTEM_PROMPT_MAX_CHARS, persisted: false }
     });
   });
 
@@ -741,5 +757,84 @@ describe("acp server", () => {
 
     await send({ jsonrpc: "2.0", id: 3, method: "session/compact", params: { sessionId } });
     expect((await awaitResponse(3)).response.error).toBeTruthy();
+  });
+});
+
+describe("host system prompt", () => {
+  it("appends the host prompt under a precedence heading and ignores blanks", () => {
+    expect(appendClientSystemPrompt("base", "  ")).toBe("base");
+    expect(appendClientSystemPrompt("base", undefined)).toBe("base");
+    expect(appendClientSystemPrompt("base", " You are Nova. ")).toBe(`base\n\n${CLIENT_SYSTEM_PROMPT_HEADING}\n\nYou are Nova.`);
+  });
+
+  async function openSession(client: ModelClient) {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-sysprompt-"));
+    const conn = connect({ approvalMode: "full-access", maxIterations: 1, modelClient: client });
+    await conn.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await conn.awaitResponse(1);
+    await conn.send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+    const sessionId = ((await conn.awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    return { ...conn, sessionId };
+  }
+
+  it("delivers the host prompt in the system field on every turn without storing it in the transcript", async () => {
+    const client = recordingModelClient();
+    const { send, awaitResponse, sessionId } = await openSession(client);
+    const identity = "You are Nova, the Supervisor. IDENTITY-MARKER-7f3a";
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_system_prompt", params: { sessionId, systemPrompt: identity } });
+    expect((await awaitResponse(3)).response.result).toEqual({ applied: true, length: identity.length, appliesTo: "next_prompt" });
+
+    await send({ jsonrpc: "2.0", id: 4, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "first turn" }] } });
+    await awaitResponse(4);
+    await send({ jsonrpc: "2.0", id: 5, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "second turn" }] } });
+    await awaitResponse(5);
+
+    expect(client.inputs.length).toBe(2);
+    for (const input of client.inputs) {
+      expect(input.systemPrompt).toContain(CLIENT_SYSTEM_PROMPT_HEADING);
+      expect(input.systemPrompt).toContain(identity);
+      expect(input.messages.some((message) => getText(message).includes("IDENTITY-MARKER-7f3a"))).toBe(false);
+    }
+    const secondTurnUserText = client.inputs[1]!.messages.filter((message) => message.role === "user").map(getText);
+    // CrewCoder appends its own session background to the first user turn; the host prompt must not appear there.
+    expect(secondTurnUserText).toHaveLength(2);
+    expect(secondTurnUserText[0]!.startsWith("first turn")).toBe(true);
+    expect(secondTurnUserText[1]).toBe("second turn");
+  }, 30_000);
+
+  it("replaces and clears the host prompt between turns", async () => {
+    const client = recordingModelClient();
+    const { send, awaitResponse, sessionId } = await openSession(client);
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_system_prompt", params: { sessionId, systemPrompt: "version-one" } });
+    await awaitResponse(3);
+    await send({ jsonrpc: "2.0", id: 4, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "a" }] } });
+    await awaitResponse(4);
+    await send({ jsonrpc: "2.0", id: 5, method: "session/set_system_prompt", params: { sessionId, systemPrompt: "version-two" } });
+    await awaitResponse(5);
+    await send({ jsonrpc: "2.0", id: 6, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "b" }] } });
+    await awaitResponse(6);
+    await send({ jsonrpc: "2.0", id: 7, method: "session/set_system_prompt", params: { sessionId, systemPrompt: "" } });
+    await awaitResponse(7);
+    await send({ jsonrpc: "2.0", id: 8, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "c" }] } });
+    await awaitResponse(8);
+
+    const [first, second, third] = client.inputs.map((input) => input.systemPrompt);
+    expect(first).toContain("version-one");
+    expect(second).toContain("version-two");
+    expect(second).not.toContain("version-one");
+    expect(third).not.toContain(CLIENT_SYSTEM_PROMPT_HEADING);
+  }, 30_000);
+
+  it("rejects non-string and oversized host prompts", async () => {
+    const { send, awaitResponse, sessionId } = await openSession(recordingModelClient());
+
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_system_prompt", params: { sessionId, systemPrompt: 42 } });
+    expect((await awaitResponse(3)).response.error).toBeTruthy();
+    await send({ jsonrpc: "2.0", id: 4, method: "session/set_system_prompt", params: { sessionId, systemPrompt: "x".repeat(CLIENT_SYSTEM_PROMPT_MAX_CHARS + 1) } });
+    expect((await awaitResponse(4)).response.error).toBeTruthy();
+    await send({ jsonrpc: "2.0", id: 5, method: "session/set_system_prompt", params: { sessionId: "missing", systemPrompt: "x" } });
+    expect((await awaitResponse(5)).response.error).toBeTruthy();
   });
 });

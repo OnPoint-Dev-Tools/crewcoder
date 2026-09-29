@@ -19,6 +19,105 @@ const SESSION_PREFIX = "codex-thread-v1";
 type RpcRecord = Record<string, unknown>;
 type PendingRequest = { resolve(value: RpcRecord): void; reject(error: Error): void };
 
+/**
+ * Long-lived hosts (ACP) keep one Codex app-server per CrewCoder session instead of spawning one per turn.
+ * A fresh process rebuilds Codex's world state (skills, plugins, environment) on every thread/resume, and
+ * when that rebuild races remote plugin loading the skills catalog differs and is re-sent to the model.
+ * Reusing the process keeps the loaded thread and its world state stable between turns.
+ */
+export const CODEX_APP_SERVER_IDLE_MS = 10 * 60_000;
+let poolingEnabled = false;
+let exitHookInstalled = false;
+const pool = new Map<string, CodexAppServer>();
+
+export function enableCodexAppServerPooling(enabled = true): void {
+  poolingEnabled = enabled;
+  if (!enabled) { closeCodexAppServerPool(); return; }
+  if (!exitHookInstalled) {
+    exitHookInstalled = true;
+    process.once("exit", () => closeCodexAppServerPool());
+  }
+}
+
+export function closeCodexAppServerPool(): void {
+  for (const server of pool.values()) server.close();
+  pool.clear();
+}
+
+/** Test and diagnostics hook: number of pooled app-server processes currently alive. */
+export function codexAppServerPoolSize(): number {
+  return [...pool.values()].filter((server) => !server.exited).length;
+}
+
+class CodexAppServer {
+  readonly child: ReturnType<typeof spawn>;
+  readonly rpc: AppServerRpc;
+  /** threadId -> continuation contract hash of threads already loaded in this process. */
+  readonly loadedThreads = new Map<string, string>();
+  busy = false;
+  exited = false;
+  private stderrText = "";
+  private ready?: Promise<void>;
+  private idleTimer?: NodeJS.Timeout;
+  private readonly spawned: Promise<void>;
+
+  constructor(command: string, args: string[], cwd: string, codexHome: string, private readonly onExit: () => void) {
+    this.child = spawn(command, args, { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CODEX_HOME: codexHome } });
+    this.rpc = new AppServerRpc(this.child.stdin!, this.child.stdout!);
+    this.spawned = new Promise<void>((resolve, reject) => {
+      this.child.once("spawn", resolve);
+      this.child.once("error", reject);
+    });
+    // Prevent an ENOENT/custom-path spawn failure from becoming an unhandled
+    // EventEmitter error; stdout closure rejects the pending initialize request.
+    this.child.on("error", () => undefined);
+    this.child.stderr!.on("data", (chunk: Buffer) => { this.stderrText = `${this.stderrText}${chunk.toString()}`.slice(-100_000); });
+    this.child.once("exit", () => { this.exited = true; this.clearIdle(); this.onExit(); });
+  }
+
+  get stderr(): string { return this.stderrText; }
+
+  initialize(): Promise<void> {
+    this.ready ??= (async () => {
+      await this.spawned;
+      await this.rpc.request("initialize", { clientInfo: { name: "crewcoder", title: "CrewCoder", version: CREWCODER_VERSION }, capabilities: { experimentalApi: true } });
+      this.rpc.notify("initialized", {});
+    })();
+    return this.ready;
+  }
+
+  scheduleIdleClose(): void {
+    this.clearIdle();
+    this.idleTimer = setTimeout(() => this.close(), CODEX_APP_SERVER_IDLE_MS);
+    this.idleTimer.unref();
+  }
+
+  clearIdle(): void { if (this.idleTimer) clearTimeout(this.idleTimer); this.idleTimer = undefined; }
+
+  close(): void {
+    this.clearIdle();
+    this.rpc.close();
+    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGTERM");
+  }
+}
+
+function acquireAppServer(key: string | undefined, create: (onExit: () => void) => CodexAppServer): { server: CodexAppServer; pooled: boolean } {
+  if (key) {
+    const existing = pool.get(key);
+    if (existing && !existing.exited && !existing.busy) {
+      existing.clearIdle();
+      return { server: existing, pooled: true };
+    }
+    if (!existing || existing.exited) {
+      const server = create(() => { if (pool.get(key) === server) pool.delete(key); });
+      pool.set(key, server);
+      return { server, pooled: true };
+    }
+  }
+  // Unpooled: one-shot hosts, or a concurrent turn while the pooled process is busy.
+  return { server: create(() => undefined), pooled: false };
+}
+
 export function codexAppServerContextArgs(modelInput: ProviderRunInput["modelInput"]): string[] {
   const contextWindow = positiveInteger(modelInput?.contextWindow);
   const autoCompactTokenLimit = positiveInteger(modelInput?.autoCompactTokenLimit);
@@ -44,23 +143,17 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   const credential = existingAppServerAuth ?? (auth?.credential?.type === "oauth" ? auth.credential : undefined);
   if (!credential?.idToken) return undefined;
   const codexHome = prepareCodexHome(credential);
-  const child = spawn(invocation.command, [...invocation.args, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)], {
-    cwd: input.cwd,
-    shell: false,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, CODEX_HOME: codexHome }
-  });
-  const rpc = new AppServerRpc(child.stdin, child.stdout);
-  const spawned = new Promise<void>((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
-  // Prevent an ENOENT/custom-path spawn failure from becoming an unhandled
-  // EventEmitter error; stdout closure rejects the pending initialize request.
-  child.on("error", () => undefined);
-  let stderr = "";
-  child.stderr.on("data", (chunk: Buffer) => { stderr = `${stderr}${chunk.toString()}`.slice(-100_000); });
-  const abort = () => child.kill("SIGTERM");
+  const args = [...invocation.args, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)];
+  const sessionId = input.modelInput.session?.sessionId;
+  const poolKey = poolingEnabled && sessionId ? JSON.stringify([sessionId, path.resolve(input.cwd), invocation.command, args, codexHome]) : undefined;
+  const { server, pooled } = acquireAppServer(poolKey, (onExit) => new CodexAppServer(invocation.command, args, input.cwd, codexHome, onExit));
+  server.busy = true;
+  const { child, rpc } = server;
+  const stderrStart = server.stderr.length;
+  const stderrForTurn = () => server.stderr.slice(Math.min(stderrStart, server.stderr.length));
+  // A turn that did not finish cleanly leaves the process in an unknown state; never reuse it.
+  let reusable = false;
+  const abort = () => server.close();
   signal?.addEventListener("abort", abort, { once: true });
   let turnRequestSent = false;
   let nativeCompactionStarted = false;
@@ -87,13 +180,15 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     });
   };
   try {
-    await spawned;
-    await rpc.request("initialize", { clientInfo: { name: "crewcoder", title: "CrewCoder", version: CREWCODER_VERSION }, capabilities: { experimentalApi: true } });
-    rpc.notify("initialized", {});
+    await server.initialize();
     const contractHash = continuationContractHash(input);
     const saved = parseSessionId(input.modelInput.session?.providerSessionId);
     let threadId: string | undefined;
-    if (saved?.contractHash === contractHash) {
+    if (saved?.contractHash === contractHash && server.loadedThreads.get(saved.threadId) === contractHash) {
+      // Already loaded in this live process under the same contract: resuming again would only
+      // rebuild Codex's world state and risk re-sending an unchanged skills catalog.
+      threadId = saved.threadId;
+    } else if (saved?.contractHash === contractHash) {
       try {
         const resumed = await rpc.request("thread/resume", threadParams(input, { threadId: saved.threadId }));
         threadId = nestedString(resumed, "thread", "id");
@@ -107,6 +202,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
       threadId = nestedString(started, "thread", "id");
     }
     if (!threadId) throw new Error("Codex app-server did not return a thread id");
+    server.loadedThreads.set(threadId, contractHash);
     await input.stream?.onProviderSessionId?.(formatSessionId(threadId, contractHash));
 
     const textParts: string[] = [];
@@ -193,8 +289,9 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     turnRequestSent = true;
     await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...codexTurnPermissions(input) });
     await rpc.waitUntil(() => completed, signal);
+    reusable = true;
     const text = textParts.join("").trim();
-    if (turnError || !text) return failure(input, turnError ?? "Codex app-server returned no assistant output", stderr, usage);
+    if (turnError || !text) return failure(input, turnError ?? "Codex app-server returned no assistant output", stderrForTurn(), usage);
     const assistant: AssistantMessage = { role: "assistant", content: [{ type: "text", text }], stopReason: "end", timestamp: Date.now() };
     return { providerId: input.provider.id, text: JSON.stringify(assistant), stdout: text, stderr: "", exitCode: 0, timedOut: false, usage };
   } catch (error) {
@@ -204,10 +301,10 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     // turn request was sent: it may have started despite a broken local stream.
     const message = error instanceof Error ? error.message : String(error);
     if (!turnRequestSent || (error as NodeJS.ErrnoException).code === "ENOENT") {
-      await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: "app-server unavailable before turn; using direct transport", details: { error: message, stderr: stderr.trim(), command: invocation.command, exitCode: child.exitCode, signalCode: child.signalCode } });
+      await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: "app-server unavailable before turn; using direct transport", details: { error: message, stderr: stderrForTurn().trim(), command: invocation.command, exitCode: child.exitCode, signalCode: child.signalCode } });
       return undefined;
     }
-    return failure(input, message, stderr, undefined);
+    return failure(input, message, stderrForTurn(), undefined);
   } finally {
     await emitNativeCompaction("failed");
     signal?.removeEventListener("abort", abort);
@@ -216,8 +313,13 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     // retain an invalidated predecessor token.
     const refreshed = readCodexHomeCredential();
     if (refreshed) setAuthCredential("codex", refreshed);
-    rpc.close();
-    if (child.exitCode === null) child.kill("SIGTERM");
+    rpc.onMessage = undefined;
+    server.busy = false;
+    if (pooled && reusable && !server.exited && !signal?.aborted) server.scheduleIdleClose();
+    else {
+      server.close();
+      if (poolKey && pool.get(poolKey) === server) pool.delete(poolKey);
+    }
   }
 }
 

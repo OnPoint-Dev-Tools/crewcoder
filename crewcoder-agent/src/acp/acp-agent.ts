@@ -37,7 +37,8 @@ import { DEFAULT_AGENT_MODE } from "../core/mode-router.js";
 import type { AgentEvent } from "../core/events.js";
 import type { ApprovalMode } from "../core/approval.js";
 import type { AgentMode } from "../core/types.js";
-import { HeuristicModelClient, type ModelQuestion } from "../core/model-client.js";
+import { HeuristicModelClient, type ModelClient, type ModelQuestion } from "../core/model-client.js";
+import { CLIENT_SYSTEM_PROMPT_MAX_CHARS } from "../core/system-prompt.js";
 import type { ApprovalControlDecision } from "../core/stdin-control.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
 import { listBuiltinProviderModels, resolveModel } from "../providers/model-registry.js";
@@ -52,6 +53,8 @@ export type AcpAgentOptions = {
   mode?: AgentMode;
   /** Hard cap on model turns. 0/omitted means unlimited, per CrewCoder's default. */
   maxIterations?: number;
+  /** Replaces the provider model client for prompt turns. Used by tests to observe model input. */
+  modelClient?: ModelClient;
 };
 
 type AcpSession = {
@@ -73,6 +76,11 @@ type AcpSession = {
   /** Instructions queued by session/follow_up while the agent loop is active. */
   followUpSignal: { messages: string[] };
   providerQuestionSequence: number;
+  /**
+   * Host-supplied system prompt from `session/set_system_prompt`. Held in
+   * memory only: hosts re-send it after `session/new` or `session/load`.
+   */
+  systemPrompt?: string;
 };
 
 /**
@@ -89,7 +97,15 @@ export const CREWCODER_SESSION_COMPACT_META = {
   editedSummary: true
 } as const;
 
+/** Advertised on `initialize._meta` so hosts can move identity context out of user messages. */
+export const CREWCODER_SESSION_SYSTEM_PROMPT_META = {
+  method: "session/set_system_prompt",
+  maxChars: CLIENT_SYSTEM_PROMPT_MAX_CHARS,
+  persisted: false
+} as const;
+
 const EXT_METHODS = new Set([
+  "session/set_system_prompt",
   "session/set_model",
   "session/set_reasoning_effort",
   "session/set_approval_mode",
@@ -138,7 +154,10 @@ export class CrewCoderAcpAgent implements Agent {
         }
       },
       authMethods: [],
-      _meta: { "crewcoder/sessionCompact": CREWCODER_SESSION_COMPACT_META }
+      _meta: {
+        "crewcoder/sessionCompact": CREWCODER_SESSION_COMPACT_META,
+        "crewcoder/sessionSystemPrompt": CREWCODER_SESSION_SYSTEM_PROMPT_META
+      }
     };
   }
 
@@ -205,6 +224,10 @@ export class CrewCoderAcpAgent implements Agent {
       return this.compactSession(session, params);
     }
 
+    if (method === "session/set_system_prompt") {
+      return this.setSystemPrompt(session, params);
+    }
+
     if (method === "session/follow_up") {
       const message = typeof params.message === "string" ? params.message.trim() : "";
       if (!message) throw RequestError.invalidParams({ reason: "message is required" });
@@ -258,6 +281,20 @@ export class CrewCoderAcpAgent implements Agent {
       session.model = modelId;
     }
     return {};
+  }
+
+  private setSystemPrompt(session: AcpSession, params: Record<string, unknown>): Record<string, unknown> {
+    if (typeof params.systemPrompt !== "string") {
+      throw RequestError.invalidParams({ reason: "systemPrompt must be a string (empty clears it)" });
+    }
+    if (params.systemPrompt.length > CLIENT_SYSTEM_PROMPT_MAX_CHARS) {
+      throw RequestError.invalidParams({ reason: `systemPrompt exceeds ${CLIENT_SYSTEM_PROMPT_MAX_CHARS} characters` });
+    }
+    // A running turn already built its system field. The new value applies from
+    // the next prompt, which keeps one turn under one consistent instruction set.
+    const systemPrompt = params.systemPrompt.trim();
+    session.systemPrompt = systemPrompt || undefined;
+    return { applied: true, length: systemPrompt.length, appliesTo: "next_prompt" };
   }
 
   private async compactSession(session: AcpSession, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -343,9 +380,10 @@ export class CrewCoderAcpAgent implements Agent {
       contextWindow,
       approvalMode: session.approvalMode,
       maxIterations: this.options.maxIterations,
-      modelClient: this.options.heuristic
+      modelClient: this.options.modelClient ?? (this.options.heuristic
         ? undefined
-        : new ProviderModelClient(session.providerId, session.cwd, session.model, undefined, session.reasoningEffort),
+        : new ProviderModelClient(session.providerId, session.cwd, session.model, undefined, session.reasoningEffort)),
+      clientSystemPrompt: session.systemPrompt,
       approvalSignal,
       followUpSignal: session.followUpSignal,
       signal: abort.signal,

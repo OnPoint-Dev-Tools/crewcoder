@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { textMessage, type ToolCallPart } from "../core/messages.js";
 import { setAuthCredential } from "../providers/auth-store.js";
-import { codexAppServerContextArgs, codexTurnPermissions, formatCodexCommandResult, formatCodexFileChangeResult, runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
+import { codexAppServerContextArgs, codexAppServerPoolSize, codexTurnPermissions, enableCodexAppServerPooling, formatCodexCommandResult, formatCodexFileChangeResult, runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
 import type { ProviderDefinition } from "../providers/types.js";
 
 const originalHome = process.env.CREWCODER_HOME;
@@ -12,6 +12,7 @@ const originalCodexPath = process.env.CREWCODER_CODEX_PATH;
 const provider: ProviderDefinition = { id: "codex", title: "Codex", kind: "builtin", runtime: "openai-codex-responses", command: "http", args: [], endpoint: "https://chatgpt.com/backend-api/codex/responses" };
 
 afterEach(() => {
+  enableCodexAppServerPooling(false);
   if (originalHome === undefined) delete process.env.CREWCODER_HOME; else process.env.CREWCODER_HOME = originalHome;
   if (originalCodexPath === undefined) delete process.env.CREWCODER_CODEX_PATH; else process.env.CREWCODER_CODEX_PATH = originalCodexPath;
 });
@@ -120,6 +121,85 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(turn.params.summary).toBe("none");
     expect(turn.params.approvalPolicy).toBe("never");
     expect(turn.params.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: [], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
+  });
+
+  it("reuses one pooled app-server per session without re-resuming a loaded thread", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
+    const log = path.join(home, "requests.jsonl");
+    const server = path.join(home, "fake-codex.cjs");
+    fs.writeFileSync(server, `#!/usr/bin/env node
+const fs=require('node:fs'),readline=require('node:readline');
+const log=${JSON.stringify(log)}; let turn=0;
+fs.appendFileSync(log,JSON.stringify({spawn:process.pid})+'\\n');
+function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
+readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify({method:m.method})+'\\n');
+ if(m.method==='initialize') send({id:m.id,result:{}});
+ else if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'thread-pooled'}}});
+ else if(m.method==='thread/resume') send({id:m.id,result:{thread:{id:m.params.threadId}}});
+ else if(m.method==='turn/start'){turn++;send({id:m.id,result:{turn:{id:'turn-'+turn,status:'inProgress'}}});
+  if(m.params.input[0].text==='hang') return;
+  send({method:'item/agentMessage/delta',params:{delta:'reply '+turn}});send({method:'turn/completed',params:{turn:{status:'completed',error:null}}});}
+});`, { mode: 0o755 });
+    process.env.CREWCODER_HOME = home;
+    process.env.CREWCODER_CODEX_PATH = server;
+    setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account", idToken: "id-token" });
+    enableCodexAppServerPooling();
+    const entries = () => fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { spawn?: number; method?: string });
+    let providerSessionId = "";
+    const run = (prompt: string, session = "crew-a", signal?: AbortSignal) => runCodexAppServerProvider({
+      provider, prompt, cwd: home, model: "gpt-test",
+      modelInput: { systemPrompt: "system", messages: [textMessage("user", prompt)], approvalMode: "never", availableTools: [], session: { sessionId: session, continuation: true, providerSessionId: providerSessionId || undefined } },
+      stream: { onProviderSessionId: (id: string) => { providerSessionId = id; } }
+    }, signal);
+
+    expect((await run("one"))?.stdout).toBe("reply 1");
+    expect((await run("two"))?.stdout).toBe("reply 2");
+    expect((await run("three"))?.stdout).toBe("reply 3");
+    expect(entries().filter((entry) => entry.spawn).length).toBe(1);
+    expect(entries().filter((entry) => entry.method === "initialize").length).toBe(1);
+    expect(entries().filter((entry) => entry.method === "thread/start").length).toBe(1);
+    expect(entries().filter((entry) => entry.method === "thread/resume").length).toBe(0);
+    expect(codexAppServerPoolSize()).toBe(1);
+
+    // A different CrewCoder session gets its own process.
+    const saved = providerSessionId;
+    providerSessionId = "";
+    await run("other", "crew-b");
+    expect(entries().filter((entry) => entry.spawn).length).toBe(2);
+    providerSessionId = saved;
+
+    // An aborted turn is never reused: the process is closed and the next turn resumes on a fresh one.
+    const controller = new AbortController();
+    const hung = run("hang", "crew-a", controller.signal);
+    setTimeout(() => controller.abort(), 100);
+    await hung.catch(() => undefined);
+    fs.writeFileSync(log, "");
+    expect((await run("after abort"))?.exitCode).toBe(0);
+    expect(entries().filter((entry) => entry.spawn).length).toBe(1);
+    expect(entries().filter((entry) => entry.method === "thread/resume").length).toBe(1);
+  });
+
+  it("keeps one app-server per turn when pooling is not enabled", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
+    const log = path.join(home, "spawns.log");
+    const server = path.join(home, "fake-codex.cjs");
+    fs.writeFileSync(server, `#!/usr/bin/env node
+const fs=require('node:fs'),readline=require('node:readline');
+fs.appendFileSync(${JSON.stringify(log)},'spawn\\n');
+function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
+readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);
+ if(m.method==='initialize') send({id:m.id,result:{}});
+ else if(m.method==='thread/start'||m.method==='thread/resume') send({id:m.id,result:{thread:{id:'thread-once'}}});
+ else if(m.method==='turn/start'){send({id:m.id,result:{turn:{id:'t',status:'inProgress'}}});send({method:'item/agentMessage/delta',params:{delta:'ok'}});send({method:'turn/completed',params:{turn:{status:'completed',error:null}}});}
+});`, { mode: 0o755 });
+    process.env.CREWCODER_HOME = home;
+    process.env.CREWCODER_CODEX_PATH = server;
+    setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account", idToken: "id-token" });
+    const input = { provider, prompt: "hi", cwd: home, model: "gpt-test", modelInput: { systemPrompt: "system", messages: [textMessage("user", "hi")], approvalMode: "never" as const, availableTools: [], session: { sessionId: "crew", continuation: true } } };
+    await runCodexAppServerProvider(input);
+    await runCodexAppServerProvider(input);
+    expect(fs.readFileSync(log, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(codexAppServerPoolSize()).toBe(0);
   });
 
   it("routes commentary agent messages through thinking and keeps the final answer separate", async () => {

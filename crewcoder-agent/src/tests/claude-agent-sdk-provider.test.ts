@@ -18,7 +18,7 @@ describe("Claude Agent SDK provider", () => {
   it("uses project context, hybrid native tools, and CrewCoder MCP execution", async () => {
     queryMock.mockImplementation((request?: { options?: unknown }) => ({
       async *[Symbol.asyncIterator]() {
-        yield { type: "system", subtype: "init", session_id: "claude-session-1", model: "claude-sonnet-5" };
+        yield { type: "system", subtype: "init", session_id: "claude-session-1", model: "claude-haiku-4-5" };
         yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "thinking" } } };
         yield { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "checking" } } };
         yield { type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "text" } } };
@@ -36,7 +36,7 @@ describe("Claude Agent SDK provider", () => {
       provider,
       prompt: "work",
       cwd: "/repo",
-      model: "claude-sonnet-5",
+      model: "claude-haiku-4-5",
       modelInput: {
         systemPrompt: "CrewCoder system",
         externalDirectories: ["/shared"],

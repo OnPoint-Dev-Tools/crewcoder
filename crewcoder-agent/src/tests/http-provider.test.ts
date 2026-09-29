@@ -44,7 +44,7 @@ describe("anthropic/openCode provider", () => {
       provider: { ...provider, id: "anthropic", authScheme: "anthropic-key" },
       prompt: "hello",
       cwd: process.cwd(),
-      model: "claude-sonnet-5"
+      model: "claude-haiku-4-5"
     });
 
     const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
@@ -414,7 +414,7 @@ describe("anthropic/openCode provider", () => {
     const body = JSON.stringify({ type: "error", error: { type: "CreditsError", message: "Insufficient balance." } });
     vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 401, headers: { "content-type": "text/plain" } })));
 
-    const result = await runAnthropicMessagesProvider({ provider, prompt: "hello", cwd: process.cwd(), model: "claude-sonnet-5" });
+    const result = await runAnthropicMessagesProvider({ provider, prompt: "hello", cwd: process.cwd(), model: "claude-haiku-4-5" });
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
@@ -429,7 +429,7 @@ describe("anthropic/openCode provider", () => {
     ].join("");
     vi.stubGlobal("fetch", vi.fn(async () => new Response(streamFromString(sse), { headers: { "content-type": "text/event-stream" } })));
 
-    const result = await runAnthropicMessagesProvider({ provider, prompt: "hello", cwd: process.cwd(), model: "claude-sonnet-5" });
+    const result = await runAnthropicMessagesProvider({ provider, prompt: "hello", cwd: process.cwd(), model: "claude-haiku-4-5" });
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("overloaded_error: Overloaded");

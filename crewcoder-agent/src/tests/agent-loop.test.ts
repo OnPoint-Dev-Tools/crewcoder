@@ -284,8 +284,8 @@ describe("agent loop", () => {
     };
     const result = await runAgentLoop({ prompt: "hello", requestedMode: "general", cwd }, {
       maxIterations: 3,
-      providerId: "opencode",
-      model: "claude-sonnet-5",
+      providerId: "claude",
+      model: "claude-haiku-4-5",
       modelClient,
       emit: (event) => { events.push(event.type); }
     });

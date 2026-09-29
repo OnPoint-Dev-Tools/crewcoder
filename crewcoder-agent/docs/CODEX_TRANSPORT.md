@@ -51,6 +51,24 @@ On later prompts—even in a new process—it calls `thread/resume` and sends on
 If the native thread was pruned or cannot be resumed, CrewCoder starts a replacement thread and
 seeds it from the current compacted CrewCoder history.
 
+### Pooled app-server under ACP
+
+One-shot commands (`crewcoder run`, print mode) still start one app-server per turn. `crewcoder acp`
+is long-lived, so it keeps **one app-server process per CrewCoder session** (same working directory,
+launch arguments, and Codex home) and reuses it across turns:
+
+- A thread already loaded in that process under the same continuation contract goes straight to
+  `turn/start`; `thread/resume` is skipped. Every resume makes Codex rebuild its world state
+  (skills, plugins, environment). With a fresh process per turn, that rebuild raced remote plugin
+  loading, the skill list differed between turns, and Codex re-sent the entire skills catalog to the
+  model, roughly 2,300 to 3,000 extra tokens per affected turn.
+- A process that did not finish its turn cleanly (abort, transport error, early failure) is closed
+  and never reused. The next turn starts a fresh process and resumes the thread normally.
+- A concurrent turn for a session whose process is busy runs on a separate, unpooled process.
+- Idle processes close after 10 minutes, and the pool is closed when the ACP server's stdin ends or
+  the CrewCoder process exits.
+- Refreshed app-server credentials are still copied back to CrewCoder's auth store after every turn.
+
 The persisted continuation includes a hash of the stable request contract: model, system prompt,
 working roots, and tool definitions. A contract change starts a fresh native thread instead of
 silently attaching incompatible context. Compaction clears the native thread ID, as it does for

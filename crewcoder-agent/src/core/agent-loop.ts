@@ -20,7 +20,7 @@ import type { CrewCoderExtSessionEntry } from "../extensions/api.js";
 import type { ExtensionUiBridge } from "./extension-ui-bridge.js";
 import { embeddedCrewCodeDocs, type EmbeddedDoc } from "../knowledge/crewcode-docs.js";
 import { embeddedCrewCoderExtensionDocs } from "../knowledge/crewcoder-extension-docs.js";
-import { appendCustomSystemPrompt, buildSystemPrompt } from "./system-prompt.js";
+import { appendClientSystemPrompt, appendCustomSystemPrompt, buildSystemPrompt } from "./system-prompt.js";
 import { getSystemPrompt } from "./system-prompt-store.js";
 import { createModelClientFromEnv, type ModelClient, type ModelQuestion } from "./model-client.js";
 import { createSessionId, saveSession, type SessionModelTurn } from "./session-store.js";
@@ -102,6 +102,11 @@ export type AgentLoopOptions = {
   resumeContext?: string;
   dumpModelInput?: boolean;
   systemPromptName?: string;
+  /**
+   * Host-supplied system prompt (ACP `session/set_system_prompt`). Appended to
+   * the system field on every model request; never written to the transcript.
+   */
+  clientSystemPrompt?: string;
   workerName?: string;
   workerDelegationDepth?: number;
   maxChildWorkerDepth?: number;
@@ -329,7 +334,10 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     buildSystemPrompt({ mode, skills, docs, identityPrompt: buildIdentityPrompt(activeWorker), crewTasksPrompt, extensionContext }),
     formatExternalDirectories(externalDirectories)
   ].filter(Boolean).join("\n\n");
-  const systemPrompt = appendCustomSystemPrompt(defaultSystemPrompt, selectedSystemPrompt?.content);
+  const systemPrompt = appendClientSystemPrompt(
+    appendCustomSystemPrompt(defaultSystemPrompt, selectedSystemPrompt?.content),
+    options.clientSystemPrompt
+  );
   const sandbox = buildSandboxContext(approvalMode, request.cwd, externalDirectories);
   const workerDelegationDepth = options.workerDelegationDepth ?? 0;
   const maxChildWorkerDepth = options.maxChildWorkerDepth ?? 1;

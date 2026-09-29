@@ -61,13 +61,15 @@ see "Deliberate deviations" below.
 | `session/set_approval_mode` | Switches the active session approval/sandbox mode without respawning CrewCoder |
 | `session/set_external_directories` | Replaces and persists the session's explicitly granted filesystem roots |
 | `session/compact` | Compacts the durable CrewCoder session in place and returns the summary |
+| `session/set_system_prompt` | Sets a host-supplied system prompt for the session. Routed through `extMethod` |
 | `authenticate` | No-op; credentials are managed by `crewcoder auth` |
 
 Capabilities are reported **honestly**: `loadSession: true`,
 `promptCapabilities.image: false`. CrewCoder takes images as on-disk paths, not
 inline base64, so advertising the ACP image block would invite a request it cannot
-serve. Manual compact is advertised on `initialize._meta["crewcoder/sessionCompact"]`,
-not as a standard ACP session capability.
+serve. Manual compact is advertised on `initialize._meta["crewcoder/sessionCompact"]`
+and the host system prompt on `initialize._meta["crewcoder/sessionSystemPrompt"]`,
+not as standard ACP session capabilities.
 
 ## Deliberate deviations from the 1.x schema
 
@@ -101,6 +103,27 @@ after `session/new` / `session/load` and whenever it changes. A client that reta
 dangerous-command tripwire should keep CrewCoder in `review` and auto-resolve ordinary ACP
 permission requests instead; setting `full-access` makes Codex unrestricted and prevents that
 host from inspecting provider-native commands before execution.
+
+`session/set_system_prompt` is an additive extension for hosts that give CrewCoder an
+identity or role of their own (for example a Supervisor persona). It accepts
+`{ sessionId, systemPrompt }`, where `systemPrompt` is a string of at most 262,144
+characters. An empty string clears it. The response is
+`{ applied: true, length, appliesTo: "next_prompt" }`.
+
+The prompt is appended to CrewCoder's system field under a "Host application system
+prompt" heading on every model request. It is never written to the transcript, so a host
+does not need to repeat identity context inside each user message, the transcript does not
+accumulate duplicate copies, and compaction cannot summarize it away. Where it defines
+identity, role, or voice it takes precedence over CrewCoder's default identity; tool policy,
+approvals, and sandbox rules still apply.
+
+The value is held in memory for the live ACP session and is **not persisted**. Hosts must
+send it after every `session/new` and `session/load`, and again whenever it changes. A turn
+that is already running keeps the system field it started with. Changing the prompt changes
+the request prefix, so the next request cannot reuse the provider prompt cache, and the
+Codex app-server provider starts a fresh native thread because its continuation contract
+hash covers the system prompt. `initialize._meta["crewcoder/sessionSystemPrompt"]`
+advertises `{ method: "session/set_system_prompt", maxChars: 262144, persisted: false }`.
 
 `session/compact` is the host compact-button path. It is an additive extension method
 routed through `extMethod`, same as `session/set_model`. `initialize._meta["crewcoder/sessionCompact"]`

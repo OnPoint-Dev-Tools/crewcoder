@@ -76,3 +76,24 @@ export function appendCustomSystemPrompt(defaultPrompt: string, customPrompt?: s
   if (!custom) return base;
   return [base, "Custom system prompt:", custom].join("\n\n");
 }
+
+/** Upper bound for a host-supplied system prompt, in characters. */
+export const CLIENT_SYSTEM_PROMPT_MAX_CHARS = 262_144;
+
+export const CLIENT_SYSTEM_PROMPT_HEADING = [
+  "Host application system prompt:",
+  "The application embedding CrewCoder supplied the instructions below. Where they define your identity, role, or voice, they take precedence over the default identity above. CrewCoder tool policy, approvals, and sandbox rules still apply."
+].join("\n");
+
+/**
+ * Appends a system prompt supplied by an embedding client (for example over
+ * ACP `session/set_system_prompt`). It lives in the system field, which is
+ * rebuilt on every request and never persisted into the transcript, so hosts
+ * do not have to re-send identity context inside each user message.
+ */
+export function appendClientSystemPrompt(basePrompt: string, clientPrompt?: string | null): string {
+  const base = basePrompt.trim();
+  const client = clientPrompt?.trim();
+  if (!client) return base;
+  return [base, CLIENT_SYSTEM_PROMPT_HEADING, client].join("\n\n");
+}
