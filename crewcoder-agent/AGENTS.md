@@ -20,6 +20,8 @@ CrewCoder should become a best-in-class coding agent with:
 
 ## CLI aliases
 
+The `@openai/codex` dependency uses npm's `latest` tag so new CrewCoder installations receive the current stable Codex app-server. Keep `scripts/release.cjs` from replacing that tag with an exact version. Existing installations update only when their package manager installs again.
+
 The agent package maps `crewcoder`, `crew`, and `crewcoder-agent` to the same CLI entrypoint. Keep `crew` behavior identical to `crewcoder`, including no-argument TUI launch and all argument-bearing backend commands. Never restore the `cc` alias because it shadows the standard Unix C compiler command.
 
 `crewcoder update` and its `upgrade` alias update only the public `crewcoder` umbrella through npm's stable `latest` tag. Preserve the current/proposed version preview, interactive arrow-key Yes/No confirmation, `--yes` non-interactive path, and exact up-to-date message. Never update the scoped runtime packages independently from this command.

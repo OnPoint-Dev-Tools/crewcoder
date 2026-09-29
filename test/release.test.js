@@ -52,7 +52,7 @@ describe("release automation", () => {
       fs.writeFileSync(filePath, source);
     }
 
-    updateReleaseMetadata(repositoryRoot, "0.2.3", "0.155.1");
+    updateReleaseMetadata(repositoryRoot, "0.2.3");
 
     for (const relativePath of Object.keys(manifests).filter((relativePath) => relativePath !== "crewcoder-tui/package.json")) {
       expect(JSON.parse(fs.readFileSync(path.join(repositoryRoot, relativePath), "utf8")).version).toBe("0.2.3");
@@ -69,7 +69,7 @@ describe("release automation", () => {
       "@onpoint-dev-tools/crewcoder-client": "0.2.3"
     });
     const agentManifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "crewcoder-agent/package.json"), "utf8"));
-    expect(agentManifest.dependencies["@openai/codex"]).toBe("0.155.1");
+    expect(agentManifest.dependencies["@openai/codex"]).toBe("latest");
     for (const relativePath of Object.keys(constants)) {
       expect(fs.readFileSync(path.join(repositoryRoot, relativePath), "utf8")).toContain('"0.2.3"');
     }

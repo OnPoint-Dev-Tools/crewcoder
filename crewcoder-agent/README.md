@@ -89,6 +89,8 @@ crewcoder upgrade
 crewcoder update --yes
 ```
 
+New installations resolve the current npm `@openai/codex@latest` app-server. Existing installations keep their installed Codex version until npm updates them.
+
 The scoped agent and TUI packages can still be installed separately for development or custom packaging.
 
 ## Providers

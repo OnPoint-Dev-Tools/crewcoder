@@ -21,7 +21,7 @@ reported as ready.
 
 For a new CrewCoder session, the provider:
 
-1. Starts `codex app-server --stdio` from the pinned `@openai/codex` package.
+1. Starts `codex app-server --stdio` from the installed `@openai/codex` package. New installations resolve npm's `latest` tag; existing installations keep their installed version until updated.
 2. Performs the JSON-RPC initialize handshake with experimental dynamic-tool support.
 3. Calls `thread/start` and sends the current CrewCoder conversation context for the first turn.
 4. Persists an encoded native thread ID in `providerSessionIds.codex`.
