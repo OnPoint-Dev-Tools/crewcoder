@@ -175,6 +175,8 @@ The agent's own session id is persisted through `onProviderSessionId` into
 `providerSessionIds.grok` and replayed as `session/load` on the next turn, so the
 agent keeps its native history. A failed load **falls back to a new session** rather
 than failing the run — a stale id normally just means the agent pruned its store.
+The new session gets the full CrewCoder transcript, since it has none of the history;
+only a session the agent actually loaded is sent just the latest message.
 
 `session/load` transcript replay is **not** this turn's output. The provider ignores
 `session/update` until `session/prompt` is sent. Treating load-replay

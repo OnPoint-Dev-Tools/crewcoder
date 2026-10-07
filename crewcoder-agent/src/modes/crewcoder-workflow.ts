@@ -1,4 +1,4 @@
-import { getText, type AgentMessage } from "../core/messages.js";
+import { getText, type AgentMessage, type ToolResultMessage } from "../core/messages.js";
 import type { ToolDefinition } from "../core/tool-types.js";
 
 export const CREWCODER_CLARIFY_TOOL = "crewcoder_clarify";
@@ -13,6 +13,7 @@ export type CrewcoderWorkflowPhase =
 
 export type CrewcoderWorkflowState = {
   phase: CrewcoderWorkflowPhase;
+  inspectionCompleted: boolean;
   questions: string[];
   requirements: string;
   plan: string;
@@ -51,6 +52,7 @@ const MUTATING_TOKENS = [
 export function emptyCrewcoderWorkflow(): CrewcoderWorkflowState {
   return {
     phase: "inspect",
+    inspectionCompleted: false,
     questions: [],
     requirements: "",
     plan: "",
@@ -61,6 +63,7 @@ export function emptyCrewcoderWorkflow(): CrewcoderWorkflowState {
 export function cloneCrewcoderWorkflow(state: CrewcoderWorkflowState): CrewcoderWorkflowState {
   return {
     phase: state.phase,
+    inspectionCompleted: state.inspectionCompleted === true,
     questions: [...state.questions],
     requirements: state.requirements,
     plan: state.plan,
@@ -80,6 +83,7 @@ export function applyIncomingUserMessage(state: CrewcoderWorkflowState, text: st
   }
   if (next.phase === "awaiting_approval") {
     next.phase = isPlanApprovalMessage(text) ? "approved" : "awaiting_plan";
+    if (next.phase === "awaiting_plan") next.inspectionCompleted = false;
     return next;
   }
   return next;
@@ -89,6 +93,7 @@ export function reconstructCrewcoderWorkflow(messages: readonly AgentMessage[]):
   let state = emptyCrewcoderWorkflow();
   for (const message of messages) {
     if (message.role === "toolResult" && !message.isError) {
+      if (message.details?.crewcoderInspection === true) state.inspectionCompleted = true;
       if (message.toolName === CREWCODER_CLARIFY_TOOL) {
         state = {
           ...state,
@@ -131,6 +136,9 @@ export function recordProposedPlan(
   if (state.phase === "awaiting_answers") {
     throw new Error("Wait for the user to answer your crewcoder_clarify questions before proposing a plan.");
   }
+  if (!state.inspectionCompleted) {
+    throw new Error("Inspect the relevant project with read, grep, listFiles, or read-only discovery commands before calling crewcoder_propose_plan. Clarification alone is not investigation.");
+  }
   return {
     ...cloneCrewcoderWorkflow(state),
     phase: "awaiting_approval",
@@ -145,18 +153,36 @@ export function formatCrewcoderWorkflowPrompt(state: CrewcoderWorkflowState): st
     ? "Mutating tools are unlocked for the approved plan."
     : "Mutating tools are blocked. Read-only inspection is allowed.";
   const next =
-    state.phase === "inspect" ? "Call crewcoder_clarify with at least one question or confirmation. Do not implement."
+    state.phase === "inspect" ? "Search and read the relevant project first, then call crewcoder_clarify with grounded questions or confirmation. Do not implement."
     : state.phase === "awaiting_answers" ? "Stop and wait. The user has not answered yet."
-    : state.phase === "awaiting_plan" ? "Restate the locked requirements and call crewcoder_propose_plan. Do not implement."
+    : state.phase === "awaiting_plan" ? "Continue read-only investigation using the user's answers. Trace the relevant behavior, inspect planned edit targets and tests, and resolve material unknowns before crewcoder_propose_plan. Include findings, exact file paths, proposed code snippets, risks, and validation. Do not implement."
     : state.phase === "awaiting_approval" ? "Stop and wait. Ask the user to approve this specific plan with /approve-plan or a clear approval."
     : "Implement the approved plan. Re-propose if scope changes.";
   return [
     "CrewCoder workflow gate (runtime-enforced):",
     `Current phase: ${state.phase}`,
+    `Project inspection observed: ${state.inspectionCompleted === true ? "yes" : "no"}. A successful inspection is a minimum gate; continue until the task is understood.`,
     mutations,
     next,
     "You must use crewcoder_clarify then crewcoder_propose_plan in order. Free-text questions do not unlock implementation."
   ].join("\n");
+}
+
+export function recordCrewcoderInspection(
+  state: CrewcoderWorkflowState | undefined,
+  result: ToolResultMessage,
+  args: Record<string, unknown>
+): void {
+  if (!state || result.isError || !getText(result).trim()) return;
+  if (typeof result.details?.exitCode === "number" && result.details.exitCode !== 0) return;
+  const directInspection = ["read", "grep", "listFiles", "Read", "Grep", "Glob"].includes(result.toolName);
+  const command = typeof args.command === "string" ? args.command : "";
+  const shellInspection = ["bash", "Codex command"].includes(result.toolName)
+    && isReadOnlyDiscoveryCommand(command)
+    && /(?:^|\s)(?:cat|head|tail|rg|grep|ls|find|tree)(?:\s|$)/.test(command);
+  if (!directInspection && !shellInspection) return;
+  state.inspectionCompleted = true;
+  result.details = { ...result.details, crewcoderInspection: true };
 }
 
 export function crewcoderMutationBlockReason(
@@ -169,9 +195,9 @@ export function crewcoderMutationBlockReason(
   if (WORKFLOW_TOOLS.has(name)) return undefined;
   if (!toolMutatesBeforePlan(tool, args)) return undefined;
   const next =
-    state.phase === "inspect" ? "Call crewcoder_clarify first."
+    state.phase === "inspect" ? "Inspect the relevant project, then call crewcoder_clarify."
     : state.phase === "awaiting_answers" ? "Wait for the user to answer your questions."
-    : state.phase === "awaiting_plan" ? "Call crewcoder_propose_plan and wait for explicit approval."
+    : state.phase === "awaiting_plan" ? "Complete read-only investigation, call crewcoder_propose_plan with concrete file proposals, and wait for explicit approval."
     : "Wait for the user to approve the current plan with /approve-plan or a clear approval.";
   return `CrewCoder mode blocked ${name} until the plan is approved (phase: ${state.phase}). ${next}`;
 }

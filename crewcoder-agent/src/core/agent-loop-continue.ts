@@ -63,6 +63,7 @@ export async function runAgentLoopContinue(input: {
     sessionId: input.sessionId,
     resumeFromSessionId: input.sessionId,
     resumeContext: session.pendingResumeContext,
+    movedSessionNote: session.pendingMoveNote,
     initialMessages: session.messages,
     initialMutationLog: session.mutationLog,
     initialUsage: session.usage,

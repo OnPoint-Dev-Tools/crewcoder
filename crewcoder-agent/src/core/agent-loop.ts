@@ -50,10 +50,13 @@ import {
   crewcoderMutationBlockReason,
   formatCrewcoderWorkflowPrompt,
   reconstructCrewcoderWorkflow,
+  recordCrewcoderInspection,
   type CrewcoderWorkflowState
 } from "../modes/crewcoder-workflow.js";
 
 export type AgentLoopOptions = {
+  /** Host policy: only supplied text tools, without extension hooks or local project discovery. */
+  hostedToolsOnly?: boolean;
   modelClient?: ModelClient;
   tools?: ToolDefinition[];
   /** Extra host-owned tools added without replacing built-ins or trusted extension tools. */
@@ -100,6 +103,8 @@ export type AgentLoopOptions = {
   initialExtensionEntries?: CrewCoderExtSessionEntry[];
   initialCrewcoderWorkflow?: CrewcoderWorkflowState;
   resumeContext?: string;
+  /** Sent once on a resumed turn; unlike resumeContext, prompted resumes do carry it. */
+  movedSessionNote?: string;
   dumpModelInput?: boolean;
   systemPromptName?: string;
   /**
@@ -190,14 +195,15 @@ export type AgentLoopResult = {
 };
 
 export async function runAgentLoop(request: AgentRequest, options: AgentLoopOptions = {}): Promise<AgentLoopResult> {
+  if (options.hostedToolsOnly && (!options.tools || !options.textFiles?.readTextFile || !options.textFiles.writeTextFile)) throw new Error("Hosted tool policy requires supplied tools and both host text methods");
   const sessionId = options.sessionId ?? createSessionId();
   const runtimeConfig = readConfig();
   const integrationProfile = options.integrationProfile ?? resolveIntegrationProfile(request.cwd, runtimeConfig);
-  const mode = resolveMode(request.requestedMode);
+  const mode = options.hostedToolsOnly ? "general" : resolveMode(request.requestedMode);
   if (mode === "plugin" && integrationProfile !== "crewcode") {
     throw new Error("CrewCode plugin mode is disabled in the standalone profile. Enable it with: crewcoder profile use crewcode --project");
   }
-  const project = await inspectProject(request.cwd);
+  const project: ProjectInspection = options.hostedToolsOnly ? { cwd: request.cwd, markers: [] } : await inspectProject(request.cwd);
   const externalDirectories = await validateExternalDirectories(request.cwd, request.externalDirectories);
   const projectContext = formatProjectInspection(project);
   const initialMessages = options.initialMessages ?? [];
@@ -207,18 +213,22 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     .slice(-MAX_SESSION_CHECKPOINTS);
   const modelTurns: SessionModelTurn[] = [...(options.initialModelTurns ?? [])];
   const providerSessionIds = { ...(options.initialProviderSessionIds ?? {}) };
+  const providerToolArgs = new Map<string, Record<string, unknown>>();
   const activeWorker = resolveActiveWorker(options.workerName);
   const newUserMessage = withImageParts(textMessage("user", request.prompt), request.images ?? []);
   if (!options.resumeFromSessionId) {
     const contextRoot = project.repoRoot ?? request.cwd;
-    const memoryContext = readMemoryContext(contextRoot);
-    const rulesContext = readRulesContext(contextRoot);
+    const memoryContext = options.hostedToolsOnly ? undefined : readMemoryContext(contextRoot);
+    const rulesContext = options.hostedToolsOnly ? undefined : readRulesContext(contextRoot);
     newUserMessage.background = [
       ...(options.resumeContext ? [options.resumeContext] : []),
       ...(rulesContext ? [rulesContext] : []),
       ...(memoryContext ? [memoryContext] : []),
       projectContext,
     ];
+  } else if (options.movedSessionNote) {
+    // A moved session must learn its new location even though resumes skip the usual background.
+    newUserMessage.background = [options.movedSessionNote];
   }
   let messages: AgentMessage[] = [...initialMessages, newUserMessage];
   const startedAt = new Date().toISOString();
@@ -232,7 +242,8 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   let budgetDownshiftRequested = false;
   let budgetExceeded = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).exceeded;
   const builtInTools = withCrewcoderWorkflowTools(options.tools ?? createToolRegistry(integrationProfile, mode), mode);
-  const tools = options.tools
+  // Host-executed tools stay available under the hosted policy: the host, not CrewCoder, authorizes them.
+  const tools = options.hostedToolsOnly ? [...builtInTools.filter(tool => tool.name === "read" || tool.name === "write"), ...(options.additionalTools ?? [])] : options.tools
     ? [...builtInTools, ...(options.additionalTools ?? [])]
     : [...builtInTools, ...(await loadTrustedExtensionTools()), ...(options.additionalTools ?? [])];
   const crewcoderWorkflow = mode === "crewcoder"
@@ -240,7 +251,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     : undefined;
   const modelClient = options.modelClient ?? createModelClientFromEnv();
   const approvalMode = options.approvalMode ?? "never";
-  const virtualFilesystem = options.virtualFilesystem ?? options.textFiles !== undefined;
+  const virtualFilesystem = options.hostedToolsOnly || (options.virtualFilesystem ?? options.textFiles !== undefined);
   // 0/undefined means unlimited. A working agent is bounded by the task, by an
   // opt-in token budget, or by stall detection — never by a turn counter.
   const requestedIterations = options.maxIterations ?? runtimeConfig.maxIterations;
@@ -248,16 +259,19 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const stallDetector = (options.stallDetection ?? runtimeConfig.stallDetection)
     ? createStallDetector({ repeatThreshold: runtimeConfig.stallRepeatThreshold, errorThreshold: runtimeConfig.stallErrorThreshold })
     : undefined;
-  const extensionRuntime = await loadTrustedCrewCoderExtensionRuntime();
+  // Trusted extensions still execute code, so a host-only role cannot invoke their hooks.
+  const extensionRuntime: LoadedCrewCoderExtensionRuntime = options.hostedToolsOnly
+    ? { tools: [], commands: [], handlers: new Map(), entries: [], warnings: [] }
+    : await loadTrustedCrewCoderExtensionRuntime();
   const priorExtensionEntries = options.initialExtensionEntries ?? [];
   seedCrewCoderExtensionEntries(extensionRuntime, priorExtensionEntries);
   // Entries appended during this run start after the replayed history. Capturing
   // the index avoids leaking entries across sessions when a cached runtime
   // singleton is reused for multiple loops in the same process.
   const runEntriesStart = extensionRuntime.entries.length;
-  const extensionHooks = await loadTrustedExtensionHooks();
-  const extensionFileTriggers = await loadTrustedExtensionFileTriggers();
-  const extensionApprovalPolicies = await loadTrustedExtensionApprovalPolicies();
+  const extensionHooks = options.hostedToolsOnly ? [] : await loadTrustedExtensionHooks();
+  const extensionFileTriggers = options.hostedToolsOnly ? [] : await loadTrustedExtensionFileTriggers();
+  const extensionApprovalPolicies = options.hostedToolsOnly ? [] : await loadTrustedExtensionApprovalPolicies();
   const checkpointsEnabled = runtimeConfig.checkpointsEnabled;
   const autoCompactEnabled = options.autoCompact ?? runtimeConfig.autoCompact;
   const configuredCompactThreshold = options.autoCompactThresholdTokens ?? runtimeConfig.autoCompactThresholdTokens;
@@ -315,14 +329,14 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const skills = selectSkills(mode, request.prompt);
   const docs = selectDocs(mode);
   const crewTasksConfig = readCrewTasksConfig();
-  const crewTasksPrompt = crewTasksConfig.enabled
+  const crewTasksPrompt = crewTasksConfig.enabled && !options.hostedToolsOnly
     ? [
         "crew-tasks is enabled for this project/session.",
         "For complex multi-step work, use TaskCreate/TaskList/TaskGet/TaskUpdate to maintain persistent project tasks in .crewcoder/tasks.",
         "Treat these persistent tasks as the agent todo integration: create tasks for durable work, set in_progress before starting, and set completed only when fully done."
       ].join("\n")
     : null;
-  const extensionActivation = await activateEnabledExtensions(request.prompt);
+  const extensionActivation = options.hostedToolsOnly ? { skills: [], prompts: [] } : await activateEnabledExtensions(request.prompt);
   const hookContexts = await collectExtensionContext(extensionHooks, { cwd: request.cwd, sessionId, prompt: request.prompt, mode });
   const apiContextResults = await emitCrewCoderExtensionEvent(extensionRuntime, "context", { cwd: request.cwd, sessionId, prompt: request.prompt, mode }, { cwd: request.cwd, sessionId }, options.uiBridge);
   const apiContexts = collectContextEventResults(apiContextResults).map((context, index) => `[CrewCoderExtAPI/context/${index + 1}]\n${context}`);
@@ -331,7 +345,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const selectedSystemPromptName = options.systemPromptName;
   const selectedSystemPrompt = selectedSystemPromptName ? getSystemPrompt(selectedSystemPromptName) : null;
   const defaultSystemPrompt = [
-    buildSystemPrompt({ mode, skills, docs, identityPrompt: buildIdentityPrompt(activeWorker), crewTasksPrompt, extensionContext }),
+    options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: buildIdentityPrompt(activeWorker), crewTasksPrompt, extensionContext }),
     formatExternalDirectories(externalDirectories)
   ].filter(Boolean).join("\n\n");
   const systemPrompt = appendClientSystemPrompt(
@@ -352,7 +366,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     emit,
     textFiles: options.textFiles,
     crewcoderWorkflow,
-    delegateWorker: workerDelegationDepth < maxChildWorkerDepth ? async (delegation, signal) => {
+    delegateWorker: !options.hostedToolsOnly && workerDelegationDepth < maxChildWorkerDepth ? async (delegation, signal) => {
       const childPrompt = [
         `Parent worker ${activeWorker.name} delegated this scoped subtask from session ${sessionId}.`,
         "Return a concise summary of findings/actions for the parent worker.",
@@ -631,10 +645,13 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
             if (options.providerId) providerSessionIds[options.providerId] = providerSessionId;
           },
           async onProviderToolStart(call) {
+            if (crewcoderWorkflow) providerToolArgs.set(call.id, call.arguments);
             await emit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments });
           },
           async onProviderToolEnd(result) {
             const message: ToolResultMessage = { role: "toolResult", toolCallId: result.toolCallId, toolName: result.toolName, content: [{ type: "text", text: result.text }], isError: result.isError, timestamp: Date.now() };
+            recordCrewcoderInspection(crewcoderWorkflow, message, providerToolArgs.get(result.toolCallId) ?? {});
+            providerToolArgs.delete(result.toolCallId);
             await emit({ type: "tool_execution_end", toolCallId: result.toolCallId, toolName: result.toolName, result: message, isError: result.isError });
           },
           async executeTool(call) {
@@ -929,7 +946,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   }
 
   let verification: { ok: boolean; checks: VerificationResult[] } | undefined;
-  if (options.verify) {
+  if (options.verify && !options.hostedToolsOnly) {
     const checks = await loadVerificationChecks(request.cwd);
     await emit({ type: "verification_start", checks: checks.map((check) => check.id) });
     const checkResults = await runVerificationChecks(checks, options.signal);
@@ -1223,6 +1240,8 @@ async function executeToolCallsSequential(
         timestamp: Date.now()
       };
     }
+
+    recordCrewcoderInspection(context.crewcoderWorkflow, result, toolCall.arguments);
 
     for (const changed of context.mutationLog.slice(beforeMutationCount)) {
       await emit({ type: "file_changed", path: changed, toolName: toolCall.name });

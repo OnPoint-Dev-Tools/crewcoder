@@ -477,6 +477,8 @@ The header is written once and never rewritten, so it records the provider/model
 
 `crewcoder session show <id>` is the human conversation viewer: readable Markdown by default, `--out <path>` for a file, and explicit `--json` for the complete internal record. Do not make users inspect JSONL or internal model-turn/event structures to find their conversation, and do not create an automatically maintained duplicate transcript beside every session. See `docs/SESSION_EXPORT.md`.
 
+`crewcoder session bundle <id> --out <file>` and `crewcoder session import <file> [--cwd] [--replace]` move a session between machines with the same id. Bundles carry the provider-native session files (Claude project JSONL, Codex rollouts) so Claude and Codex continue their own session; import keeps a provider id only when its file was placed, clears external directories, never deletes an existing session or native file (`--replace` and stale native copies go to `backups/`), and validates every length, id, and native path in a temp file before anything goes live. The Codex continuation hash must keep leaving out the workspace path, or moved threads restart. Prompted resumes deliberately skip `pendingResumeContext`; the moved-session note uses `pendingMoveNote`, which they do carry once. The Claude provider's "No conversation found" retry is what makes a moved Claude session continue; keep that retry limited to a missing native session before any output, so other errors are never retried. See `docs/SESSION_BUNDLE.md`.
+
 `crewcoder session prune` (`src/core/session-prune.ts`) is the only sanctioned bulk deletion path for session data. It is **dry run unless `--apply`** and must never become automatic or gain an interactive prompt (a prompt breaks CI and trains reflexive `y`). `--artifacts` is the safe default because nothing it removes is reachable by any code path; `--checkpoints` and `--sessions` hard-error without `--older-than`, because a bare `--sessions` would otherwise wipe the store. Age comes from the header `startedAt`, never mtime — session files are rewritten on every save, so mtime measures last touch, not age. Targets are re-validated at delete time (inside the sessions dir, not the dir itself, not a symlink) because the plan is a mutable plain object; symlinks are refused, not followed. Failures are per-target so one bad path never abandons the rest. See `docs/SESSION_PRUNE.md`.
 
 ## Reproducible runs and searchable history
@@ -607,8 +609,13 @@ overlaps ordinary coding vocabulary too heavily for any keyword list to be safe.
 `crewcoder` mode is the deliberate workflow defined in `src/modes/crewcoder-mode.ts` and
 documented in `docs/CREWCODER_MODE.md`. Preserve its ordered contract: read-only discovery,
 `crewcoder_clarify`, user answers, `crewcoder_propose_plan`, explicit `/approve-plan` (or a
-short unambiguous approval), then implementation and verification. Mutating tools are
-runtime-blocked until that sequence completes; do not regress it to prompt-only guidance.
+short unambiguous approval), then implementation and verification. Clarification answers
+must guide further task-specific investigation before plan submission. Preserve the
+successful-inspection runtime gate and require investigation findings, exact file
+proposals with code/diff snippets, risks, and validation. Read planned edit targets
+fully and resolve material architectural unknowns before requesting approval.
+Mutating tools are runtime-blocked until that sequence completes; do not regress it
+to prompt-only guidance.
 Keep it on the normal coding toolset; it must not inherit CrewCode plugin or CrewCoder
 extension authoring knowledge.
 
@@ -894,6 +901,12 @@ SDK reconnect must resume from the last delivered cursor without deliberate dupl
 replay. Treat persisted prompts/events as sensitive and preserve package/protocol tests.
 
 ## ACP adapter
+
+Host-managed Supervisor sessions use the versioned `session/set_tool_policy` contract in [Hosted text tool policy](docs/HOSTED_TOOL_POLICY.md). Preserve fail-closed native-tool restrictions, hosted I/O without disk/image fallback, and exclusion of executable extension hooks. Loaded sessions must receive the policy again before prompting; unrestricted Crew Member and CLI sessions remain unchanged.
+
+The `codex-cli` provider runs the user's own Codex CLI and login; with provider-native file tools off it must stay locked to dynamic tools (see [Bring-your-own Codex CLI](docs/CODEX_CLI_PROVIDER.md)). `crewcoder auth --json` must stay read-only and identity-free.
+
+ACP clients can register typed tools they execute themselves through `session/set_client_tools`; see [Client-hosted tools](docs/CLIENT_TOOLS.md). Keep the schema subset aligned with what every provider adapter can translate, and never let a client tool shadow a built-in name.
 
 `crewcoder acp` exposes CrewCoder as an **Agent Client Protocol** agent (JSON-RPC 2.0
 over newline-delimited stdio) so ACP clients — CrewCode, Block's Buzz, Zed — can drive

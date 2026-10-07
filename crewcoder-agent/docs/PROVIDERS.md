@@ -8,6 +8,7 @@ process, HTTP/SSE, and WebSocket lifecycle contracts.
 | Provider id | API | Credential | Default model |
 | --- | --- | --- | --- |
 | `codex` | ChatGPT OAuth Codex Responses | `crewcoder login codex` | `gpt-5.6-luna` |
+| `codex-cli` | The user's own Codex CLI app-server | `codex login` (CrewCoder never holds the tokens) | `gpt-5.6-luna` |
 | `claude` | Claude Code Agent SDK | local Claude Code login | `claude-sonnet-5` |
 | `openai` | OpenAI Responses | `OPENAI_API_KEY` | `gpt-5.4` |
 | `anthropic` | Anthropic Messages | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
@@ -41,6 +42,17 @@ crewcoder auth
 
 An extension provider can read an API key stored under its own provider id or its declared
 environment variable. It cannot consume OAuth credentials or alias another stored auth entry.
+
+## Sign-in status as JSON
+
+`crewcoder auth --json` prints `{ "schemaVersion": 1, "providers": [{ id, title, state, source?, detail? }] }`. `state` is `signed-in`, `signed-out`, `not-installed`, or `unknown`.
+
+- It is read-only: no token refresh, no auth file writes, no network calls of its own. Plain `crewcoder auth` may refresh and copy Codex OAuth tokens; the JSON mode never does.
+- `codex-cli` runs `codex login status`; `claude` runs `claude auth status --json` and forwards only the auth method, never the email or organization.
+- Other providers report stored keys, CrewCoder OAuth, or environment variables. ACP and process providers report `unknown` because their own CLI owns sign-in.
+- Hosts such as Crew Nodes forward this output to a relay, so it must never carry account identity or key material.
+
+See [Bring-your-own Codex CLI](CODEX_CLI_PROVIDER.md) for the `codex-cli` provider.
 
 ## Endpoint overrides
 

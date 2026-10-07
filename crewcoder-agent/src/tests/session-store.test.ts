@@ -87,6 +87,7 @@ describe("session-store durable growth", () => {
       resolvedMode: "crewcoder",
       crewcoderWorkflow: {
         phase: "awaiting_approval",
+        inspectionCompleted: true,
         questions: ["Where should it live?"],
         requirements: "Add a settings page.",
         plan: "Write src/settings.ts",
@@ -96,6 +97,7 @@ describe("session-store durable growth", () => {
     const loaded = await loadSessionRecord(id);
     expect(loaded.crewcoderWorkflow).toEqual({
       phase: "awaiting_approval",
+      inspectionCompleted: true,
       questions: ["Where should it live?"],
       requirements: "Add a settings page.",
       plan: "Write src/settings.ts",

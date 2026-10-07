@@ -295,3 +295,68 @@ describe("Claude Agent SDK provider", () => {
     expect(ends).toEqual(["Read"]);
   });
 });
+
+describe("Claude Agent SDK provider resume fallback", () => {
+  const history = [
+    { role: "user" as const, content: [{ type: "text" as const, text: "first request" }], timestamp: 1 },
+    { role: "assistant" as const, content: [{ type: "text" as const, text: "first answer" }], stopReason: "end" as const, timestamp: 2 },
+    { role: "user" as const, content: [{ type: "text" as const, text: "next request" }], timestamp: 3 }
+  ];
+  const run = (stream: Record<string, unknown> = {}) => runClaudeAgentSdkProvider({
+    provider,
+    prompt: "next request",
+    cwd: "/vps/repo",
+    model: "claude-haiku-4-5",
+    modelInput: { systemPrompt: "sys", messages: history as never, availableTools: [], session: { sessionId: "crew", continuation: true, providerSessionId: "claude-on-the-pc" } },
+    stream: { executeTool: vi.fn(), ...stream }
+  });
+  const answering = (sessionId: string) => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: "system", subtype: "init", session_id: sessionId };
+      yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text" } } };
+      yield { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "continued" } } };
+      yield { type: "result", subtype: "success", usage: { input_tokens: 5, output_tokens: 1 } };
+    },
+    async getContextUsage() { return { totalTokens: 9 }; }
+  });
+
+  it("replays the CrewCoder transcript once when the Claude session is missing on this machine", async () => {
+    queryMock
+      .mockImplementationOnce(() => ({
+        async *[Symbol.asyncIterator]() { throw new Error("Claude Code process exited with code 1\nNo conversation found with session ID: claude-on-the-pc"); },
+        async getContextUsage() { return { totalTokens: 0 }; }
+      }))
+      .mockImplementationOnce(() => answering("claude-new"));
+    const sessions: string[] = [];
+    const result = await run({ onProviderSessionId: (id: string) => { sessions.push(id); } });
+
+    expect(queryMock).toHaveBeenCalledTimes(2);
+    expect(queryMock.mock.calls[0][0].options.resume).toBe("claude-on-the-pc");
+    expect(queryMock.mock.calls[1][0].options.resume).toBeUndefined();
+    expect(String(queryMock.mock.calls[1][0].prompt)).toContain("first answer");
+    expect(sessions).toEqual(["claude-new"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("continued");
+  });
+
+  it("also recovers when the missing session is reported as a result error", async () => {
+    queryMock
+      .mockImplementationOnce(() => ({
+        async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "error_during_execution", errors: ["No conversation found with session ID: claude-on-the-pc"] }; },
+        async getContextUsage() { return { totalTokens: 0 }; }
+      }))
+      .mockImplementationOnce(() => answering("claude-new"));
+    const result = await run();
+    expect(queryMock).toHaveBeenCalledTimes(2);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("does not retry other failures, so a real error is not hidden or run twice", async () => {
+    queryMock.mockImplementationOnce(() => ({
+      async *[Symbol.asyncIterator]() { throw new Error("Claude Code process exited with code 1\nrate limited"); },
+      async getContextUsage() { return { totalTokens: 0 }; }
+    }));
+    await expect(run()).rejects.toThrow(/rate limited/);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+});

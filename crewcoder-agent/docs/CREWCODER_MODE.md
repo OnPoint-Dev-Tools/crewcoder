@@ -29,7 +29,8 @@ The mode follows the same ordered template on every task:
 understand and inspect
   -> crewcoder_clarify
   -> user answers
-  -> confirm requirements
+  -> complete task-specific read-only investigation
+  -> confirm requirements and concrete file proposals
   -> crewcoder_propose_plan
   -> /approve-plan
   -> implement
@@ -39,8 +40,11 @@ understand and inspect
 ### 1. Understand and inspect
 
 The agent first determines the requested deliverable: implementation, planning,
-analysis, an update, an upgrade, or a downgrade. It may read and search the project
-and run read-only discovery commands so its questions reflect the actual codebase.
+analysis, an update, an upgrade, or a downgrade. It searches and reads the relevant
+implementation, callers, tests, configuration, and existing patterns so its questions
+reflect the actual codebase. It reads planned edit targets fully; large files may
+require multiple reads. For a new project, it inspects the directory and constraints
+before choosing a structure.
 
 Before plan approval, the agent must not edit files, install or remove dependencies,
 change configuration, run migrations, start services, or perform another mutation.
@@ -64,9 +68,25 @@ tradeoffs are unclear, and batch a small set of related questions.
 
 ### 3. Confirm and plan
 
-After clarification, the agent restates the goal, scope, exclusions, decisions,
-assumptions, and measurable acceptance criteria. It then proposes an ordered plan with
-the likely files or system areas, validation work, and material risks.
+Clarification answers guide further investigation. The agent traces the relevant
+behavior and integration points, inspects proposed edit targets and tests, and resolves
+material unknowns before asking for approval. Another clarification round is appropriate
+when a decision cannot be learned from the code.
+
+The proposal restates the goal, scope, exclusions, decisions, and assumptions and includes:
+
+- `investigation`: inspected files, current behavior, cause or integration points,
+  existing patterns, and remaining assumptions;
+- `fileChanges`: exact project-relative paths, `modify`/`create`/`delete` actions,
+  the purpose of each change, and representative proposed code or diff snippets,
+  including tests and documentation;
+- `plan`: ordered implementation steps, integration details, and material risks;
+- `acceptanceCriteria`: measurable checks and concrete validation commands.
+
+Use `fileChanges: []` only when the deliverable requires no file changes, and explain
+why in the plan. Snippets are proposals for review; they are not applied edits or a
+promise that the final patch will be byte-for-byte identical. The plan must not defer
+initial codebase investigation or architecture decisions until implementation.
 
 The agent must call `crewcoder_propose_plan` and then stop. An implementation request
 made before that tool runs does not count as approval. Revised requirements produce a
@@ -99,7 +119,15 @@ Edits, writes, mutating shell commands, background jobs, worker delegation, and
 memory writes are blocked until that sequence completes. Read-only inspection
 (`read`, `grep`, `listFiles`, `git status` / `git log` / `git diff`, and similar
 discovery commands) stays available. Answering a clarification question is not plan
-approval. The current phase is persisted on the session and restored on resume.
+approval. Plan submission also requires an observed successful inspection and valid
+findings/file-proposal fields. Failed reads and nonzero shell exits do not satisfy the
+inspection gate. Built-in discovery and recognized provider-native read/search tools
+can satisfy it; a directory inventory supports an empty-project task. Inspection
+state and the full rendered proposal are persisted and restored on resume.
+
+This is a minimum evidence gate, not a semantic proof that the agent understands the
+code. The model is instructed to continue task-specific investigation beyond that
+minimum until it can explain the intended implementation.
 
 This does not replace `--approval`. After the plan is approved, individual tool calls
 may still require review under the selected approval policy.

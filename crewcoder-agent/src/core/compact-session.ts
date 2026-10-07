@@ -20,6 +20,8 @@ export type CompactDurableSessionOptions = {
    * so CrewCode can tell a compact-button apply from token-triggered live compact.
    */
   automatic?: boolean;
+  /** Host-restricted sessions cannot execute extension compaction hooks. */
+  hostedToolsOnly?: boolean;
 };
 
 export type CompactDurableSessionResult = {
@@ -92,7 +94,7 @@ export async function compactDurableSession(options: CompactDurableSessionOption
       };
     }
 
-    const hookOutcome = await runCompactionHooks(await loadTrustedExtensionHooks(), {
+    const hookOutcome = await runCompactionHooks(options.hostedToolsOnly ? [] : await loadTrustedExtensionHooks(), {
       summary: proposal.summary,
       source: proposal.source,
       fallbackReason: proposal.fallbackReason,

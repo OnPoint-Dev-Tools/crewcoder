@@ -74,14 +74,14 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
     return { behavior: "allow", updatedInput: { ...toolInput, answers } } satisfies PermissionResult;
   };
 
-  try {
+  const runQuery = async (resume: string | undefined): Promise<void> => {
     const q = query({
-      prompt: claudePrompt(modelInput.messages, Boolean(providerSessionId), input.prompt),
+      prompt: claudePrompt(modelInput.messages, Boolean(resume), input.prompt),
       options: {
         cwd: input.cwd,
         additionalDirectories: mergeSkillCatalogDirectories(modelInput.externalDirectories),
         model: model || undefined,
-        resume: providerSessionId,
+        resume,
         includePartialMessages: true,
         abortController,
         env: {
@@ -113,7 +113,7 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
       const sid = "session_id" in message && typeof message.session_id === "string" ? message.session_id : undefined;
       if (sid && sid !== providerSessionId) {
         providerSessionId = sid;
-        await input.stream.onProviderSessionId?.(sid);
+        await input.stream?.onProviderSessionId?.(sid);
       }
       if (message.type === "system" && message.subtype === "compact_boundary") {
         await input.stream?.onProviderCompaction?.({
@@ -130,6 +130,25 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
     } catch {
       // Older Claude binaries may not implement this control method; result usage remains valid billing data.
     }
+  };
+
+  try {
+    const resumeId = providerSessionId;
+    let missingNativeSession = false;
+    try {
+      await runQuery(resumeId);
+    } catch (error) {
+      if (!isMissingNativeSession(resumeId, error instanceof Error ? error.message : String(error), textParts, startedNativeToolIds)) throw error;
+      missingNativeSession = true;
+    }
+    if (missingNativeSession || isMissingNativeSession(resumeId, resultError, textParts, startedNativeToolIds)) {
+      // The Claude session lives on the machine that created it, so a session moved here or a cleared
+      // Claude store cannot resume. CrewCoder's transcript is the durable context: replay it once.
+      providerSessionId = undefined;
+      resultError = undefined;
+      usage = undefined;
+      await runQuery(undefined);
+    }
   } finally {
     signal?.removeEventListener("abort", abort);
   }
@@ -137,6 +156,11 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
   const text = textParts.join("").trim() || (resultError ? `Claude Agent SDK error: ${resultError}` : "(no output)");
   const assistant: AssistantMessage = { role: "assistant", content: [{ type: "text", text }], stopReason: resultError ? "error" : "end", timestamp: Date.now(), ...(resultError ? { errorMessage: resultError } : {}) };
   return { providerId: input.provider.id, text: JSON.stringify(assistant), stdout: resultError ? "" : text, stderr: resultError ?? "", exitCode: resultError ? 1 : 0, timedOut: false, usage };
+}
+
+/** Claude reports an unknown resume id before producing any output; only that case is retried. */
+function isMissingNativeSession(resumeId: string | undefined, error: string | undefined, textParts: string[], startedToolIds: Set<string>): boolean {
+  return Boolean(resumeId) && Boolean(error && /no conversation found/i.test(error)) && textParts.length === 0 && startedToolIds.size === 0;
 }
 
 async function handleClaudeMessage(

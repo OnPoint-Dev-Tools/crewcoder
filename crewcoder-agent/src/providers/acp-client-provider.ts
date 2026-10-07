@@ -155,10 +155,11 @@ async function runTurn(ctx: ClientContext, input: ProviderRunInput, state: AcpTu
     details: { providerId: input.provider.id, protocolVersion: initialized.protocolVersion, agent: initialized.agentInfo?.name }
   });
 
-  const sessionId = await openSession(ctx, input);
+  const { sessionId, loaded } = await openSession(ctx, input);
   await input.stream?.onProviderSessionId?.(sessionId);
 
-  const prompt = await promptBlocks(modelInput.messages, Boolean(modelInput.session?.providerSessionId), input.prompt);
+  // Only a session the agent actually loaded holds the history; a replacement session needs the transcript.
+  const prompt = await promptBlocks(modelInput.messages, loaded, input.prompt);
   // Accept live updates only for this prompt. Load-replay notifications that
   // arrive late must not become assistant text at the start of the turn.
   state.acceptUpdates = true;
@@ -171,7 +172,7 @@ async function runTurn(ctx: ClientContext, input: ProviderRunInput, state: AcpTu
  * load falls back to a fresh session rather than killing the run — the stale id
  * usually just means the agent pruned its session store.
  */
-async function openSession(ctx: ClientContext, input: ProviderRunInput): Promise<string> {
+async function openSession(ctx: ClientContext, input: ProviderRunInput): Promise<{ sessionId: string; loaded: boolean }> {
   const existing = input.modelInput?.session?.providerSessionId;
   const cwd = path.resolve(input.cwd);
   const additionalDirectories = mergeSkillCatalogDirectories(input.modelInput?.externalDirectories);
@@ -184,7 +185,7 @@ async function openSession(ctx: ClientContext, input: ProviderRunInput): Promise
         mcpServers: [],
         ...(additionalDirectories.length ? { additionalDirectories } : {})
       });
-      return existing;
+      return { sessionId: existing, loaded: true };
     } catch (error) {
       await input.debug?.event({
         level: "warn",
@@ -200,7 +201,7 @@ async function openSession(ctx: ClientContext, input: ProviderRunInput): Promise
     mcpServers: [],
     ...(additionalDirectories.length ? { additionalDirectories } : {})
   }) as NewSessionResponse;
-  return created.sessionId;
+  return { sessionId: created.sessionId, loaded: false };
 }
 
 async function applySessionUpdate(update: SessionUpdate, input: ProviderRunInput, state: AcpTurnState): Promise<void> {

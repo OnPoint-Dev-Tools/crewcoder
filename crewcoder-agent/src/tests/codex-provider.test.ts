@@ -49,7 +49,7 @@ describe("codex provider", () => {
     expect(body).toMatchObject({
       model: "gpt-5.6-luna",
       tool_choice: "auto",
-      reasoning: { effort: "low", summary: "none" },
+      reasoning: { effort: "low", summary: "auto" },
       prompt_cache_key: "session-123",
       client_metadata: { "session-id": "session-123", "thread-id": "session-123", "x-codex-window-id": "session-123" }
     });

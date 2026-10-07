@@ -54,7 +54,12 @@ plugin       # CrewCode app plugin architect (crewcode.plugin.json)
 extension    # CrewCoder extension architect (crewcoder.extension.json)
 ```
 
-See `docs/CREWCODER_MODE.md` and `docs/EXTENSION_MODE.md`.
+CrewCoder mode investigates the relevant code before requesting plan approval. Proposals
+include investigation findings, exact files to change or create, representative code
+snippets, risks, and validation. The runtime requires successful inspection before a
+plan can be submitted and keeps mutations blocked until approval.
+
+See [the deliberate workflow guide](docs/CREWCODER_MODE.md) and `docs/EXTENSION_MODE.md`.
 
 ## Terminal UI
 

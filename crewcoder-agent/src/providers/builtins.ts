@@ -50,6 +50,22 @@ export const builtinProviders: ProviderDefinition[] = [
     description: "- OAuth ChatGPT subscription. Run: crewcoder login codex."
   },
   {
+    id: "codex-cli",
+    title: "OpenAI Codex CLI",
+    kind: "builtin",
+    runtime: "openai-codex-responses",
+    command: process.env.CREWCODER_CODEX_PATH ?? "codex",
+    args: [],
+    models: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+    modelCatalog: codexModelCatalog,
+    defaultModel: "gpt-5.6-luna",
+    capabilities: directCapabilities,
+    // The runtime's transport contract is fixed; codex-cli still never takes the
+    // direct fallback because that would need CrewCoder-owned credentials.
+    transport: { channel: "process", continuation: "provider-session", fallback: "http-sse", replay: "never" },
+    description: "- Your own Codex CLI and its login. Install the Codex CLI, then run: codex login."
+  },
+  {
     id: "claude",
     title: "Claude Code Agent SDK",
     kind: "builtin",

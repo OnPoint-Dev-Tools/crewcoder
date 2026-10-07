@@ -15,6 +15,7 @@ import { createClientTextFileHost } from "../acp/client-files.js";
 import type { ModelClient, ModelInput } from "../core/model-client.js";
 import { CLIENT_SYSTEM_PROMPT_HEADING, CLIENT_SYSTEM_PROMPT_MAX_CHARS, appendClientSystemPrompt } from "../core/system-prompt.js";
 import { getText } from "../core/messages.js";
+import type { AssistantMessage } from "../core/messages.js";
 
 /** Records every model input so tests can assert what reached the system field versus the transcript. */
 function recordingModelClient(): ModelClient & { inputs: ModelInput[] } {
@@ -373,7 +374,9 @@ describe("acp server", () => {
     expect((capabilities.promptCapabilities as Record<string, unknown>).image).toBe(false);
     expect(result._meta).toEqual({
       "crewcoder/sessionCompact": { method: "session/compact", preview: true, editedSummary: true },
-      "crewcoder/sessionSystemPrompt": { method: "session/set_system_prompt", maxChars: CLIENT_SYSTEM_PROMPT_MAX_CHARS, persisted: false }
+      "crewcoder/sessionSystemPrompt": { method: "session/set_system_prompt", maxChars: CLIENT_SYSTEM_PROMPT_MAX_CHARS, persisted: false },
+      "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
+      "crewcoder/clientTools": { method: "session/set_client_tools", callMethod: "crewcoder/client_tool/call", version: 1, maxTools: 32 }
     });
   });
 
@@ -836,5 +839,103 @@ describe("host system prompt", () => {
     expect((await awaitResponse(4)).response.error).toBeTruthy();
     await send({ jsonrpc: "2.0", id: 5, method: "session/set_system_prompt", params: { sessionId: "missing", systemPrompt: "x" } });
     expect((await awaitResponse(5)).response.error).toBeTruthy();
+  });
+});
+
+describe("acp client tools", () => {
+  const demoTool = { name: "crew_demo", description: "Host-executed demo tool.", inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } };
+
+  /** First turn calls the host tool once, then answers; records every model input. */
+  function scriptedClient(): ModelClient & { inputs: ModelInput[] } {
+    const inputs: ModelInput[] = [];
+    return {
+      inputs,
+      async complete(input) {
+        inputs.push(input);
+        if (inputs.length > 1) return assistantText("done");
+        const call: AssistantMessage = { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "crew_demo", arguments: { q: "tasks" } }], stopReason: "tool_calls", timestamp: Date.now() };
+        return call;
+      }
+    };
+  }
+
+  async function open(client: ModelClient) {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-client-tools-"));
+    const conn = connect({ approvalMode: "full-access", maxIterations: 4, modelClient: client });
+    await conn.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await conn.awaitResponse(1);
+    await conn.send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+    const sessionId = ((await conn.awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    return { ...conn, sessionId };
+  }
+
+  /** Runs a prompt, answering each host tool call with `answer`, and returns the calls seen. */
+  async function promptWithHost(conn: Awaited<ReturnType<typeof open>>, id: number, answer: (params: Record<string, unknown>) => Record<string, unknown>) {
+    const calls: Record<string, unknown>[] = [];
+    await conn.send({ jsonrpc: "2.0", id, method: "session/prompt", params: { sessionId: conn.sessionId, prompt: [{ type: "text", text: "go" }] } });
+    for (;;) {
+      const message = await conn.next();
+      if (message.id === id && !message.method) return { calls, response: message };
+      if (message.method === "crewcoder/client_tool/call") {
+        const params = message.params as Record<string, unknown>;
+        calls.push(params);
+        await conn.send({ jsonrpc: "2.0", id: message.id, result: answer(params) });
+      }
+    }
+  }
+
+  it("routes a model call to the host and returns the host result to the model", async () => {
+    const client = scriptedClient();
+    const conn = await open(client);
+    await conn.send({ jsonrpc: "2.0", id: 3, method: "session/set_client_tools", params: { sessionId: conn.sessionId, version: 1, tools: [demoTool] } });
+    expect((await conn.awaitResponse(3)).response.result).toEqual({ applied: true, version: 1, count: 1 });
+
+    const { calls, response } = await promptWithHost(conn, 4, () => ({ content: [{ type: "text", text: "host-result-42" }] }));
+    expect(response.error).toBeUndefined();
+    expect(calls).toEqual([{ sessionId: conn.sessionId, name: "crew_demo", arguments: { q: "tasks" } }]);
+    expect(client.inputs[0]!.availableTools.map((tool) => tool.name)).toContain("crew_demo");
+    const toolResult = client.inputs[1]!.messages.find((message) => message.role === "toolResult");
+    expect(toolResult && getText(toolResult)).toBe("host-result-42");
+    expect((toolResult as ToolResultMessage).isError).toBe(false);
+  }, 30_000);
+
+  it("reports a host error to the model as a failed tool result", async () => {
+    const client = scriptedClient();
+    const conn = await open(client);
+    await conn.send({ jsonrpc: "2.0", id: 3, method: "session/set_client_tools", params: { sessionId: conn.sessionId, version: 1, tools: [demoTool] } });
+    await conn.awaitResponse(3);
+    await promptWithHost(conn, 4, () => ({ content: [{ type: "text", text: "tasks write access is not granted" }], isError: true }));
+    const toolResult = client.inputs[1]!.messages.find((message) => message.role === "toolResult") as ToolResultMessage;
+    expect(toolResult.isError).toBe(true);
+    expect(getText(toolResult)).toBe("tasks write access is not granted");
+  }, 30_000);
+
+  it("keeps host tools available under the hosted-text-only policy", async () => {
+    const client = scriptedClient();
+    const conn = await open(client);
+    // Hosted policy needs both client filesystem capabilities, so this session re-initializes with them.
+    await conn.send({ jsonrpc: "2.0", id: 10, method: "initialize", params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } } } });
+    await conn.awaitResponse(10);
+    await conn.send({ jsonrpc: "2.0", id: 11, method: "session/set_tool_policy", params: { sessionId: conn.sessionId, policy: "hosted-text-only", version: 1 } });
+    await conn.awaitResponse(11);
+    await conn.send({ jsonrpc: "2.0", id: 12, method: "session/set_client_tools", params: { sessionId: conn.sessionId, version: 1, tools: [demoTool] } });
+    await conn.awaitResponse(12);
+    const { calls } = await promptWithHost(conn, 13, () => ({ content: "ok" }));
+    expect(calls).toHaveLength(1);
+    expect(client.inputs[0]!.availableTools.map((tool) => tool.name).sort()).toEqual(["crew_demo", "read", "write"]);
+  }, 30_000);
+
+  it("rejects tools that shadow built-ins, use unsupported schema keywords, or a wrong version", async () => {
+    const conn = await open(scriptedClient());
+    const attempt = async (id: number, params: Record<string, unknown>) => {
+      await conn.send({ jsonrpc: "2.0", id, method: "session/set_client_tools", params: { sessionId: conn.sessionId, version: 1, ...params } });
+      return (await conn.awaitResponse(id)).response;
+    };
+    expect((await attempt(3, { tools: [{ ...demoTool, name: "read" }] })).error).toBeTruthy();
+    expect((await attempt(4, { tools: [{ ...demoTool, inputSchema: { type: "object", properties: { q: { oneOf: [] } } } }] })).error).toBeTruthy();
+    expect((await attempt(5, { tools: [demoTool, demoTool] })).error).toBeTruthy();
+    expect((await attempt(6, { version: 2, tools: [demoTool] })).error).toBeTruthy();
+    expect((await attempt(7, { tools: [{ ...demoTool, inputSchema: { type: "string" } }] })).error).toBeTruthy();
+    expect((await attempt(8, { tools: [] })).result).toEqual({ applied: true, version: 1, count: 0 });
   });
 });

@@ -45,6 +45,10 @@ import { listBuiltinProviderModels, resolveModel } from "../providers/model-regi
 import { createClientTextFileHost, virtualFilesystemFromMeta } from "./client-files.js";
 import { translateEvent, type SessionUpdate } from "./event-translator.js";
 import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
+import { hostedTextTools } from "./hosted-text-tools.js";
+import { clientHostedTools, CREWCODER_CLIENT_TOOLS_META, parseClientToolDefinitions, type ClientToolDefinition } from "./client-hosted-tools.js";
+import { createToolRegistry } from "../tools/index.js";
+import { findProvider } from "../providers/provider-registry.js";
 
 export type AcpAgentOptions = {
   /** Skips the real provider and uses the built-in heuristic client. Used by tests. */
@@ -81,6 +85,9 @@ type AcpSession = {
    * memory only: hosts re-send it after `session/new` or `session/load`.
    */
   systemPrompt?: string;
+  hostedTextOnly?: boolean;
+  /** Host-executed tools from `session/set_client_tools`; held in memory and re-sent by the host per session. */
+  clientTools?: ClientToolDefinition[];
 };
 
 /**
@@ -105,6 +112,8 @@ export const CREWCODER_SESSION_SYSTEM_PROMPT_META = {
 } as const;
 
 const EXT_METHODS = new Set([
+  "session/set_tool_policy",
+  "session/set_client_tools",
   "session/set_system_prompt",
   "session/set_model",
   "session/set_reasoning_effort",
@@ -113,6 +122,18 @@ const EXT_METHODS = new Set([
   "session/follow_up",
   "session/compact"
 ]);
+
+let reservedNames: ReadonlySet<string> | undefined;
+
+/** Every name CrewCoder can expose in any mode, so a host tool never shadows a built-in one. */
+function reservedToolNames(): ReadonlySet<string> {
+  if (!reservedNames) {
+    const modes = ["general", "crewcoder", "plugin", "extension"] as const;
+    const profiles = ["standalone", "crewcode"] as const;
+    reservedNames = new Set(profiles.flatMap((profile) => modes.flatMap((mode) => createToolRegistry(profile, mode).map((tool) => tool.name))));
+  }
+  return reservedNames;
+}
 
 const PERMISSION_OPTIONS: PermissionOption[] = [
   { optionId: "allow_once", name: "Allow", kind: "allow_once" },
@@ -156,7 +177,9 @@ export class CrewCoderAcpAgent implements Agent {
       authMethods: [],
       _meta: {
         "crewcoder/sessionCompact": CREWCODER_SESSION_COMPACT_META,
-        "crewcoder/sessionSystemPrompt": CREWCODER_SESSION_SYSTEM_PROMPT_META
+        "crewcoder/sessionSystemPrompt": CREWCODER_SESSION_SYSTEM_PROMPT_META,
+        "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
+        "crewcoder/clientTools": CREWCODER_CLIENT_TOOLS_META
       }
     };
   }
@@ -219,6 +242,25 @@ export class CrewCoderAcpAgent implements Agent {
     if (!EXT_METHODS.has(method)) throw RequestError.methodNotFound(method);
     const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
     const session = this.session(sessionId);
+
+    if (method === "session/set_tool_policy") {
+      if (session.abort) throw RequestError.invalidParams({ reason: "Cannot change tool policy during a prompt" });
+      if (params.policy !== "hosted-text-only" || params.version !== 1) throw RequestError.invalidParams({ reason: "Unsupported tool policy" });
+      hostedTextTools(createClientTextFileHost(this.conn, session.sessionId, this.clientCapabilities));
+      session.hostedTextOnly = true;
+      return { policy: "hosted-text-only", version: 1, applied: true };
+    }
+
+    if (method === "session/set_client_tools") {
+      if (session.abort) throw RequestError.invalidParams({ reason: "Cannot change client tools during a prompt" });
+      if (params.version !== CREWCODER_CLIENT_TOOLS_META.version) throw RequestError.invalidParams({ reason: "Unsupported client tools version" });
+      try {
+        session.clientTools = parseClientToolDefinitions(params.tools, reservedToolNames());
+      } catch (error) {
+        throw RequestError.invalidParams({ reason: error instanceof Error ? error.message : String(error) });
+      }
+      return { applied: true, version: CREWCODER_CLIENT_TOOLS_META.version, count: session.clientTools.length };
+    }
 
     if (method === "session/compact") {
       return this.compactSession(session, params);
@@ -304,6 +346,7 @@ export class CrewCoderAcpAgent implements Agent {
     if (!session.started) {
       throw RequestError.invalidParams({ reason: "session has no durable transcript yet" });
     }
+    await this.enforceHostedProvider(session);
     const preview = params.preview === true;
     const summary = typeof params.summary === "string" ? params.summary : undefined;
     const emit = async (event: AgentEvent): Promise<void> => {
@@ -313,12 +356,13 @@ export class CrewCoderAcpAgent implements Agent {
     try {
       const result = await compactDurableSession({
         sessionId: session.sessionId,
-        modelClient: this.modelClientFor(session),
+        modelClient: session.hostedTextOnly ? { complete: (input, signal, stream) => this.modelClientFor(session).complete({ ...input, availableTools: [], useProviderNativeFileTools: false }, signal, stream) } : this.modelClientFor(session),
         cwd: session.cwd,
         preview,
         editedSummary: summary,
         emit,
-        automatic: false
+        automatic: false,
+        hostedToolsOnly: session.hostedTextOnly
       });
       return {
         compacted: result.compacted,
@@ -354,6 +398,8 @@ export class CrewCoderAcpAgent implements Agent {
     const prompt = promptText(params.prompt);
     if (!prompt) throw RequestError.invalidParams({ reason: "Prompt contained no text content" });
 
+    if (session.abort) throw RequestError.invalidParams({ reason: "Session already has an active prompt" });
+    await this.enforceHostedProvider(session);
     const abort = new AbortController();
     session.abort = abort;
     session.cancelled = false;
@@ -388,7 +434,14 @@ export class CrewCoderAcpAgent implements Agent {
       followUpSignal: session.followUpSignal,
       signal: abort.signal,
       textFiles: createClientTextFileHost(this.conn, session.sessionId, this.clientCapabilities),
-      virtualFilesystem: session.virtualFilesystem,
+      virtualFilesystem: session.hostedTextOnly || session.virtualFilesystem,
+      additionalTools: session.clientTools?.length ? clientHostedTools(this.conn, session.sessionId, session.clientTools) : undefined,
+      ...(session.hostedTextOnly ? {
+        tools: hostedTextTools(createClientTextFileHost(this.conn, session.sessionId, this.clientCapabilities)),
+        hostedToolsOnly: true,
+        integrationProfile: "standalone" as const,
+        verify: false
+      } : {}),
       requestQuestion: (question: ModelQuestion) => this.resolveProviderQuestion(session, question),
       emit
     };
@@ -396,9 +449,9 @@ export class CrewCoderAcpAgent implements Agent {
     let result: AgentLoopResult;
     try {
       result = session.started
-        ? await runAgentLoopContinue({ sessionId: session.sessionId, prompt, mode: session.mode, cwd: session.cwd, externalDirectories: session.externalDirectories }, loopOptions)
+        ? await runAgentLoopContinue({ sessionId: session.sessionId, prompt, mode: session.hostedTextOnly ? "general" : session.mode, cwd: session.cwd, externalDirectories: session.externalDirectories }, loopOptions)
         : await runAgentLoop(
-            { prompt, requestedMode: session.mode, cwd: session.cwd, externalDirectories: session.externalDirectories },
+            { prompt, requestedMode: session.hostedTextOnly ? "general" : session.mode, cwd: session.cwd, externalDirectories: session.externalDirectories },
             { ...loopOptions, sessionId: session.sessionId }
           );
     } catch (error) {
@@ -426,6 +479,15 @@ export class CrewCoderAcpAgent implements Agent {
       usage: result.usage,
       _meta: { "crewcoder/usage": result.usage }
     } as PromptResponse;
+  }
+
+  private async enforceHostedProvider(session: AcpSession): Promise<void> {
+    if (!session.hostedTextOnly || this.options.heuristic || this.options.modelClient) return;
+    const provider = await findProvider(session.providerId);
+    // External agent processes and project SDK hooks are outside this host's tool boundary.
+    if (!provider || !["anthropic-messages", "openai-chat-completions", "openai-responses", "openai-codex-responses", "websocket"].includes(provider.runtime)) {
+      throw RequestError.invalidParams({ reason: "Supervisor tool policy is unavailable for this provider. Select a CrewCoder tool-routed provider." });
+    }
   }
 
   private async resolveApproval(

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -295,5 +296,68 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account" });
     const result = await runCodexAppServerProvider({ provider, prompt: "hello", cwd: home, model: "gpt-test", modelInput: { systemPrompt: "system", messages: [textMessage("user", "hello")], availableTools: [] } });
     expect(result).toBeUndefined();
+  });
+});
+
+describe("Codex app-server thread continuity across machines", () => {
+  const fakeServer = (home: string, log: string) => {
+    const server = path.join(home, "fake-codex.cjs");
+    fs.writeFileSync(server, `#!/usr/bin/env node
+const fs=require('node:fs'),readline=require('node:readline');
+function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
+readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({method:m.method,threadId:m.params&&m.params.threadId})+'\\n');
+ if(m.method==='initialize') send({id:m.id,result:{}});
+ else if(m.method==='thread/start') send({id:m.id,result:{thread:{id:'thread-new'}}});
+ else if(m.method==='thread/resume') send({id:m.id,result:{thread:{id:m.params.threadId}}});
+ else if(m.method==='turn/start'){send({id:m.id,result:{turn:{id:'t',status:'inProgress'}}});send({method:'item/agentMessage/delta',params:{delta:'ok'}});send({method:'turn/completed',params:{turn:{status:'completed',error:null}}});}
+});`, { mode: 0o755 });
+    return server;
+  };
+  const setup = () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-move-"));
+    const log = path.join(home, "requests.jsonl");
+    process.env.CREWCODER_HOME = home;
+    process.env.CREWCODER_CODEX_PATH = fakeServer(home, log);
+    setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account", idToken: "id-token" });
+    const methods = () => fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method: string; threadId?: string });
+    const folder = (name: string) => { const dir = path.join(home, name); fs.mkdirSync(dir, { recursive: true }); return dir; };
+    return { log, methods, pcApp: folder("pc/dev/app"), vpsApp: folder("srv/work/app") };
+  };
+  // The workspace path appears in the system prompt too, as CrewMate's session prompt does.
+  const run = (cwd: string, providerSessionId: string | undefined, model = "gpt-test") => {
+    let saved = "";
+    return runCodexAppServerProvider({
+      provider, prompt: "next", cwd, model,
+      modelInput: { systemPrompt: `system for ${cwd}`, messages: [textMessage("user", "earlier"), textMessage("user", "next")], approvalMode: "never", availableTools: [], session: { sessionId: "crew", continuation: true, providerSessionId } },
+      stream: { onProviderSessionId: (id: string) => { saved = id; } }
+    }).then((result) => ({ result, saved }));
+  };
+
+  it("resumes the same thread when only the workspace path changed, and not when the model changed", async () => {
+    const { log, methods, pcApp, vpsApp } = setup();
+    const pc = await run(pcApp, undefined);
+    expect(pc.saved).toContain("thread-new");
+
+    fs.writeFileSync(log, "");
+    const vps = await run(vpsApp, pc.saved);
+    expect(vps.result?.exitCode).toBe(0);
+    expect(methods().filter((entry) => entry.method === "thread/resume")).toEqual([{ method: "thread/resume", threadId: "thread-new" }]);
+    expect(methods().some((entry) => entry.method === "thread/start")).toBe(false);
+    expect(vps.saved).toBe(pc.saved);
+
+    fs.writeFileSync(log, "");
+    await run(vpsApp, pc.saved, "gpt-other");
+    expect(methods().some((entry) => entry.method === "thread/resume")).toBe(false);
+    expect(methods().some((entry) => entry.method === "thread/start")).toBe(true);
+  });
+
+  it("still resumes threads saved with the hash format from before this change", async () => {
+    const { log, methods, pcApp: cwd } = setup();
+    const legacy = createHash("sha256").update(JSON.stringify({ model: "gpt-test", systemPrompt: `system for ${cwd}`, cwd, approvalMode: "never", tools: [] })).digest("hex").slice(0, 24);
+    fs.writeFileSync(log, "");
+    const result = await run(cwd, `codex-thread-v1:${legacy}:thread-old`);
+    expect(methods().filter((entry) => entry.method === "thread/resume")).toEqual([{ method: "thread/resume", threadId: "thread-old" }]);
+    expect(result.saved).toMatch(/^codex-thread-v1:[0-9a-f]{24}:thread-old$/);
+    expect(result.saved).not.toContain(legacy);
   });
 });

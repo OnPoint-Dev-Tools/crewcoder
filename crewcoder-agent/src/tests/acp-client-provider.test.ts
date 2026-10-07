@@ -188,6 +188,35 @@ describe("acp client provider", () => {
     expect(recorded.sessionIds).toEqual(["fake-session-1"]);
   });
 
+  it("sends the transcript to a replacement session when the stored one cannot be loaded", async () => {
+    const log = path.join(cwd, "prompts.jsonl");
+    const history = (mode: string, providerSessionId: string): ProviderRunInput => {
+      const base = request(mode, cwd, undefined, providerSessionId);
+      return {
+        ...base,
+        provider: { ...base.provider, env: { ...base.provider.env, CREWCODER_FAKE_ACP_PROMPT_LOG: log } },
+        modelInput: {
+          ...base.modelInput!,
+          messages: [
+            { role: "user", content: [{ type: "text", text: "earlier question" }], timestamp: 1 },
+            { role: "assistant", content: [{ type: "text", text: "earlier answer PELICAN-42" }], stopReason: "end", timestamp: 2 } as unknown as AssistantMessage,
+            { role: "user", content: [{ type: "text", text: "hello" }], timestamp: 3 }
+          ]
+        }
+      };
+    };
+    const sent = async () => (await fs.readFile(log, "utf8")).trim().split("\n").map((line) => JSON.stringify(JSON.parse(line)));
+
+    expect((await runAcpClientProvider(history("load-fails", "pruned-session"))).exitCode).toBe(0);
+    expect((await sent())[0]).toContain("PELICAN-42");
+
+    await fs.writeFile(log, "");
+    expect((await runAcpClientProvider(history("ok", "kept-session"))).exitCode).toBe(0);
+    const resumed = (await sent())[0]!;
+    expect(resumed).toContain("hello");
+    expect(resumed).not.toContain("PELICAN-42");
+  });
+
   it("reuses the stored agent session id when the agent loads it", async () => {
     const { stream, recorded } = recorder();
     const result = await runAcpClientProvider(request("ok", cwd, stream, "kept-session"));

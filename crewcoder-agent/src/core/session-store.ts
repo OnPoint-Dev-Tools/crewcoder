@@ -42,6 +42,8 @@ export type SessionRecord = {
   crewcoderWorkflow?: CrewcoderWorkflowState;
   parentSessionId?: string;
   pendingResumeContext?: string;
+  /** One-time note that the session moved machines; delivered on the next prompted turn, then cleared. */
+  pendingMoveNote?: string;
   systemPrompt?: { name: string; path: string };
   /** Set when the session file could not be fully parsed; a header-only stub was returned. */
   loadError?: string;
@@ -84,6 +86,7 @@ type MetadataEntry = BaseEntry & {
   checkpointRestores?: SessionCheckpointRestore[];
   extensionEntries?: CrewCoderExtSessionEntry[];
   pendingResumeContext?: string | null;
+  pendingMoveNote?: string | null;
   externalDirectories?: string[];
   providerSessionIds?: Record<string, string>;
   modelTurns?: SessionModelTurn[];
@@ -359,6 +362,7 @@ function metadataEntry(record: SessionRecord, parentId: string | null, arrays: P
     checkpoints: record.checkpoints,
     checkpointRestores: record.checkpointRestores,
     pendingResumeContext: record.pendingResumeContext ?? null,
+    pendingMoveNote: record.pendingMoveNote ?? null,
     externalDirectories: record.externalDirectories ?? [],
     providerSessionIds: record.providerSessionIds ?? {},
     crewcoderWorkflow: record.crewcoderWorkflow
@@ -466,6 +470,7 @@ function entriesToRecord(entries: SessionJsonlEntry[]): SessionRecord {
     checkpointRestores: latestMetadataField(metadataEntries, "checkpointRestores"),
     extensionEntries: foldMetadataArray<CrewCoderExtSessionEntry>(metadataEntries, "extensionEntries"),
     pendingResumeContext: latestMetadataField(metadataEntries, "pendingResumeContext") ?? undefined,
+    pendingMoveNote: latestMetadataField(metadataEntries, "pendingMoveNote") ?? undefined,
     modelTurns: foldMetadataArray<SessionModelTurn>(metadataEntries, "modelTurns"),
     crewcoderWorkflow: latestMetadataField(metadataEntries, "crewcoderWorkflow")
   };
@@ -572,4 +577,12 @@ async function loadSessionHeaderStub(sessionId: string, error: unknown): Promise
   if (!header) return undefined;
   const record = withSessionRuntime(headerToRecord(header), await readSessionRuntime(sessionId));
   return { ...record, loadError: error instanceof Error ? error.message : String(error) };
+}
+
+/**
+ * Parses a standalone session JSONL file, for example one arriving in a session bundle,
+ * with the same rules as a stored session. Throws when the file has no session header.
+ */
+export async function readSessionJsonlFile(file: string): Promise<SessionRecord> {
+  return entriesToRecord(await loadSessionJsonlEntries(file));
 }

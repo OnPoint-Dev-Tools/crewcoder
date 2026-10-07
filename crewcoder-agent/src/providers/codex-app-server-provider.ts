@@ -12,6 +12,7 @@ import type { ProviderRunInput, ProviderRunResult } from "./types.js";
 import { getProviderAuth, setAuthCredential } from "./auth-store.js";
 import type { CodexOAuthCredentials } from "./oauth-codex.js";
 import { CREWCODER_VERSION } from "../core/version.js";
+import { codexHostedToolsOnlyArgs, listCodexMcpServerNames } from "./codex-cli-lockdown.js";
 
 const require = createRequire(import.meta.url);
 const SESSION_PREFIX = "codex-thread-v1";
@@ -61,8 +62,8 @@ class CodexAppServer {
   private idleTimer?: NodeJS.Timeout;
   private readonly spawned: Promise<void>;
 
-  constructor(command: string, args: string[], cwd: string, codexHome: string, private readonly onExit: () => void) {
-    this.child = spawn(command, args, { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CODEX_HOME: codexHome } });
+  constructor(command: string, args: string[], cwd: string, codexHome: string | undefined, private readonly onExit: () => void) {
+    this.child = spawn(command, args, { cwd, shell: false, stdio: ["pipe", "pipe", "pipe"], env: codexHome ? { ...process.env, CODEX_HOME: codexHome } : process.env });
     this.rpc = new AppServerRpc(this.child.stdin!, this.child.stdout!);
     this.spawned = new Promise<void>((resolve, reject) => {
       this.child.once("spawn", resolve);
@@ -130,6 +131,19 @@ export function codexAppServerContextArgs(modelInput: ProviderRunInput["modelInp
   return args;
 }
 
+type AppServerLaunch = {
+  command: string;
+  args: string[];
+  /** Undefined inherits the user's own CODEX_HOME (bring-your-own Codex CLI login). */
+  codexHome?: string;
+  /** Only CrewCoder dynamic tools may act; a read-only sandbox backstops tools the flags cannot remove. */
+  hostedToolsOnly: boolean;
+  /** Copy app-server token rotation back into CrewCoder's own auth store. */
+  syncCredentialBack: boolean;
+  /** Receives the cause when app-server fails before the turn, so callers without a fallback can report it. */
+  onUnavailable?: (cause: { message: string; code?: string; stderr: string }) => void;
+};
+
 export async function runCodexAppServerProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult | undefined> {
   if (!input.modelInput || input.provider.endpoint !== "https://chatgpt.com/backend-api/codex/responses") return undefined;
   // App-server owns its built-in shell/apply-patch tools and cannot route them
@@ -144,8 +158,50 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   if (!credential?.idToken) return undefined;
   const codexHome = prepareCodexHome(credential);
   const args = [...invocation.args, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)];
+  return runAppServerTurn(input, signal, { command: invocation.command, args, codexHome, hostedToolsOnly: false, syncCredentialBack: true });
+}
+
+export function isCodexCliProvider(provider: Pick<ProviderRunInput["provider"], "id" | "kind">): boolean {
+  return provider.kind === "builtin" && provider.id === "codex-cli";
+}
+
+/**
+ * Bring-your-own Codex CLI: runs the user's installed `codex app-server` with its
+ * own login. CrewCoder never reads or stores those tokens, and never falls back
+ * to the direct transport, which would need CrewCoder-owned credentials.
+ */
+export async function runCodexCliProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult> {
+  if (!input.modelInput) throw new Error("Provider codex-cli requires a model session");
+  const command = process.env.CREWCODER_CODEX_PATH || "codex";
+  const hostedToolsOnly = input.modelInput.useProviderNativeFileTools === false;
+  let lockdown: string[] = [];
+  if (hostedToolsOnly) {
+    try { lockdown = codexHostedToolsOnlyArgs(await listCodexMcpServerNames(command, input.cwd)); }
+    catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Codex CLI could not be locked to CrewCoder tools (${detail}). Install the Codex CLI and run \`codex login\`, or set CREWCODER_CODEX_PATH.`);
+    }
+  }
+  const args = [...lockdown, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)];
+  let cause: { message: string; code?: string; stderr: string } | undefined;
+  const result = await runAppServerTurn(input, signal, { command, args, hostedToolsOnly, syncCredentialBack: false, onUnavailable: value => { cause = value; } });
+  if (!result) throw new Error(codexCliStartFailure(command, cause));
+  return result;
+}
+
+/** codex-cli has no fallback transport, so the real start failure is the only useful hint. */
+export function codexCliStartFailure(command: string, cause?: { message: string; code?: string; stderr: string }): string {
+  if (cause?.code === "ENOENT") return `Codex CLI was not found: \`${command}\` is not on the PATH CrewCoder was started with. Add the Codex CLI's bin directory to PATH or set CREWCODER_CODEX_PATH to the codex executable.`;
+  const detail = [cause?.message, cause?.stderr.split("\n").filter(Boolean).slice(-3).join(" | ")].filter(Boolean).join("; ").slice(0, 600);
+  return `Codex CLI app-server could not start${detail ? ` (${detail})` : ""}. Check \`${command} login status\`, or set CREWCODER_CODEX_PATH.`;
+}
+
+async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | undefined, launch: AppServerLaunch): Promise<ProviderRunResult | undefined> {
+  if (!input.modelInput) return undefined;
+  const invocation = launch;
+  const { args, codexHome, hostedToolsOnly } = launch;
   const sessionId = input.modelInput.session?.sessionId;
-  const poolKey = poolingEnabled && sessionId ? JSON.stringify([sessionId, path.resolve(input.cwd), invocation.command, args, codexHome]) : undefined;
+  const poolKey = poolingEnabled && sessionId ? JSON.stringify([sessionId, path.resolve(input.cwd), invocation.command, args, codexHome ?? "user-codex-home"]) : undefined;
   const { server, pooled } = acquireAppServer(poolKey, (onExit) => new CodexAppServer(invocation.command, args, input.cwd, codexHome, onExit));
   server.busy = true;
   const { child, rpc } = server;
@@ -182,7 +238,8 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   try {
     await server.initialize();
     const contractHash = continuationContractHash(input);
-    const saved = parseSessionId(input.modelInput.session?.providerSessionId);
+    const parsed = parseSessionId(input.modelInput.session?.providerSessionId);
+    const saved = parsed && parsed.contractHash === legacyContractHash(input) ? { ...parsed, contractHash } : parsed;
     let threadId: string | undefined;
     if (saved?.contractHash === contractHash && server.loadedThreads.get(saved.threadId) === contractHash) {
       // Already loaded in this live process under the same contract: resuming again would only
@@ -190,7 +247,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
       threadId = saved.threadId;
     } else if (saved?.contractHash === contractHash) {
       try {
-        const resumed = await rpc.request("thread/resume", threadParams(input, { threadId: saved.threadId }));
+        const resumed = await rpc.request("thread/resume", threadParams(input, { threadId: saved.threadId }, hostedToolsOnly));
         threadId = nestedString(resumed, "thread", "id");
       } catch (error) {
         await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: "durable thread resume failed; starting a replacement thread", details: { error: error instanceof Error ? error.message : String(error) } });
@@ -198,7 +255,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     }
     const hasNativeThread = Boolean(threadId);
     if (!threadId) {
-      const started = await rpc.request("thread/start", threadParams(input));
+      const started = await rpc.request("thread/start", threadParams(input, {}, hostedToolsOnly));
       threadId = nestedString(started, "thread", "id");
     }
     if (!threadId) throw new Error("Codex app-server did not return a thread id");
@@ -223,11 +280,11 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
         return;
       }
       if (message.id !== undefined && (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval")) {
-        rpc.respond(message.id, { decision: await approvalDecision(params, input) });
+        rpc.respond(message.id, { decision: hostedToolsOnly ? "decline" : await approvalDecision(params, input) });
         return;
       }
       if (message.id !== undefined && method === "item/permissions/requestApproval") {
-        rpc.respond(message.id, await permissionDecision(params, input));
+        rpc.respond(message.id, hostedToolsOnly ? { permissions: {}, scope: "turn" } : await permissionDecision(params, input));
         return;
       }
       if (method === "item/started" && isRecord(params.item) && params.item.type === "contextCompaction") {
@@ -287,7 +344,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
 
     const prompt = codexPrompt(input.modelInput.messages, hasNativeThread, input.prompt);
     turnRequestSent = true;
-    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...codexTurnPermissions(input) });
+    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...codexTurnPermissions(input, hostedToolsOnly) });
     await rpc.waitUntil(() => completed, signal);
     reusable = true;
     const text = textParts.join("").trim();
@@ -301,7 +358,8 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     // turn request was sent: it may have started despite a broken local stream.
     const message = error instanceof Error ? error.message : String(error);
     if (!turnRequestSent || (error as NodeJS.ErrnoException).code === "ENOENT") {
-      await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: "app-server unavailable before turn; using direct transport", details: { error: message, stderr: stderrForTurn().trim(), command: invocation.command, exitCode: child.exitCode, signalCode: child.signalCode } });
+      await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: launch.syncCredentialBack ? "app-server unavailable before turn; using direct transport" : "Codex CLI app-server unavailable before turn", details: { error: message, stderr: stderrForTurn().trim(), command: invocation.command, exitCode: child.exitCode, signalCode: child.signalCode } });
+      launch.onUnavailable?.({ message, code: (error as NodeJS.ErrnoException).code, stderr: stderrForTurn().trim() });
       return undefined;
     }
     return failure(input, message, stderrForTurn(), undefined);
@@ -311,8 +369,10 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
     // App-server may rotate the refresh token. Copy its validated result back to
     // CrewCoder's 0600 auth store so the direct fallback and next process do not
     // retain an invalidated predecessor token.
-    const refreshed = readCodexHomeCredential();
-    if (refreshed) setAuthCredential("codex", refreshed);
+    if (launch.syncCredentialBack) {
+      const refreshed = readCodexHomeCredential();
+      if (refreshed) setAuthCredential("codex", refreshed);
+    }
     rpc.onMessage = undefined;
     server.busy = false;
     if (pooled && reusable && !server.exited && !signal?.aborted) server.scheduleIdleClose();
@@ -323,15 +383,28 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   }
 }
 
-function threadParams(input: ProviderRunInput, extra: RpcRecord = {}): RpcRecord {
+function threadParams(input: ProviderRunInput, extra: RpcRecord = {}, hostedToolsOnly = false): RpcRecord {
   const tools = input.modelInput?.availableTools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, inputSchema: tool.parameters ?? { type: "object", properties: {} } })) ?? [];
-  return { ...extra, model: input.model, cwd: input.cwd, developerInstructions: input.modelInput?.systemPrompt, dynamicTools: tools, ...threadPermissions(input) };
+  return { ...extra, model: input.model, cwd: input.cwd, developerInstructions: input.modelInput?.systemPrompt, dynamicTools: tools, ...(hostedToolsOnly ? { approvalPolicy: "never", sandbox: "read-only" } : threadPermissions(input)) };
 }
 
-function continuationContractHash(input: ProviderRunInput): string {
-  const stable = { model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools };
-  return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 24);
+function contractJson(input: ProviderRunInput): string {
+  return JSON.stringify({ model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools });
 }
+const hashContract = (json: string): string => createHash("sha256").update(json).digest("hex").slice(0, 24);
+/**
+ * The workspace path is left out, so a session moved to another machine or folder keeps its Codex thread.
+ * Any other change (model, prompt, tools, approvals) still starts a new thread.
+ */
+function continuationContractHash(input: ProviderRunInput): string {
+  const cwd = path.resolve(input.cwd);
+  const json = contractJson(input);
+  if (cwd === path.parse(cwd).root) return hashContract(json);
+  // Matched as it appears inside JSON, so Windows backslashes are found too.
+  return hashContract(json.split(JSON.stringify(cwd).slice(1, -1)).join("<workspace>"));
+}
+/** Hash format before workspace paths were left out, so upgrading keeps existing threads. */
+const legacyContractHash = (input: ProviderRunInput): string => hashContract(contractJson(input));
 function formatSessionId(threadId: string, contractHash: string): string { return `${SESSION_PREFIX}:${contractHash}:${threadId}`; }
 function parseSessionId(value: string | undefined): { contractHash: string; threadId: string } | undefined {
   if (!value?.startsWith(`${SESSION_PREFIX}:`)) return undefined;
@@ -449,7 +522,9 @@ function threadPermissions(input: ProviderRunInput): RpcRecord {
   if (!policy) return {};
   return { approvalPolicy: policy, sandbox: input.modelInput?.approvalMode === "full-access" ? "danger-full-access" : "workspace-write" };
 }
-export function codexTurnPermissions(input: ProviderRunInput): RpcRecord {
+export function codexTurnPermissions(input: ProviderRunInput, hostedToolsOnly = false): RpcRecord {
+  // Native writes must stay impossible even if a Codex build or model catalog re-adds apply_patch.
+  if (hostedToolsOnly) return { approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } };
   const policy = approvalPolicy(input);
   if (!policy) return {};
   if (input.modelInput?.approvalMode === "full-access") return { approvalPolicy: policy, sandboxPolicy: { type: "dangerFullAccess" } };

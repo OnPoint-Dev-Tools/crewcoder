@@ -5,6 +5,7 @@
  * exercised over the actual wire rather than against a mock. Behavior is
  * switched by CREWCODER_FAKE_ACP_MODE.
  */
+import { appendFileSync } from "node:fs";
 import readline from "node:readline";
 
 const mode = process.env.CREWCODER_FAKE_ACP_MODE ?? "ok";
@@ -67,6 +68,7 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
 
   if (method === "session/prompt") {
     const sessionId = params.sessionId;
+    if (process.env.CREWCODER_FAKE_ACP_PROMPT_LOG) appendFileSync(process.env.CREWCODER_FAKE_ACP_PROMPT_LOG, `${JSON.stringify(params.prompt)}\n`);
     update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking hard" } });
 
     if (mode === "permission") {

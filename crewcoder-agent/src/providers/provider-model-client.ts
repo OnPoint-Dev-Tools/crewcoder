@@ -7,6 +7,7 @@ import { runProcessProvider } from "./process-provider.js";
 import { runHttpMessagesProvider } from "./http-provider.js";
 import { runOpenAIResponsesProvider } from "./openai-responses-provider.js";
 import { runCodexProvider } from "./codex-provider.js";
+import { isCodexCliProvider, runCodexCliProvider } from "./codex-app-server-provider.js";
 import { closeCodexWebSocketSessions } from "./codex-websocket-transport.js";
 import { resolveProviderModel } from "./model-resolution.js";
 import { runWebSocketProvider } from "./websocket-provider.js";
@@ -46,7 +47,7 @@ export class ProviderModelClient implements ModelClient {
       : provider.runtime === "openai-responses"
         ? await runOpenAIResponsesProvider(request, signal)
         : provider.runtime === "openai-codex-responses"
-          ? await runCodexProvider(request, signal)
+          ? await (isCodexCliProvider(provider) ? runCodexCliProvider(request, signal) : runCodexProvider(request, signal))
           : provider.runtime === "websocket"
             ? await runWebSocketProvider(request, signal)
             : await runProcessProvider(request, signal);

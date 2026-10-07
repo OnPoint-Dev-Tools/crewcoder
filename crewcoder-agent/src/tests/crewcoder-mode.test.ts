@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runAgentLoop } from "../core/agent-loop.js";
 import { loadSession } from "../core/session-loader.js";
-import { assistantText, getText, type AssistantMessage } from "../core/messages.js";
+import { assistantText, getText, type AssistantMessage, type ToolResultMessage } from "../core/messages.js";
 import type { ModelClient, ModelInput } from "../core/model-client.js";
 import { buildSystemPrompt } from "../core/system-prompt.js";
 import { createToolRegistry } from "../tools/index.js";
@@ -14,11 +14,22 @@ import {
   emptyCrewcoderWorkflow,
   isPlanApprovalMessage,
   isReadOnlyDiscoveryCommand,
+  formatCrewcoderWorkflowPrompt,
+  recordCrewcoderInspection,
   reconstructCrewcoderWorkflow,
   recordClarification,
   recordProposedPlan
 } from "../modes/crewcoder-workflow.js";
 import { writeTool } from "../tools/write.js";
+import { crewcoderProposePlanTool } from "../modes/crewcoder-tools.js";
+
+const settingsPlan = {
+  requirements: "Add a settings page.",
+  investigation: "Read README.md: this project has no settings entry point. Follow its existing TypeScript export convention.",
+  fileChanges: [{ path: "src/settings.ts", action: "create", description: "Expose the settings entry point.", snippet: "export const settings = true;" }],
+  plan: "Create src/settings.ts using the existing convention; no new dependency is needed.",
+  acceptanceCriteria: "Read src/settings.ts and check that the settings export exists."
+};
 
 function toolCall(name: string, args: Record<string, unknown>, id = "tool-1"): AssistantMessage {
   return {
@@ -164,6 +175,7 @@ describe("crewcoder mode", () => {
   it("unlocks writes only after clarify, plan, and explicit approval", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-approved-write-"));
     const clarified = recordClarification(emptyCrewcoderWorkflow(), ["Use a page or a modal?"]);
+    clarified.inspectionCompleted = true;
     const planned = recordProposedPlan(applyIncomingUserMessage(clarified, "A settings page."), {
       requirements: "Add a settings page.",
       plan: "Write src/settings.ts",
@@ -193,11 +205,7 @@ describe("crewcoder mode", () => {
       {
         maxIterations: 1,
         persistSession: false,
-        modelClient: scriptedClient([toolCall("crewcoder_propose_plan", {
-          requirements: "Add settings.",
-          plan: "Write a file.",
-          acceptanceCriteria: "It exists."
-        })])
+        modelClient: scriptedClient([toolCall("crewcoder_propose_plan", settingsPlan)])
       }
     );
 
@@ -245,15 +253,111 @@ describe("crewcoder mode", () => {
     expect(fs.existsSync(path.join(cwd, "ok.ts"))).toBe(true);
     expect(result.mutationLog).toContain("ok.ts");
   });
+
+  it("rejects a detailed plan after clarification when no inspection has happened", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-uninspected-plan-"));
+    const result = await runAgentLoop({ prompt: "A page", requestedMode: "crewcoder", cwd }, {
+      maxIterations: 1, persistSession: false,
+      initialCrewcoderWorkflow: recordClarification(emptyCrewcoderWorkflow(), ["Page or modal?"]),
+      modelClient: scriptedClient([toolCall("crewcoder_propose_plan", settingsPlan)])
+    });
+    const response = result.messages.find((message) => message.role === "toolResult")!;
+    expect(response).toMatchObject({ isError: true });
+    expect(getText(response)).toContain("Clarification alone is not investigation");
+  });
+
+  it("investigates after answers, presents file snippets, persists the gate, and waits for approval", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-investigated-plan-"));
+    fs.writeFileSync(path.join(cwd, "README.md"), "Use TypeScript exports.\n");
+    const result = await runAgentLoop({ prompt: "A page", requestedMode: "crewcoder", cwd }, {
+      maxIterations: 3,
+      initialCrewcoderWorkflow: recordClarification(emptyCrewcoderWorkflow(), ["Page or modal?"]),
+      modelClient: scriptedClient([
+        toolCall("read", { path: "README.md" }),
+        toolCall("crewcoder_propose_plan", settingsPlan),
+        toolCall("write", { path: "src/settings.ts", content: "export {};" })
+      ])
+    });
+    const plan = result.messages.find((message) => message.role === "toolResult" && message.toolName === "crewcoder_propose_plan")!;
+    expect(plan).toMatchObject({ isError: false, terminate: true });
+    expect(getText(plan)).toContain("Investigation findings:");
+    expect(getText(plan)).toContain("create: src/settings.ts");
+    expect(getText(plan)).toContain("export const settings = true;");
+    expect(fs.existsSync(path.join(cwd, "src/settings.ts"))).toBe(false);
+    const saved = await loadSession(result.sessionId);
+    expect(saved.crewcoderWorkflow).toMatchObject({ phase: "awaiting_approval", inspectionCompleted: true });
+    expect(saved.crewcoderWorkflow?.plan).toContain("export const settings = true;");
+    expect(reconstructCrewcoderWorkflow(result.messages).inspectionCompleted).toBe(true);
+  });
+
+  it("does not count a failed read as investigation", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-failed-inspection-"));
+    const result = await runAgentLoop({ prompt: "A page", requestedMode: "crewcoder", cwd }, {
+      maxIterations: 2, persistSession: false,
+      initialCrewcoderWorkflow: recordClarification(emptyCrewcoderWorkflow(), ["Page or modal?"]),
+      modelClient: scriptedClient([toolCall("read", { path: "missing.ts" }), toolCall("crewcoder_propose_plan", settingsPlan)])
+    });
+    const results = result.messages.filter((message) => message.role === "toolResult");
+    expect(results.every((message) => message.role === "toolResult" && message.isError)).toBe(true);
+    expect(getText(results[1]!)).toContain("Inspect the relevant project");
+  });
 });
 
 describe("crewcoder workflow helpers", () => {
+  it("directs investigation both before clarification and after answers", () => {
+    expect(formatCrewcoderWorkflowPrompt(emptyCrewcoderWorkflow())).toContain("Search and read the relevant project first");
+    const answered = applyIncomingUserMessage(recordClarification(emptyCrewcoderWorkflow(), ["Where?"]), "src/");
+    expect(formatCrewcoderWorkflowPrompt(answered)).toContain("Continue read-only investigation");
+    const prompt = buildSystemPrompt({ mode: "crewcoder", skills: [], docs: [] });
+    expect(prompt).toContain("representative proposed code or diff snippets");
+    expect(prompt).toContain("Do that investigation before asking for approval");
+  });
+
+  it.each([
+    { ...settingsPlan, investigation: " " },
+    { ...settingsPlan, fileChanges: undefined },
+    { ...settingsPlan, fileChanges: ["src/settings.ts"] },
+    { ...settingsPlan, fileChanges: [{ ...settingsPlan.fileChanges[0], action: "guess" }] },
+    { ...settingsPlan, fileChanges: [{ ...settingsPlan.fileChanges[0], snippet: "" }] },
+    { ...settingsPlan, requirements: {} }
+  ])("rejects malformed or incomplete plan input %#", (args) => {
+    expect(() => crewcoderProposePlanTool.parse(args)).toThrow();
+  });
+
+  it("accepts an inspected analysis deliverable with no file changes", () => {
+    expect(crewcoderProposePlanTool.parse({ ...settingsPlan, fileChanges: [], plan: "Explain current settings behavior; no file changes are needed." }).fileChanges).toEqual([]);
+  });
+
+  it("counts successful native discovery but ignores failed commands and unrelated tools", () => {
+    const state = emptyCrewcoderWorkflow();
+    const result: ToolResultMessage = { role: "toolResult", toolCallId: "native", toolName: "Codex command", content: [{ type: "text", text: "source" }], isError: false, timestamp: 1 };
+    recordCrewcoderInspection(state, { ...result, details: { exitCode: 1 } }, { command: "cat missing.ts" });
+    recordCrewcoderInspection(state, result, { command: "pwd" });
+    recordCrewcoderInspection(state, { ...result, toolName: "write" }, {});
+    expect(state.inspectionCompleted).toBe(false);
+    recordCrewcoderInspection(state, result, { command: "cat src/settings.ts" });
+    expect(state.inspectionCompleted).toBe(true);
+    expect(result.details?.crewcoderInspection).toBe(true);
+    const claude = emptyCrewcoderWorkflow();
+    recordCrewcoderInspection(claude, { ...result, toolName: "Read" }, {});
+    expect(claude.inspectionCompleted).toBe(true);
+  });
   it("classifies plan approval tightly", () => {
     expect(isPlanApprovalMessage("/approve-plan")).toBe(true);
     expect(isPlanApprovalMessage("approve")).toBe(true);
     expect(isPlanApprovalMessage("lgtm")).toBe(true);
     expect(isPlanApprovalMessage("yes, but also add logging")).toBe(false);
     expect(isPlanApprovalMessage("put it in src/settings.ts")).toBe(false);
+  });
+
+  it("requires fresh investigation when the user revises a proposed plan", () => {
+    const inspected = { ...emptyCrewcoderWorkflow(), inspectionCompleted: true };
+    const answered = applyIncomingUserMessage(recordClarification(inspected, ["Where?"]), "src/");
+    const planned = recordProposedPlan(answered, settingsPlan);
+    const revised = applyIncomingUserMessage(planned, "Use a modal instead of a page.");
+    expect(revised).toMatchObject({ phase: "awaiting_plan", inspectionCompleted: false });
+    expect(() => recordProposedPlan(revised, settingsPlan)).toThrow("Inspect the relevant project");
+    expect(crewcoderMutationBlockReason(writeTool, {}, revised)).toContain("blocked");
   });
 
   it("advances answers to awaiting_plan without unlocking mutations", () => {

@@ -74,6 +74,12 @@ working roots, and tool definitions. A contract change starts a fresh native thr
 silently attaching incompatible context. Compaction clears the native thread ID, as it does for
 Claude, so discarded pre-compaction history cannot reappear.
 
+The workspace path is replaced with a placeholder before hashing, wherever it appears (the working
+root, the system prompt, tool text). A session moved to another machine or folder with a session
+bundle therefore keeps its Codex thread, while a different model, prompt, tool list, or approval mode
+still starts a new one. Ids saved with the older hash (path included) are still accepted, so
+upgrading does not drop existing threads. See `docs/SESSION_BUNDLE.md`.
+
 ## Tools and safety
 
 For local workspaces, app-server runs its native shell and patch capabilities inside Codex's

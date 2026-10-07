@@ -36,6 +36,7 @@ import { listProviderModelIds } from "./providers/model-resolution.js";
 import { resolveModel } from "./providers/model-registry.js";
 import { loginCodexDeviceCode } from "./providers/oauth-codex.js";
 import { removeAuthCredential, setAuthCredential, readAuthFile, getAuthPath, getProviderAuth } from "./providers/auth-store.js";
+import { collectProviderAuthStatus, PROVIDER_AUTH_STATUS_SCHEMA_VERSION, runCliStatusCommand } from "./providers/provider-auth-status.js";
 import { saveCodexAppServerCredential } from "./providers/codex-app-server-provider.js";
 import { getActiveWorker, listWorkers, createWorker, deleteWorker, setActiveWorker, setWorkerIdentityValue, getWorkerIdentityMdPath, type IdentitySetKey } from "./core/identity.js";
 import { loadCrewCoderExtensions } from "./extensions/extension-loader.js";
@@ -45,6 +46,7 @@ import { DEFAULT_EXTENSION_REGISTRY, addRegistry, clearRegistryCache, loadRegist
 import { listWorkflows, findWorkflow, describeWorkflow, runWorkflow } from "./extensions/extension-workflows.js";
 import { isTrustTier, type TrustTier } from "./core/trust.js";
 import { saveSession, type SessionRecord } from "./core/session-store.js";
+import { exportSessionBundle, importSessionBundle, SessionBundleError } from "./core/session-bundle.js";
 import { listSessionSummaries } from "./core/session-admin.js";
 import { formatPruneBytes, planSessionPrune } from "./core/session-prune.js";
 import { addSessionExternalDirectory, removeSessionExternalDirectory, setSessionExternalDirectories, validateExternalDirectories } from "./core/external-directories.js";
@@ -657,6 +659,33 @@ session.command("export").argument("<id>")
     fs.writeFileSync(outPath, html, "utf8");
     console.log(pc.green(`Exported session ${id} to ${outPath}`));
   });
+session.command("bundle").argument("<id>")
+  .requiredOption("--out <path>", "Bundle file to create; an existing file is never overwritten.")
+  .option("--json", "Output raw JSON")
+  .description("Package a session so another machine can continue it with the same context (see session import).")
+  .action(async (id: string, options: { out: string; json?: boolean }) => {
+    const result = await exportSessionBundle(id, options.out);
+    if (options.json) { console.log(JSON.stringify(result)); return; }
+    console.log(pc.green(`Bundled session ${id} into ${result.file} (${result.bytes} bytes)`));
+  });
+session.command("import").argument("<file>", "A bundle made by `crewcoder session bundle`")
+  .option("--cwd <path>", "Where the workspace lives on this machine, so the next turn knows paths moved.")
+  .option("--replace", "Back up and replace an existing session with the same id.")
+  .option("--json", "Output raw JSON")
+  .description("Import a session bundle; resume it with `crewcoder` or ACP session/load using the same id.")
+  .action(async (file: string, options: { cwd?: string; replace?: boolean; json?: boolean }) => {
+    try {
+      const result = await importSessionBundle(file, { ...(options.cwd ? { cwd: path.resolve(options.cwd) } : {}), replace: options.replace === true });
+      if (options.json) { console.log(JSON.stringify(result)); return; }
+      console.log(pc.green(`Imported session ${result.sessionId} (${result.messages} messages)${result.backupPath ? `; the previous copy is in ${result.backupPath}` : ""}`));
+    } catch (error) {
+      if (!(error instanceof SessionBundleError)) throw error;
+      // Hosts branch on the code, so it is printed in both modes and the exit code is distinct.
+      if (options.json) console.log(JSON.stringify({ error: { code: error.code, message: error.message } }));
+      else console.error(pc.red(`${error.code}: ${error.message}`));
+      process.exitCode = 3;
+    }
+  });
 session.command("since").argument("<ref>", "A session id, ISO timestamp, or relative duration like 2h, 7d")
   .option("--json", "Output raw JSON")
   .option("--into <sessionId>", "Pre-load the change summary as resume context on this session for the next resume")
@@ -1087,7 +1116,15 @@ program.command("logout").argument("<provider>").description("Remove stored prov
 });
 
 const auth = program.command("auth").description("Show and import provider auth status.");
-auth.action(async () => {
+auth.option("--json", "Print read-only sign-in status per provider as JSON. Never refreshes or writes credentials.");
+auth.action(async (options: { json?: boolean }) => {
+  if (options.json) {
+    const providers = await collectProviderAuthStatus(await listProviders(), {
+      authFile: readAuthFile(), env: process.env, platform: process.platform, now: Date.now(), runCli: runCliStatusCommand
+    });
+    console.log(JSON.stringify({ schemaVersion: PROVIDER_AUTH_STATUS_SCHEMA_VERSION, providers }, null, 2));
+    return;
+  }
   const auth = readAuthFile();
   const providers = await listProviders();
   let printed = false;

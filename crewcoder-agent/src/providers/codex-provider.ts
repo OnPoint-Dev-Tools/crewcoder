@@ -137,7 +137,7 @@ function buildCodexHeaders(token: string, credential: CodexOAuthCredentials, ext
   return headers;
 }
 
-type CodexRequestBody = { [key: string]: unknown; model: string; instructions: string; input: unknown[]; tools?: unknown[]; tool_choice: "auto"; store: false; stream: true; parallel_tool_calls: true; text: { verbosity: "low" }; include: string[]; prompt_cache_key: string; client_metadata: Record<string, string>; reasoning?: { effort: string; summary: "none" } };
+type CodexRequestBody = { [key: string]: unknown; model: string; instructions: string; input: unknown[]; tools?: unknown[]; tool_choice: "auto"; store: false; stream: true; parallel_tool_calls: true; text: { verbosity: "low" }; include: string[]; prompt_cache_key: string; client_metadata: Record<string, string>; reasoning?: { effort: string; summary: "auto" } };
 
 function buildCodexBody(model: string, input: ProviderRunInput): CodexRequestBody {
   const modelInput = input.modelInput;
@@ -159,7 +159,8 @@ function buildCodexBody(model: string, input: ProviderRunInput): CodexRequestBod
       "thread-id": sessionId,
       "x-codex-window-id": sessionId
     },
-    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort, summary: "none" } } : {})
+    // "none" is a Codex app-server setting, not a valid summary value on the Responses wire.
+    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort, summary: "auto" } } : {})
   };
 
   if (modelInput?.availableTools.length) {

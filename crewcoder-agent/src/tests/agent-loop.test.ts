@@ -1667,6 +1667,48 @@ describe("agent loop", () => {
       else process.env.CREWCODER_HOME = originalHome;
     }
   });
+  it("delivers a moved-session note on the next prompted resume only", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-home-"));
+    const originalHome = process.env.CREWCODER_HOME;
+    process.env.CREWCODER_HOME = home;
+    try {
+      await saveSession({
+        id: "session_moved",
+        startedAt: new Date().toISOString(),
+        cwd,
+        requestedMode: "general",
+        resolvedMode: "general",
+        prompt: "original prompt",
+        events: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "original prompt" }], timestamp: 1 },
+          assistantText("original answer")
+        ],
+        mutationLog: [],
+        pendingMoveNote: "This session was moved here from another machine."
+      });
+      const seen: string[] = [];
+      const modelClient: ModelClient = {
+        async complete(input) {
+          const userMessages = input.messages.filter((message) => message.role === "user");
+          seen.push(getText(userMessages[userMessages.length - 1]));
+          return assistantText("continued");
+        }
+      };
+
+      await runAgentLoopContinue({ sessionId: "session_moved", prompt: "first on the vps", cwd }, { maxIterations: 1, modelClient });
+      expect(seen[0]).toContain("first on the vps");
+      expect(seen[0]).toContain("moved here from another machine");
+      expect((await loadSession("session_moved")).pendingMoveNote).toBeUndefined();
+
+      await runAgentLoopContinue({ sessionId: "session_moved", prompt: "second on the vps", cwd }, { maxIterations: 1, modelClient });
+      expect(seen[1]).toBe("second on the vps");
+    } finally {
+      if (originalHome === undefined) delete process.env.CREWCODER_HOME;
+      else process.env.CREWCODER_HOME = originalHome;
+    }
+  });
   it("does not inject resume context when resuming with a prompt directly", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-home-"));

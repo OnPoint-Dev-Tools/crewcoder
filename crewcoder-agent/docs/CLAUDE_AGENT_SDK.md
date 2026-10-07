@@ -70,6 +70,12 @@ Claude's returned native session ID is stored under `SessionRecord.providerSessi
 CrewCoder passes it back through SDK `resume` on later turns and process restarts. Provider-native
 IDs are namespaced by provider so switching providers never sends a Claude ID elsewhere.
 
+Claude keeps native sessions on the machine that created them. When a resume fails with "No
+conversation found" before any text or tool activity (a session moved with a bundle, or Claude's
+files were cleaned up), the provider retries the turn once without `resume`, replaying the full
+CrewCoder transcript, and stores the new native id. Any other failure is reported as is and never
+retried, so a real error is not hidden or a tool run twice. See `docs/SESSION_BUNDLE.md`.
+
 ## Streaming and cancellation
 
 Assistant and thinking deltas stream through normal CrewCoder events. Native read/search tool
