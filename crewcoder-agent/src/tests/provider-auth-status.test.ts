@@ -20,12 +20,34 @@ function probe(overrides: Partial<ProviderAuthProbe> & { cli?: Record<string, Cl
 
 describe("provider auth status", () => {
   it("reports the user's Codex CLI login from codex login status", async () => {
-    const signedIn = await collectProviderAuthStatus([byId("codex-cli")], probe({ env: { CREWCODER_CODEX_PATH: "/opt/codex" }, cli: { "/opt/codex": { missing: false, code: 0, stdout: "Logged in using ChatGPT" } } }));
+    // Built-ins capture CREWCODER_CODEX_PATH at import time; keep this fixture independent of the host.
+    const provider = { ...byId("codex-cli"), command: "codex" };
+    const signedIn = await collectProviderAuthStatus([provider], probe({ env: { CREWCODER_CODEX_PATH: "/opt/codex" }, cli: { "/opt/codex": { missing: false, code: 0, stdout: "Logged in using ChatGPT" } } }));
     expect(signedIn[0]).toEqual({ id: "codex-cli", title: "OpenAI Codex CLI", state: "signed-in", source: "cli" });
-    const signedOut = await collectProviderAuthStatus([byId("codex-cli")], probe({ cli: { codex: { missing: false, code: 1, stdout: "Not logged in" } } }));
+    const signedOut = await collectProviderAuthStatus([provider], probe({ cli: { codex: { missing: false, code: 1, stdout: "Not logged in" } } }));
     expect(signedOut[0]).toMatchObject({ state: "signed-out", detail: "Run: codex login" });
-    expect((await collectProviderAuthStatus([byId("codex-cli")], probe()))[0]?.state).toBe("not-installed");
-    expect((await collectProviderAuthStatus([byId("codex-cli")], probe({ cli: { codex: { missing: false, code: null, stdout: "" } } })))[0]?.state).toBe("unknown");
+    expect((await collectProviderAuthStatus([provider], probe()))[0]?.state).toBe("not-installed");
+    expect((await collectProviderAuthStatus([provider], probe({ cli: { codex: { missing: false, code: null, stdout: "" } } })))[0]?.state).toBe("unknown");
+  });
+
+  it.each([
+    { code: 0, state: "signed-in" },
+    { code: 1, state: "signed-out" },
+    { code: null, state: "unknown" }
+  ])("uses the configured Codex command for $state status", async ({ code, state }) => {
+    const provider = { ...byId("codex-cli"), command: "/configured/codex" };
+    const configuredProbe = probe({ cli: { "/configured/codex": { missing: false, code, stdout: "" } } });
+    const [status] = await collectProviderAuthStatus([provider], configuredProbe);
+    expect(status?.state).toBe(state);
+    expect(configuredProbe.calls).toEqual(["/configured/codex login status"]);
+
+    const overrideProbe = probe({
+      env: { CREWCODER_CODEX_PATH: "/override/codex" },
+      cli: { "/override/codex": { missing: false, code, stdout: "" } }
+    });
+    const [overriddenStatus] = await collectProviderAuthStatus([provider], overrideProbe);
+    expect(overriddenStatus?.state).toBe(state);
+    expect(overrideProbe.calls).toEqual(["/override/codex login status"]);
   });
 
   it("reports Claude login method without forwarding account identity", async () => {
