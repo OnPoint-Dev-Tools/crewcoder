@@ -112,6 +112,8 @@ export type AgentLoopOptions = {
    * the system field on every model request; never written to the transcript.
    */
   clientSystemPrompt?: string;
+  /** False omits the active worker's identity block; an embedding host supplies its own identity. Defaults to true. */
+  workerIdentity?: boolean;
   workerName?: string;
   workerDelegationDepth?: number;
   maxChildWorkerDepth?: number;
@@ -345,7 +347,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const selectedSystemPromptName = options.systemPromptName;
   const selectedSystemPrompt = selectedSystemPromptName ? getSystemPrompt(selectedSystemPromptName) : null;
   const defaultSystemPrompt = [
-    options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: buildIdentityPrompt(activeWorker), crewTasksPrompt, extensionContext }),
+    options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: options.workerIdentity === false ? null : buildIdentityPrompt(activeWorker), crewTasksPrompt, extensionContext }),
     formatExternalDirectories(externalDirectories)
   ].filter(Boolean).join("\n\n");
   const systemPrompt = appendClientSystemPrompt(

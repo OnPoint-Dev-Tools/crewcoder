@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ import { createClientTextFileHost } from "../acp/client-files.js";
 import type { ModelClient, ModelInput } from "../core/model-client.js";
 import { CLIENT_SYSTEM_PROMPT_HEADING, CLIENT_SYSTEM_PROMPT_MAX_CHARS, appendClientSystemPrompt } from "../core/system-prompt.js";
 import { getText } from "../core/messages.js";
+import { HOST_PROJECT_INSTRUCTIONS_MAX_CHARS } from "../core/host-project-instructions.js";
 import type { AssistantMessage } from "../core/messages.js";
 
 /** Records every model input so tests can assert what reached the system field versus the transcript. */
@@ -375,6 +376,8 @@ describe("acp server", () => {
     expect(result._meta).toEqual({
       "crewcoder/sessionCompact": { method: "session/compact", preview: true, editedSummary: true },
       "crewcoder/sessionSystemPrompt": { method: "session/set_system_prompt", maxChars: CLIENT_SYSTEM_PROMPT_MAX_CHARS, persisted: false },
+      "crewcoder/projectInstructions": { method: "session/set_project_instructions", version: 1, files: ["AGENTS.md"], maxChars: HOST_PROJECT_INSTRUCTIONS_MAX_CHARS, persisted: false },
+      "crewcoder/instructionPolicy": { method: "session/set_instruction_policy", version: 1, globalSources: ["codex-agents", "claude-md"], persisted: false },
       "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
       "crewcoder/clientTools": { method: "session/set_client_tools", callMethod: "crewcoder/client_tool/call", version: 1, maxTools: 32 }
     });
@@ -839,6 +842,169 @@ describe("host system prompt", () => {
     expect((await awaitResponse(4)).response.error).toBeTruthy();
     await send({ jsonrpc: "2.0", id: 5, method: "session/set_system_prompt", params: { sessionId: "missing", systemPrompt: "x" } });
     expect((await awaitResponse(5)).response.error).toBeTruthy();
+  });
+});
+
+describe("acp instruction policy", () => {
+  const WORKER_MARKER = "the active worker for this CrewCoder instance";
+  let previousHomes: { codex?: string; claude?: string };
+  let codexHome: string;
+  let claudeHome: string;
+
+  beforeEach(() => {
+    previousHomes = { codex: process.env.CODEX_HOME, claude: process.env.CLAUDE_CONFIG_DIR };
+    codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
+    claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-claude-home-"));
+    fs.writeFileSync(path.join(codexHome, "AGENTS.md"), "CODEX-GLOBAL-MARKER");
+    fs.writeFileSync(path.join(claudeHome, "CLAUDE.md"), "CLAUDE-GLOBAL-MARKER\n\n@RTK.md\n\n```\n@IGNORED.md\n```\nmail me@NOPE.md");
+    fs.writeFileSync(path.join(claudeHome, "RTK.md"), "RTK-IMPORT-MARKER");
+    fs.writeFileSync(path.join(claudeHome, "IGNORED.md"), "FENCED-IMPORT-MARKER");
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLAUDE_CONFIG_DIR = claudeHome;
+  });
+
+  afterEach(() => {
+    if (previousHomes.codex === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previousHomes.codex;
+    if (previousHomes.claude === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previousHomes.claude;
+  });
+
+  async function turnWith(options: { modelId: string; policy?: { workerIdentity: boolean; globalInstructions: boolean }; hosted?: boolean }): Promise<string> {
+    const client = recordingModelClient();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-policy-"));
+    const { send, awaitResponse } = connect({ approvalMode: "full-access", maxIterations: 1, modelClient: client });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: options.hosted ? { fs: { readTextFile: true, writeTextFile: true } } : {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_model", params: { sessionId, modelId: options.modelId } });
+    await awaitResponse(3);
+    if (options.hosted) {
+      await send({ jsonrpc: "2.0", id: 4, method: "session/set_tool_policy", params: { sessionId, policy: "hosted-text-only", version: 1 } });
+      expect((await awaitResponse(4)).response.error).toBeUndefined();
+    }
+    if (options.policy) {
+      await send({ jsonrpc: "2.0", id: 5, method: "session/set_instruction_policy", params: { sessionId, ...options.policy } });
+      expect((await awaitResponse(5)).response.result).toEqual({ applied: true, version: 1, ...options.policy, appliesTo: "next_prompt" });
+    }
+    await send({ jsonrpc: "2.0", id: 6, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "go" }] } });
+    expect((await awaitResponse(6)).response.error).toBeUndefined();
+    const input = client.inputs[0]!;
+    expect(input.messages.some((message) => getText(message).includes("GLOBAL-MARKER"))).toBe(false);
+    return input.systemPrompt ?? "";
+  }
+
+  it("keeps standalone behavior without a policy: worker identity on, no global files", async () => {
+    const prompt = await turnWith({ modelId: "openai:gpt-5.4" });
+    expect(prompt).toContain(WORKER_MARKER);
+    expect(prompt).not.toContain("GLOBAL-MARKER");
+  }, 30_000);
+
+  it("drops the worker identity when the host turns it off", async () => {
+    const prompt = await turnWith({ modelId: "openai:gpt-5.4", policy: { workerIdentity: false, globalInstructions: false } });
+    expect(prompt).not.toContain(WORKER_MARKER);
+    expect(prompt).not.toContain("Worker identity (IDENTITY.md)");
+  }, 30_000);
+
+  it("adds both global files with Claude imports when enabled", async () => {
+    const prompt = await turnWith({ modelId: "openai:gpt-5.4", policy: { workerIdentity: true, globalInstructions: true } });
+    expect(prompt).toContain("Global user instructions:");
+    expect(prompt).toContain("CODEX-GLOBAL-MARKER");
+    expect(prompt).toContain("CLAUDE-GLOBAL-MARKER");
+    expect(prompt).toContain("RTK-IMPORT-MARKER");
+    expect(prompt).not.toContain("FENCED-IMPORT-MARKER");
+  }, 30_000);
+
+  it("skips the Codex global file for codex-cli, which loads it itself", async () => {
+    const prompt = await turnWith({ modelId: "codex-cli:gpt-5.4", policy: { workerIdentity: true, globalInstructions: true } });
+    expect(prompt).not.toContain("CODEX-GLOBAL-MARKER");
+    expect(prompt).toContain("CLAUDE-GLOBAL-MARKER");
+  }, 30_000);
+
+  it("gives hosted Supervisor-style sessions the global files when enabled", async () => {
+    expect(await turnWith({ modelId: "openai:gpt-5.4", hosted: true })).not.toContain("GLOBAL-MARKER");
+    const prompt = await turnWith({ modelId: "openai:gpt-5.4", hosted: true, policy: { workerIdentity: false, globalInstructions: true } });
+    expect(prompt).toContain("CODEX-GLOBAL-MARKER");
+    expect(prompt).toContain("RTK-IMPORT-MARKER");
+  }, 30_000);
+
+  it("rejects a policy without both booleans", async () => {
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: os.tmpdir(), mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_instruction_policy", params: { sessionId, workerIdentity: "no", globalInstructions: true } });
+    expect((await awaitResponse(3)).response.error).toBeTruthy();
+    await send({ jsonrpc: "2.0", id: 4, method: "session/set_instruction_policy", params: { sessionId, workerIdentity: false } });
+    expect((await awaitResponse(4)).response.error).toBeTruthy();
+  });
+});
+
+describe("acp host project instructions", () => {
+  const AGENTS_TEXT = "<PROJECT_AGENTS.md>PROJECT-RULES-MARKER</PROJECT_AGENTS.md>";
+
+  async function turnWith(modelId: string, setup?: (cwd: string) => void): Promise<string> {
+    const client = recordingModelClient();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-project-"));
+    setup?.(cwd);
+    const { send, awaitResponse } = connect({ approvalMode: "full-access", maxIterations: 1, modelClient: client });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    await send({ jsonrpc: "2.0", id: 3, method: "session/set_model", params: { sessionId, modelId } });
+    await awaitResponse(3);
+    await send({ jsonrpc: "2.0", id: 4, method: "session/set_system_prompt", params: { sessionId, systemPrompt: "HOST-IDENTITY" } });
+    await awaitResponse(4);
+    await send({ jsonrpc: "2.0", id: 5, method: "session/set_project_instructions", params: { sessionId, instructions: [{ file: "AGENTS.md", text: AGENTS_TEXT }] } });
+    expect((await awaitResponse(5)).response.result).toEqual({ applied: true, count: 1, appliesTo: "next_prompt" });
+    await send({ jsonrpc: "2.0", id: 6, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "go" }] } });
+    await awaitResponse(6);
+    const input = client.inputs[0]!;
+    expect(input.messages.some((message) => getText(message).includes("PROJECT-RULES-MARKER"))).toBe(false);
+    expect(input.systemPrompt).toContain("HOST-IDENTITY");
+    return input.systemPrompt ?? "";
+  }
+
+  it("keeps the host AGENTS.md for providers that do not load it themselves", async () => {
+    expect(await turnWith("openai:gpt-5.4")).toContain("PROJECT-RULES-MARKER");
+    expect(await turnWith("codex:gpt-5.4")).toContain("PROJECT-RULES-MARKER");
+  }, 30_000);
+
+  it("drops the host AGENTS.md for codex-cli, which reads it from the workspace", async () => {
+    expect(await turnWith("codex-cli:gpt-5.4")).not.toContain("PROJECT-RULES-MARKER");
+  }, 30_000);
+
+  it("drops it for Claude only when the project CLAUDE.md imports AGENTS.md", async () => {
+    expect(await turnWith("claude:claude-sonnet-5")).toContain("PROJECT-RULES-MARKER");
+    expect(await turnWith("claude:claude-sonnet-5", (cwd) => fs.writeFileSync(path.join(cwd, "CLAUDE.md"), "# Claude\n@AGENTS.md\n"))).not.toContain("PROJECT-RULES-MARKER");
+    expect(await turnWith("claude:claude-sonnet-5", (cwd) => {
+      fs.mkdirSync(path.join(cwd, ".claude"));
+      fs.writeFileSync(path.join(cwd, ".claude", "CLAUDE.md"), "@../AGENTS.md");
+    })).not.toContain("PROJECT-RULES-MARKER");
+    // An email address or prose mention is not an import.
+    expect(await turnWith("claude:claude-sonnet-5", (cwd) => fs.writeFileSync(path.join(cwd, "CLAUDE.md"), "See me@AGENTS.md for details."))).toContain("PROJECT-RULES-MARKER");
+  }, 60_000);
+
+  it("rejects unknown files, duplicates, non-strings, and oversized instructions", async () => {
+    const { send, awaitResponse } = connect({ heuristic: true });
+    await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    await awaitResponse(1);
+    await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: os.tmpdir(), mcpServers: [] } });
+    const sessionId = ((await awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    const bad = [
+      "AGENTS.md",
+      [{ file: "../secrets.md", text: "x" }],
+      [{ file: "AGENTS.md", text: 1 }],
+      [{ file: "AGENTS.md", text: "a" }, { file: "AGENTS.md", text: "b" }],
+      [{ file: "AGENTS.md", text: "x".repeat(HOST_PROJECT_INSTRUCTIONS_MAX_CHARS + 1) }]
+    ];
+    for (const [index, instructions] of bad.entries()) {
+      await send({ jsonrpc: "2.0", id: 10 + index, method: "session/set_project_instructions", params: { sessionId, instructions } });
+      expect((await awaitResponse(10 + index)).response.error, JSON.stringify(instructions).slice(0, 60)).toBeTruthy();
+    }
+    await send({ jsonrpc: "2.0", id: 20, method: "session/set_project_instructions", params: { sessionId, instructions: [] } });
+    expect((await awaitResponse(20)).response.result).toEqual({ applied: true, count: 0, appliesTo: "next_prompt" });
   });
 });
 

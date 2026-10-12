@@ -49,6 +49,8 @@ import { hostedTextTools } from "./hosted-text-tools.js";
 import { clientHostedTools, CREWCODER_CLIENT_TOOLS_META, parseClientToolDefinitions, type ClientToolDefinition } from "./client-hosted-tools.js";
 import { createToolRegistry } from "../tools/index.js";
 import { findProvider } from "../providers/provider-registry.js";
+import { buildGlobalInstructions, CREWCODER_INSTRUCTION_POLICY_META, DEFAULT_INSTRUCTION_POLICY, nativelyLoadedGlobalSources, parseInstructionPolicy, type InstructionPolicy } from "../core/global-instructions.js";
+import { CREWCODER_PROJECT_INSTRUCTIONS_META, nativelyLoadedInstructionFiles, parseHostProjectInstructions, selectHostProjectInstructions, type HostProjectInstruction } from "../core/host-project-instructions.js";
 
 export type AcpAgentOptions = {
   /** Skips the real provider and uses the built-in heuristic client. Used by tests. */
@@ -85,6 +87,10 @@ type AcpSession = {
    * memory only: hosts re-send it after `session/new` or `session/load`.
    */
   systemPrompt?: string;
+  /** Host-read project files from `session/set_project_instructions`; memory only, re-sent by the host. */
+  projectInstructions?: HostProjectInstruction[];
+  /** Host policy from `session/set_instruction_policy`; memory only, re-sent by the host. */
+  instructionPolicy?: InstructionPolicy;
   hostedTextOnly?: boolean;
   /** Host-executed tools from `session/set_client_tools`; held in memory and re-sent by the host per session. */
   clientTools?: ClientToolDefinition[];
@@ -115,6 +121,8 @@ const EXT_METHODS = new Set([
   "session/set_tool_policy",
   "session/set_client_tools",
   "session/set_system_prompt",
+  "session/set_project_instructions",
+  "session/set_instruction_policy",
   "session/set_model",
   "session/set_reasoning_effort",
   "session/set_approval_mode",
@@ -178,6 +186,8 @@ export class CrewCoderAcpAgent implements Agent {
       _meta: {
         "crewcoder/sessionCompact": CREWCODER_SESSION_COMPACT_META,
         "crewcoder/sessionSystemPrompt": CREWCODER_SESSION_SYSTEM_PROMPT_META,
+        "crewcoder/projectInstructions": CREWCODER_PROJECT_INSTRUCTIONS_META,
+        "crewcoder/instructionPolicy": CREWCODER_INSTRUCTION_POLICY_META,
         "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
         "crewcoder/clientTools": CREWCODER_CLIENT_TOOLS_META
       }
@@ -268,6 +278,24 @@ export class CrewCoderAcpAgent implements Agent {
 
     if (method === "session/set_system_prompt") {
       return this.setSystemPrompt(session, params);
+    }
+
+    if (method === "session/set_project_instructions") {
+      try {
+        session.projectInstructions = parseHostProjectInstructions(params.instructions);
+      } catch (error) {
+        throw RequestError.invalidParams({ reason: error instanceof Error ? error.message : String(error) });
+      }
+      return { applied: true, count: session.projectInstructions.length, appliesTo: "next_prompt" };
+    }
+
+    if (method === "session/set_instruction_policy") {
+      try {
+        session.instructionPolicy = parseInstructionPolicy(params);
+      } catch (error) {
+        throw RequestError.invalidParams({ reason: error instanceof Error ? error.message : String(error) });
+      }
+      return { applied: true, version: CREWCODER_INSTRUCTION_POLICY_META.version, ...session.instructionPolicy, appliesTo: "next_prompt" };
     }
 
     if (method === "session/follow_up") {
@@ -420,6 +448,13 @@ export class CrewCoderAcpAgent implements Agent {
     };
 
     const contextWindow = (await resolveModel(session.providerId, session.model))?.metadata?.contextWindow;
+    // Decided per turn because the provider can change between turns; a backend that reads the file itself must not see it twice.
+    const policy = session.instructionPolicy ?? DEFAULT_INSTRUCTION_POLICY;
+    const activeProvider = session.projectInstructions?.length || policy.globalInstructions ? await findProvider(session.providerId) : undefined;
+    const projectInstructions = session.projectInstructions?.length
+      ? selectHostProjectInstructions(session.projectInstructions, nativelyLoadedInstructionFiles(activeProvider, session.cwd))
+      : undefined;
+    const globalInstructions = policy.globalInstructions ? buildGlobalInstructions(nativelyLoadedGlobalSources(activeProvider)) : undefined;
     const loopOptions = {
       providerId: session.providerId,
       model: session.model,
@@ -429,7 +464,8 @@ export class CrewCoderAcpAgent implements Agent {
       modelClient: this.options.modelClient ?? (this.options.heuristic
         ? undefined
         : new ProviderModelClient(session.providerId, session.cwd, session.model, undefined, session.reasoningEffort)),
-      clientSystemPrompt: session.systemPrompt,
+      clientSystemPrompt: [session.systemPrompt, globalInstructions, projectInstructions].filter(Boolean).join("\n\n") || undefined,
+      workerIdentity: policy.workerIdentity,
       approvalSignal,
       followUpSignal: session.followUpSignal,
       signal: abort.signal,

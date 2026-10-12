@@ -62,6 +62,8 @@ see "Deliberate deviations" below.
 | `session/set_external_directories` | Replaces and persists the session's explicitly granted filesystem roots |
 | `session/compact` | Compacts the durable CrewCoder session in place and returns the summary |
 | `session/set_system_prompt` | Sets a host-supplied system prompt for the session. Routed through `extMethod` |
+| `session/set_project_instructions` | Sets host-read project files (AGENTS.md) that CrewCoder drops per turn for backends that load them natively. Routed through `extMethod` |
+| `session/set_instruction_policy` | Turns the worker identity and the user's global instruction files on or off for the session. Routed through `extMethod` |
 | `authenticate` | No-op; credentials are managed by `crewcoder auth` |
 
 Capabilities are reported **honestly**: `loadSession: true`,
@@ -124,6 +126,52 @@ the request prefix, so the next request cannot reuse the provider prompt cache, 
 Codex app-server provider starts a fresh native thread because its continuation contract
 hash covers the system prompt. `initialize._meta["crewcoder/sessionSystemPrompt"]`
 advertises `{ method: "session/set_system_prompt", maxChars: 262144, persisted: false }`.
+
+`session/set_project_instructions` lets a host that reads project instruction files itself
+(CrewMate reads the workspace AGENTS.md, including on remote nodes) hand them to CrewCoder
+without them reaching the model twice. It accepts
+`{ sessionId, instructions: [{ file: "AGENTS.md", text }] }`. `file` must be one of the
+advertised files, each file appears once, and the texts total at most 131,072 characters.
+An empty array clears them. The response is `{ applied: true, count, appliesTo: "next_prompt" }`.
+The text is opaque host-formatted content.
+
+On every turn CrewCoder resolves the active provider and appends each file to the host
+system prompt only when that backend would not load it from the session cwd by itself:
+
+| Provider | Loads natively | Host AGENTS.md |
+| --- | --- | --- |
+| `codex-cli` (user's `codex app-server`) | AGENTS.md | Dropped |
+| `claude` (Claude Agent SDK, `settingSources: ["project"]`) | CLAUDE.md | Dropped only when `CLAUDE.md` or `.claude/CLAUDE.md` imports it (`@AGENTS.md`, `@./AGENTS.md`, `@../AGENTS.md`) |
+| Every other provider | Nothing | Kept |
+
+The decision is per turn because the provider can change with `session/set_model`. Like the
+system prompt, the files are held in memory only; hosts re-send them after `session/new`,
+`session/load`, and whenever they change. `initialize._meta["crewcoder/projectInstructions"]`
+advertises `{ method: "session/set_project_instructions", version: 1, files: ["AGENTS.md"], maxChars: 131072, persisted: false }`.
+The logic lives in `src/core/host-project-instructions.ts`.
+
+`session/set_instruction_policy` lets a host that supplies its own identity decide which of
+CrewCoder's own instruction sources apply. It accepts
+`{ sessionId, workerIdentity: boolean, globalInstructions: boolean }` and returns
+`{ applied: true, version: 1, workerIdentity, globalInstructions, appliesTo: "next_prompt" }`.
+Without a policy the session behaves as standalone CrewCoder: worker identity on, no global files.
+
+- `workerIdentity: false` omits the active worker's identity block (`~/.crewcoder/workers/<name>`).
+  Hosted text-only sessions never include it either way.
+- `globalInstructions: true` adds the user's `$CODEX_HOME/AGENTS.md` (default `~/.codex`) and
+  `$CLAUDE_CONFIG_DIR/CLAUDE.md` (default `~/.claude`) under a "Global user instructions" heading,
+  including hosted text-only sessions. `@path` imports in CLAUDE.md are inlined the way Claude Code
+  does (relative to the importing file, `~/` for home, at most five hops, not inside code fences).
+  The block is capped at 65,536 characters. `codex-cli` already loads the Codex file from the user's
+  `CODEX_HOME`, so CrewCoder skips that one for it. The Claude Agent SDK runs with project settings
+  only, so the user CLAUDE.md is always added by CrewCoder.
+- `globalInstructions: false` adds nothing, but cannot stop `codex-cli` from reading the user's own
+  `~/.codex/AGENTS.md`.
+
+The policy is held in memory only; hosts re-send it after `session/new`, `session/load`, and on change.
+`initialize._meta["crewcoder/instructionPolicy"]` advertises
+`{ method: "session/set_instruction_policy", version: 1, globalSources: ["codex-agents", "claude-md"], persisted: false }`.
+The logic lives in `src/core/global-instructions.ts`.
 
 `session/compact` is the host compact-button path. It is an additive extension method
 routed through `extMethod`, same as `session/set_model`. `initialize._meta["crewcoder/sessionCompact"]`
