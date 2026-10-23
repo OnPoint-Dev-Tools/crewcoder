@@ -20,7 +20,7 @@ type OptionRow = { option: number; text: string; kind: "label" | "description" |
 const FOOTER_HEIGHT = 2;
 /** Upper bound on how tall the modal may ask to be before the App clamps it. */
 const MAX_DESIRED_HEIGHT = 30;
-const MAX_MESSAGE_LINES = 6;
+
 const MAX_COMPONENT_LINES = 8;
 
 /**
@@ -38,6 +38,8 @@ const MAX_COMPONENT_LINES = 8;
 export class ExtensionUiOverlay implements Component {
   private selected = 0;
   private value: string;
+  private questionOffset = 0;
+  private maxQuestionOffset = 0;
   /** Rendered line index -> selectable option index, for mouse clicks. */
   private selectableRows = new Map<number, number>();
 
@@ -54,17 +56,25 @@ export class ExtensionUiOverlay implements Component {
       const lines: string[] = [];
       this.selectableRows = new Map();
 
-      for (const line of wrapText(this.request.title, width)) {
-        lines.push(padRight(`${fg(ctx.theme.accent)}${bold()}${line}${reset()}`, width));
-      }
-      lines.push(padRight(`${fg(ctx.theme.muted)}[${this.request.extensionId}] ${this.request.uiKind}${reset()}`, width));
-
+      const question = wrapText(this.request.title, width).map((line) =>
+        padRight(`${fg(ctx.theme.accent)}${bold()}${line}${reset()}`, width));
       if (this.request.message) {
-        lines.push(emptyLine(width));
-        for (const line of wrapText(this.request.message, width).slice(0, MAX_MESSAGE_LINES)) {
-          lines.push(padRight(`${fg(ctx.theme.text)}${line}${reset()}`, width));
+        question.push(emptyLine(width));
+        for (const line of wrapText(this.request.message, width)) {
+          question.push(padRight(`${fg(ctx.theme.text)}${line}${reset()}`, width));
         }
       }
+      // Reserve room for replies before windowing an unusually long question.
+      const replyRows = this.request.uiKind === "confirm" ? 2
+        : this.request.uiKind === "select" ? Math.min(6, optionRows(this.request.options ?? [], width).length || 1)
+          : 1;
+      const questionBudget = Math.max(1, ctx.size.height - FOOTER_HEIGHT - replyRows - 1);
+      const clipped = question.length > questionBudget;
+      const questionHeight = Math.max(1, questionBudget - (clipped ? 1 : 0));
+      this.maxQuestionOffset = Math.max(0, question.length - questionHeight);
+      this.questionOffset = Math.min(this.questionOffset, this.maxQuestionOffset);
+      lines.push(...question.slice(this.questionOffset, this.questionOffset + questionHeight));
+      if (clipped) lines.push(padRight(`${fg(ctx.theme.muted)}PgUp/PgDn to read question${reset()}`, width));
 
       lines.push(emptyLine(width));
       const bodyHeight = Math.max(1, ctx.size.height - lines.length - FOOTER_HEIGHT);
@@ -90,8 +100,8 @@ export class ExtensionUiOverlay implements Component {
   desiredHeight(width = 60): number {
     try {
       const safeWidth = Math.max(8, width);
-      let height = wrapText(this.request.title, safeWidth).length + 1;
-      if (this.request.message) height += 1 + Math.min(MAX_MESSAGE_LINES, wrapText(this.request.message, safeWidth).length);
+      let height = wrapText(this.request.title, safeWidth).length;
+      if (this.request.message) height += 1 + wrapText(this.request.message, safeWidth).length;
       height += 1 + FOOTER_HEIGHT;
 
       if (this.request.uiKind === "confirm") height += 2;
@@ -107,6 +117,10 @@ export class ExtensionUiOverlay implements Component {
 
   handleInput(event: KeyEvent): boolean {
     try {
+      if (event.name === "pageup" || event.name === "pagedown") {
+        this.questionOffset = Math.max(0, Math.min(this.maxQuestionOffset, this.questionOffset + (event.name === "pageup" ? -3 : 3)));
+        return true;
+      }
       if (event.name === "mouse" && event.mouse?.kind === "press") return this.handleMouse(event.mouse.y - 1);
       if (this.request.uiKind === "confirm") return this.handleConfirm(event);
       if (this.request.uiKind === "select") return this.handleSelect(event);
@@ -157,9 +171,9 @@ export class ExtensionUiOverlay implements Component {
   // ── confirm ──────────────────────────────────────────────────────────────
   private renderConfirm(ctx: RenderContext, lines: string[]): void {
     this.selectableRows.set(lines.length, 0);
-    lines.push(this.renderAction(ctx, 0, "Yes", "confirm"));
+    lines.push(this.renderAction(ctx, 0, "Yes"));
     this.selectableRows.set(lines.length, 1);
-    lines.push(this.renderAction(ctx, 1, "No", "decline"));
+    lines.push(this.renderAction(ctx, 1, "No"));
   }
 
   private handleConfirm(event: KeyEvent): boolean {
@@ -299,13 +313,13 @@ export class ExtensionUiOverlay implements Component {
     return "type a value   ↵ submit   esc cancel";
   }
 
-  private renderAction(ctx: RenderContext, index: number, label: string, hint: string): string {
+  private renderAction(ctx: RenderContext, index: number, label: string): string {
     const width = ctx.size.width;
     const active = this.selected === index;
-    const text = `${active ? "●" : " "} ${label}  ${hint}`;
+    const text = `${active ? "●" : " "} ${label}`;
     if (active) return `${bg(ctx.theme.accent)}${fg(ctx.theme.background)}${bold()}${padRight(text, width)}${reset()}`;
     // Keep the inactive row on the same column as the bulleted active row.
-    return padRight(`  ${fg(index === 0 ? ctx.theme.success : ctx.theme.danger)}${label}${reset()}  ${fg(ctx.theme.muted)}${hint}${reset()}`, width);
+    return padRight(`  ${fg(index === 0 ? ctx.theme.success : ctx.theme.danger)}${label}${reset()}`, width);
   }
 }
 

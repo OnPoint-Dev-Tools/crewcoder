@@ -251,7 +251,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(result?.exitCode).toBe(0);
     expect(thinking).toEqual(["Raw reasoning", " from content.", "I'll inspect the repository first."]);
     expect(assistant).toEqual(["Inspection complete."]);
-    expect(questions).toEqual(["Inspect the repository\npwd"]);
+    expect(questions).toEqual(["Inspect the repository"]);
     expect(JSON.parse(result?.text ?? "{}").content).toEqual([{ type: "text", text: "Inspection complete." }]);
   });
 

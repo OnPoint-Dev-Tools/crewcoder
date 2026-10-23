@@ -14,6 +14,13 @@ The binary is `codex` on `PATH`, or `CREWCODER_CODEX_PATH`. On Windows, npm inst
 
 Over ACP, select it with a `codex-cli:<model>` model id.
 
+## Approval questions
+
+Native approval dialogs display the provider's reason as the wrapped question,
+without appending the raw shell command. The command remains in its tool transcript
+entry. Allow once, Allow session, and Decline keep their provider decision values;
+cancellation or an unrecognized answer declines the request.
+
 ## No fallback
 
 If the app-server cannot start, the turn fails with the cause. It never falls back to the direct Responses transport, because that would need CrewCoder-owned credentials.

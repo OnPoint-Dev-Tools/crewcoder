@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Component, KeyEvent, RenderContext, RenderedImagePlacement } from "../tui/component.js";
 import type { TuiDeclarativeComponent, TuiEventBlock } from "../state/tui-store.js";
 import type { TuiState } from "../state/tui-store.js";
@@ -929,7 +930,7 @@ function toolFilePath(args?: Record<string, unknown>): string | undefined {
 }
 
 function toolBody(block: Extract<TuiEventBlock, { type: "tool" }>): ToolBodyLine[] {
-  const text = block.text?.trim();
+  const text = block.text ? stripVTControlCharacters(block.text).trim() : undefined;
   if (text) return splitLines(text).map((line) => ({ text: truncate(line, 140), kind: "plain" as const }));
   const args = formatArgs(block.args);
   return args ? splitLines(args).map((line) => ({ text: line, kind: "plain" as const })) : [];

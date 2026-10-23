@@ -23,6 +23,46 @@ function block(partial: Partial<ExtensionUiBlock> & Pick<ExtensionUiBlock, "uiKi
 }
 
 describe("ExtensionUiOverlay", () => {
+  it("shows only the question and choices without internal request metadata", () => {
+    const overlay = new ExtensionUiOverlay(block({ uiKind: "confirm", title: "May I run the focused checks?" }), () => undefined);
+    const plain = overlay.render({ theme: crewCoderTheme, size: { width: 60, height: overlay.desiredHeight(60) } }).map(stripAnsi).join("\n");
+    expect(plain).toContain("May I run the focused checks?");
+    expect(plain).toContain("Yes");
+    expect(plain).toContain("No");
+    expect(plain).not.toContain("[demo]");
+    expect(plain).not.toContain("confirm");
+  });
+
+  it("keeps choices and keyboard hints visible beneath a very long question", () => {
+    const overlay = new ExtensionUiOverlay(block({
+      uiKind: "select", title: "A long question with additional context. ".repeat(40),
+      options: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }]
+    }), () => undefined);
+    const plain = overlay.render({ theme: crewCoderTheme, size: { width: 50, height: 14 } }).map(stripAnsi).join("\n");
+    expect(plain).toContain("● Yes");
+    expect(plain).toContain("No");
+    expect(plain).toContain("esc cancel");
+  });
+
+  it("scrolls long questions independently of reply selection", () => {
+    const resolved: Array<string | boolean | null> = [];
+    const overlay = new ExtensionUiOverlay(block({
+      uiKind: "select", title: "Read this context. ".repeat(60) + "Final question?",
+      options: [{ label: "First", value: "first" }, { label: "Second", value: "second" }]
+    }), (v) => resolved.push(v));
+    const ctx = { theme: crewCoderTheme, size: { width: 50, height: 14 } };
+    overlay.render(ctx);
+    for (let i = 0; i < 20; i++) overlay.handleInput(key("pagedown"));
+    const plain = overlay.render(ctx).map(stripAnsi).join("\n");
+    expect(plain).toContain("Final question?");
+    expect(plain).toContain("● First");
+    overlay.handleInput(key("pageup"));
+    expect(overlay.render(ctx).map(stripAnsi).join("\n")).not.toContain("Final question?");
+    overlay.handleInput(key("down"));
+    overlay.handleInput(key("return"));
+    expect(resolved).toEqual(["second"]);
+  });
+
   it("resolves a confirm request true on 'y' and false on 'n'", () => {
     const yes: Array<string | boolean | null> = [];
     new ExtensionUiOverlay(block({ uiKind: "confirm" }), (v) => yes.push(v)).handleInput(key("y"));
@@ -176,7 +216,7 @@ describe("ExtensionUiOverlay", () => {
     );
 
     expect(overlay.desiredHeight(30)).toBeGreaterThan(overlay.desiredHeight(100));
-    expect(overlay.desiredHeight(100)).toBeGreaterThan(6);
+    expect(overlay.desiredHeight(100)).toBe(6);
   });
 
   it("renders a fallback error block when render() throws", () => {

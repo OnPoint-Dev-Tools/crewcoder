@@ -32,6 +32,16 @@ visible screen in place.
 - `/repaint` (alias `/redraw`) clears terminal scrollback and reprints the
   settled transcript. Use it after a resize artifact.
 
+## Row layout
+
+Windows CRLF and bare carriage returns are normalized to transcript line breaks;
+tabs expand to four spaces before layout. Tool output loses terminal escape sequences
+before syntax highlighting. Final padded/truncated rows preserve TUI colors but
+contain cursor movement, erase commands, embedded newlines, and other control
+characters so output cannot overwrite neighboring rows.
+
+Regression coverage: `src/tests/transcript-containment.test.ts`.
+
 ## Limitations
 
 - New output (streaming tokens, spinner ticks) typically jumps the terminal

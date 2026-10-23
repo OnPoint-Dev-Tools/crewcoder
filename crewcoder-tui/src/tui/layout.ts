@@ -1,12 +1,14 @@
 import { fg, reset, visibleLength } from "./ansi.js";
 
 export function padRight(input: string, width: number): string {
+  input = containTerminalLine(input);
   const length = visibleLength(input);
   if (length >= width) return truncate(input, width);
   return input + " ".repeat(width - length);
 }
 
 export function truncate(input: string, width: number): string {
+  input = containTerminalLine(input);
   if (width <= 0) return "";
   if (visibleLength(input) <= width) return input;
 
@@ -39,7 +41,7 @@ export function emptyLine(width: number): string {
 }
 
 export function splitLines(text: string): string[] {
-  return (text || "").split("\n");
+  return (text || "").replace(/\r\n?/g, "\n").replace(/\t/g, "    ").split("\n");
 }
 
 export function wrapText(text: string, width: number): string[] {

@@ -547,9 +547,9 @@ export function codexTurnPermissions(input: ProviderRunInput, hostedToolsOnly = 
 async function approvalDecision(params: RpcRecord, input: ProviderRunInput): Promise<string> {
   if (!input.stream?.requestQuestion) return "decline";
   const reason = typeof params.reason === "string" ? params.reason : undefined;
-  const command = typeof params.command === "string" ? params.command : undefined;
+
   const answer = await input.stream.requestQuestion({
-    title: [reason ?? `${input.provider.title} requests approval`, command].filter(Boolean).join("\n"),
+    title: reason?.trim() || `${input.provider.title} requests approval`,
     options: [
       { label: "Allow once", value: "accept" },
       { label: "Allow session", value: "acceptForSession" },
