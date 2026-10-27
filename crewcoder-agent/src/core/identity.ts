@@ -12,11 +12,11 @@
  *     - identity.json  -> structured identity (workerName, owner, description).
  *     - IDENTITY.md    -> freeform worker persona/instructions. Its full body is
  *                         loaded by readWorker and embedded verbatim into the
- *                         identity block, so it is always in context.
+ *                         identity block when worker identity is enabled.
  *     - Defines WHO the active agent is and HOW that specific worker behaves.
  *
  *   Injection: the identity block (owner lines + the embedded IDENTITY.md body)
- *   is included in the system prompt (buildSystemPrompt) on every run. Because
+ *   is included in the system prompt when user config and host policy allow it. Because
  *   the system prompt is a static prefix, provider prompt caching keeps the
  *   repeated per-turn cost cheap. Keep IDENTITY.md focused for this reason.
  *
@@ -25,7 +25,7 @@
  *       people/agents working ON the CrewCoder codebase itself.
  *     - It is documentation only and is never injected into the system prompt.
  *
- * On first use, a default worker named "Crew" is created automatically and set
+ * On first identity-enabled use, a worker named "Crew" is created automatically and set
  * active, so a fresh install always has a working identity until the user adds
  * or switches workers. A legacy single ~/.crewcoder/identity.json (from the
  * earlier single-identity design) is migrated into the default worker once.
@@ -264,7 +264,7 @@ function defaultWorkerIdentityMd(name: string): string {
     return [
       "# Crew — Worker Identity",
       "",
-      "<!-- This file is read by the agent at session start whenever the `Crew` worker is active. Edit it to shape who this worker is and how it behaves. Keep it focused and task-specific. -->",
+      "<!-- Read at session start when worker identity is enabled and `Crew` is selected. Edit it to shape who this worker is and how it behaves. Keep it focused and task-specific. -->",
       "",
       "You are Crew, a practical general-purpose coding partner for the CrewCoder User.",
       "Be direct, dependable, and collaborative. Favor correct, maintainable solutions over impressive but unnecessary complexity.",

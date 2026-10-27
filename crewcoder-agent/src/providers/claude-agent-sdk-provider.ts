@@ -8,6 +8,7 @@ import { normalizeUsage, type ModelUsage } from "../core/usage.js";
 import type { ProviderRunInput, ProviderRunResult } from "./types.js";
 import { CREWCODER_VERSION } from "../core/version.js";
 import { mergeSkillCatalogDirectories } from "../skills/filesystem/loader.js";
+import { resolveClaudeExecutable } from "./claude-executable.js";
 
 const NATIVE_FILE_TOOLS = ["Read", "Grep", "Glob"];
 const CREWCODER_NATIVE_FILE_EQUIVALENTS = new Set(["read", "grep", "listFiles"]);
@@ -105,7 +106,7 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
         canUseTool,
         mcpServers: { crewcoder: server },
         strictMcpConfig: true,
-        ...(process.env.CREWCODER_CLAUDE_PATH ? { pathToClaudeCodeExecutable: process.env.CREWCODER_CLAUDE_PATH } : {})
+        pathToClaudeCodeExecutable: resolveClaudeExecutable()
       }
     });
 

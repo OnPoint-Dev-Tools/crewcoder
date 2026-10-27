@@ -29,7 +29,7 @@ System prompt profile
 | `AGENTS.md`           | Repo/workspace                                        | Depends on runtime/project context     | Project law, architecture, commands, repo-wide rules  |
 | `.crewcoder/rules`    | `<repo>/.crewcoder/rules/**/*.md`                     | Yes, as bounded initial background     | Modular/path-aware style, testing, security, patterns |
 | `.crewcoder/memory`   | `<repo>/.crewcoder/memory/*.md`                       | Yes, as bounded initial background     | Durable facts learned across sessions                 |
-| `IDENTITY.md`         | `~/.crewcoder/workers/<worker>/IDENTITY.md`           | Yes, through the worker identity block | Stable worker persona and specialty                   |
+| `IDENTITY.md`         | `~/.crewcoder/workers/<worker>/IDENTITY.md`           | When worker identity is enabled        | Stable worker persona and specialty                   |
 | System prompt profile | `~/.crewcoder/system-prompts/<name>/SYSTEM-PROMPT.md` | Yes, after CrewCoder's default prompt  | Selectable behavior profiles                          |
 | `/commands`           | `~/.crewcoder/commands/`                              | No, not automatically                  | Reusable user-message templates                       |
 | User skills           | `~/.agents/skills`, `~/.crewcoder/skills`, …          | No. The agent may read a `SKILL.md`    | On-demand procedures. See [SKILLS.md](./SKILLS.md)    |
@@ -111,11 +111,18 @@ existing worker.
 Useful commands:
 
 ```sh
+crewcoder identity off       # omit worker persona, keep normal/custom system prompts
+crewcoder identity on
+crewcoder identity status
 crewcoder workers list
 crewcoder workers create Review-Crew --description "Strict code reviewer"
 crewcoder workers use Review-Crew
 crewcoder workers path Review-Crew
 ```
+
+`workerIdentityEnabled` stores the persistent toggle; `activeWorker` preserves
+the selected name while it is off. TUI `/identity on|off|status` controls the
+same setting. See [optional worker identity](WORKER_IDENTITY.md).
 
 ## System Prompt Profiles
 

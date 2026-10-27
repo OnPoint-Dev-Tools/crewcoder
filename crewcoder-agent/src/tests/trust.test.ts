@@ -25,6 +25,7 @@ function config(overrides: Partial<CrewCoderConfig> = {}): CrewCoderConfig {
     sandboxAllowedHosts: [],
     sandboxNetworkIsolation: "proxy",
     activeWorker: "Crew",
+    workerIdentityEnabled: true,
     checkpointsEnabled: true,
     autoCompact: false,
     autoCompactThresholdTokens: 150000,

@@ -56,6 +56,8 @@ export interface CrewCoderConfig {
   sandboxAllowedHosts: string[];
   sandboxNetworkIsolation: "proxy" | "strict";
   activeWorker: string;
+  /** Include the selected worker's owner metadata and IDENTITY.md in model prompts. */
+  workerIdentityEnabled: boolean;
   /** Create bounded filesystem snapshots before mutating tools. */
   checkpointsEnabled: boolean;
   autoCompact: boolean;
@@ -86,7 +88,7 @@ const MAX_STALL_THRESHOLD = 100;
 const defaultConfig: CrewCoderConfig = {
   integrationProfile: DEFAULT_INTEGRATION_PROFILE,
   defaultMode: DEFAULT_AGENT_MODE,
-  defaultProvider: "codex",
+  defaultProvider: "codex-cli",
   defaultModel: "gpt-5.6-luna",
   thinkingEnabled: true,
   maxIterations: 0,
@@ -105,6 +107,7 @@ const defaultConfig: CrewCoderConfig = {
   sandboxAllowedHosts: [],
   sandboxNetworkIsolation: "proxy",
   activeWorker: "Crew",
+  workerIdentityEnabled: false,
   checkpointsEnabled: true,
   autoCompact: true,
   compactionPreview: false,
@@ -155,6 +158,9 @@ export function setConfigValue(key: CrewCoderConfigSetKey, value: string): CrewC
   } else if (key === "thinkingEnabled") {
     if (value !== "true" && value !== "false") throw new Error("thinkingEnabled must be true or false");
     next.thinkingEnabled = value === "true";
+  } else if (key === "workerIdentityEnabled") {
+    if (value !== "true" && value !== "false") throw new Error("workerIdentityEnabled must be true or false");
+    next.workerIdentityEnabled = value === "true";
   } else if (key === "maxIterations") {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_ITERATION_CAP) throw new Error(`maxIterations must be an integer from 0 to ${MAX_ITERATION_CAP} (0 = unlimited)`);
@@ -281,6 +287,7 @@ function normalizeConfig(input: Partial<CrewCoderConfig>): CrewCoderConfig {
     sandboxAllowedHosts: Array.isArray(input.sandboxAllowedHosts) ? input.sandboxAllowedHosts.filter((item): item is string => typeof item === "string").map((item) => item.trim().toLowerCase()).filter(Boolean) : [],
     sandboxNetworkIsolation: input.sandboxNetworkIsolation === "strict" ? "strict" : "proxy",
     activeWorker: typeof input.activeWorker === "string" && input.activeWorker.trim() ? input.activeWorker.trim() : defaultConfig.activeWorker,
+    workerIdentityEnabled: input.workerIdentityEnabled === true,
     checkpointsEnabled: input.checkpointsEnabled !== false,
     autoCompact: input.autoCompact !== false,
     ...(typeof input.autoCompactThresholdTokens === "number" && Number.isInteger(input.autoCompactThresholdTokens)

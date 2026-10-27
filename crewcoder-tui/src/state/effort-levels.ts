@@ -6,8 +6,8 @@ export function effortLevelsForModel(provider: string, model?: string): EffortLe
   const providerId = provider.toLowerCase();
   const modelId = (model ?? "").toLowerCase();
 
-  if (providerId === "codex") {
-    // ChatGPT Codex Responses models reject "minimal"; the API advertises these values.
+  if (providerId === "codex-cli") {
+    // The native Codex CLI supports these effort levels, including GPT-6 models.
     return ["none", "low", "medium", "high", "xhigh"];
   }
 

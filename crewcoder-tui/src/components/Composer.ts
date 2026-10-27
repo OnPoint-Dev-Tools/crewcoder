@@ -42,7 +42,7 @@ export class Composer implements Component {
 
   private promptGeometry(width: number): { promptWidth: number; firstPromptLabel: string; firstPromptWidth: number } {
     const compact = width < 24;
-    const activeContext = this.state.worker ?? this.state.mode;
+    const activeContext = (this.state.workerIdentityEnabled ? this.state.worker : undefined) ?? this.state.mode;
     const displayContext = activeContext.charAt(0).toUpperCase() + activeContext.slice(1);
     const maxContextWidth = Math.max(1, Math.min(24, width - 19));
     const firstPromptLabel = compact ? "» " : `${truncate(displayContext, maxContextWidth)} » `;
@@ -70,7 +70,7 @@ export class Composer implements Component {
       return fieldLine(`${rail}${prompt}${line.rendered}`, ctx.size.width, ctx.theme.backgroundAlt, COMPOSER_INSET);
     });
     const access = this.state.fullAccess ? "Full Access" : "Review";
-    const mode = this.state.worker ? `worker:${this.state.worker}` : this.state.mode;
+    const mode = this.state.workerIdentityEnabled && this.state.worker ? `worker:${this.state.worker}` : this.state.mode;
     const marker = `${fg(ctx.theme.accent)}◈${reset()}`;
     const left = ` ${fg(ctx.theme.glow)}●${reset()}${fg(ctx.theme.muted)} ${access}${reset()}  ${marker} ${fg(ctx.theme.muted)}${bold()}MODE:${reset()} ${fg(ctx.theme.success)}${mode}${reset()}  ${marker} ${fg(ctx.theme.muted)}${bold()}MODEL:${reset()} ${fg(ctx.theme.success)}${this.state.provider}/${this.state.model}${reset()}  ${marker} ${fg(ctx.theme.muted)}${bold()}EFFORT:${reset()} ${fg(ctx.theme.success)}${this.state.effort}${reset()}`;
 

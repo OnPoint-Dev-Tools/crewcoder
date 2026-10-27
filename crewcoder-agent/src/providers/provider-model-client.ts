@@ -6,9 +6,7 @@ import { findProvider } from "./provider-registry.js";
 import { runProcessProvider } from "./process-provider.js";
 import { runHttpMessagesProvider } from "./http-provider.js";
 import { runOpenAIResponsesProvider } from "./openai-responses-provider.js";
-import { runCodexProvider } from "./codex-provider.js";
-import { isCodexCliProvider, runCodexCliProvider } from "./codex-app-server-provider.js";
-import { closeCodexWebSocketSessions } from "./codex-websocket-transport.js";
+import { runCodexCliProvider } from "./codex-app-server-provider.js";
 import { resolveProviderModel } from "./model-resolution.js";
 import { runWebSocketProvider } from "./websocket-provider.js";
 import { runClaudeAgentSdkProvider } from "./claude-agent-sdk-provider.js";
@@ -19,10 +17,6 @@ import { enforceProviderFileCustody } from "./provider-file-custody.js";
 
 export class ProviderModelClient implements ModelClient {
   constructor(private readonly providerId: string, private readonly cwd: string, private readonly model?: string, private readonly debug?: BackendDebugLogger, private readonly reasoningEffort?: string) {}
-
-  resetSessionContinuation(sessionId: string): void {
-    if (this.providerId === "codex") closeCodexWebSocketSessions(sessionId);
-  }
 
   async complete(input: ModelInput, signal?: AbortSignal, stream?: ModelStreamCallbacks): Promise<AssistantMessage> {
     const provider = await findProvider(this.providerId);
@@ -47,7 +41,7 @@ export class ProviderModelClient implements ModelClient {
       : provider.runtime === "openai-responses"
         ? await runOpenAIResponsesProvider(request, signal)
         : provider.runtime === "openai-codex-responses"
-          ? await (isCodexCliProvider(provider) ? runCodexCliProvider(request, signal) : runCodexProvider(request, signal))
+          ? await runCodexCliProvider(request, signal)
           : provider.runtime === "websocket"
             ? await runWebSocketProvider(request, signal)
             : await runProcessProvider(request, signal);

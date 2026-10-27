@@ -11,6 +11,7 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 | `/effort` | session selection | Select supported reasoning effort. |
 | `/modes` | session selection | Select `general`, `crewcoder`, `plugin`, `extension`, or a saved worker. `/workers` is an alias. |
 | `/prompts` | session selection | Select a stored custom system prompt. |
+| `/identity on\|off\|status` | backend config | Include or omit the worker persona in future prompts while preserving the selected worker. Bare `/identity` shows status. |
 | `/full-access on\|off` | session | Enable or disable approval bypass. `/new` resets it to review mode. |
 | `/checkpoints on\|off\|status` | backend config | Enable or disable automatic pre-mutation filesystem checkpoints. Existing checkpoints are preserved. |
 | `/set-budget 200k\|off\|status` | session | Set an opt-in cumulative token budget. `/new` clears it; budget handoff preserves it. |
@@ -20,6 +21,35 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 | `/sidebar on\|off\|status` | TUI display | Open or close the blank right sidebar. Bare `/sidebar` and `Ctrl+B` toggle it. |
 
 Provider, model, effort, mode, worker, and system prompt affect future backend runs. They do not rewrite historical turns.
+
+## Optional worker identity
+
+Worker identity is off by default, including before backend config has loaded.
+An explicitly saved `true` enables it. `/identity off` persistently sets `workerIdentityEnabled: false` on the backend
+host. Default and custom system prompts remain active; the selected worker and
+its files are preserved. The composer shows the current mode instead of a worker
+name while disabled. `/identity on` restores the selected persona. Selecting a
+worker does not silently re-enable identity.
+
+The setting applies to future runs; existing provider requests and old
+conversation messages are unchanged. After changing the setting from a shell,
+use `/reload`. Start a fresh conversation to avoid earlier identity-related text.
+See [worker identity](../../crewcoder-agent/docs/WORKER_IDENTITY.md).
+
+## Provider and model discovery
+
+Fresh TUI sessions and offline Codex picker defaults use `codex-cli`. The former
+managed `codex` entry is removed. `/provider` and `/model` request catalogs from
+the backend, including native Codex CLI and Claude Code discovery.
+
+Claude discovery and execution use the same executable: `CREWCODER_CLAUDE_PATH`,
+then installed `claude` on `PATH`, then the SDK bundle. A separately updated
+Claude Code can expose new models before the SDK bundle does. In remote mode,
+these executables and model discovery run on the backend host.
+
+Change an existing backend default with
+`crewcoder config set defaultProvider codex-cli`, then use `/reload` and `/model`.
+See [backend provider discovery](../../crewcoder-agent/docs/PROVIDERS.md#automatic-model-discovery).
 
 ## File-changes display
 

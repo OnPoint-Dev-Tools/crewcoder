@@ -38,6 +38,13 @@ primary:    #33859e
 
 ## Current wiring
 
+Fresh sessions default to `codex-cli`, the sole Codex provider. `/provider` and
+`/model` fetch the backend's discovered models. Claude uses the installed Claude
+Code on the backend host, with the SDK bundle as a fallback when it is unavailable.
+For an existing backend config naming `codex`, run
+`crewcoder config set defaultProvider codex-cli`, then `/reload`.
+See [provider settings](docs/SETTINGS.md#provider-and-model-discovery).
+
 The composer now spawns:
 
 ```bash
@@ -112,6 +119,7 @@ Inside the TUI:
 /model
 /model default
 /effort
+/identity on|off|status # persistently include or omit the selected worker persona
 /thinking on|off|status   # persistently request/disable provider-supplied reasoning
 /full-access on|off       # explicit approval bypass; allows dangerous commands while on
 /checkpoints on|off|status # automatic pre-mutation snapshots; existing checkpoints are preserved

@@ -112,7 +112,7 @@ export type AgentLoopOptions = {
    * the system field on every model request; never written to the transcript.
    */
   clientSystemPrompt?: string;
-  /** False omits the active worker's identity block; an embedding host supplies its own identity. Defaults to true. */
+  /** False suppresses worker identity for this run. User config may also disable it. */
   workerIdentity?: boolean;
   workerName?: string;
   workerDelegationDepth?: number;
@@ -216,7 +216,8 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const modelTurns: SessionModelTurn[] = [...(options.initialModelTurns ?? [])];
   const providerSessionIds = { ...(options.initialProviderSessionIds ?? {}) };
   const providerToolArgs = new Map<string, Record<string, unknown>>();
-  const activeWorker = resolveActiveWorker(options.workerName);
+  const workerIdentityEnabled = !options.hostedToolsOnly && runtimeConfig.workerIdentityEnabled && options.workerIdentity !== false;
+  const activeWorker = workerIdentityEnabled || options.workerName ? resolveActiveWorker(options.workerName) : undefined;
   const newUserMessage = withImageParts(textMessage("user", request.prompt), request.images ?? []);
   if (!options.resumeFromSessionId) {
     const contextRoot = project.repoRoot ?? request.cwd;
@@ -347,7 +348,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const selectedSystemPromptName = options.systemPromptName;
   const selectedSystemPrompt = selectedSystemPromptName ? getSystemPrompt(selectedSystemPromptName) : null;
   const defaultSystemPrompt = [
-    options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: options.workerIdentity === false ? null : buildIdentityPrompt(activeWorker), crewTasksPrompt, extensionContext }),
+    options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: workerIdentityEnabled && activeWorker ? buildIdentityPrompt(activeWorker) : null, crewTasksPrompt, extensionContext }),
     formatExternalDirectories(externalDirectories)
   ].filter(Boolean).join("\n\n");
   const systemPrompt = appendClientSystemPrompt(
@@ -370,7 +371,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     crewcoderWorkflow,
     delegateWorker: !options.hostedToolsOnly && workerDelegationDepth < maxChildWorkerDepth ? async (delegation, signal) => {
       const childPrompt = [
-        `Parent worker ${activeWorker.name} delegated this scoped subtask from session ${sessionId}.`,
+        workerIdentityEnabled && activeWorker ? `Parent worker ${activeWorker.name} delegated this scoped subtask from session ${sessionId}.` : `Parent session ${sessionId} delegated this scoped subtask.`,
         "Return a concise summary of findings/actions for the parent worker.",
         "",
         delegation.task
@@ -385,6 +386,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         // bounded by stall detection and maxChildWorkerDepth, not a turn count.
         maxIterations: delegation.maxIterations,
         workerName: delegation.worker,
+        workerIdentity: workerIdentityEnabled,
         requestQuestion: options.requestQuestion,
         resumeFromSessionId: sessionId,
         initialMessages: messages,
@@ -481,7 +483,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   // dollar figure rides along on the usage summary. A ledger failure degrades to
   // a debug warning: accounting must never be able to kill a working run.
   const priceTurn = async (usage: ModelUsage): Promise<ModelUsage> => {
-    const { entry, error } = await recordModelUsageCost(usage, { sessionId, worker: activeWorker.name, cwd: request.cwd });
+    const { entry, error } = await recordModelUsageCost(usage, { sessionId, worker: activeWorker?.name, cwd: request.cwd });
     if (error) {
       await emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "warn", source: "cost-ledger", message: "cost ledger write failed", details: { error } });
       return usage;

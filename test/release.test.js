@@ -31,7 +31,7 @@ describe("release automation", () => {
     temporaryDirectories.push(repositoryRoot);
     const manifests = {
       "package.json": { name: "crewcoder", version: "0.1.0", dependencies: { "@onpoint-dev-tools/crewcoder-agent": "0.1.0", "@onpoint-dev-tools/crewcoder-tui": "0.0.9" } },
-      "crewcoder-agent/package.json": { name: "@onpoint-dev-tools/crewcoder-agent", version: "0.1.0", dependencies: { "@openai/codex": "0.146.1" } },
+      "crewcoder-agent/package.json": { name: "@onpoint-dev-tools/crewcoder-agent", version: "0.1.0", dependencies: {} },
       "crewcoder-client/package.json": { name: "@onpoint-dev-tools/crewcoder-client", version: "0.1.0" },
       "crewcoder-sdk/package.json": { name: "@onpoint-dev-tools/crewcoder-sdk", version: "0.1.0", dependencies: { "@onpoint-dev-tools/crewcoder-agent": "0.1.0", "@onpoint-dev-tools/crewcoder-client": "0.1.0" } },
       "crewcoder-tui/package.json": { name: "@onpoint-dev-tools/crewcoder-tui", version: "0.0.9" }
@@ -69,7 +69,7 @@ describe("release automation", () => {
       "@onpoint-dev-tools/crewcoder-client": "0.2.3"
     });
     const agentManifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "crewcoder-agent/package.json"), "utf8"));
-    expect(agentManifest.dependencies["@openai/codex"]).toBe("latest");
+    expect(agentManifest.dependencies).not.toHaveProperty("@openai/codex");
     for (const relativePath of Object.keys(constants)) {
       expect(fs.readFileSync(path.join(repositoryRoot, relativePath), "utf8")).toContain('"0.2.3"');
     }

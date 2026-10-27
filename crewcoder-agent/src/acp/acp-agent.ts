@@ -41,7 +41,9 @@ import { HeuristicModelClient, type ModelClient, type ModelQuestion } from "../c
 import { CLIENT_SYSTEM_PROMPT_MAX_CHARS } from "../core/system-prompt.js";
 import type { ApprovalControlDecision } from "../core/stdin-control.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
-import { listBuiltinProviderModels, resolveModel } from "../providers/model-registry.js";
+import { resolveModel } from "../providers/model-registry.js";
+import { listProviders } from "../providers/provider-registry.js";
+import { listProviderModelIds } from "../providers/model-resolution.js";
 import { createClientTextFileHost, virtualFilesystemFromMeta } from "./client-files.js";
 import { translateEvent, type SessionUpdate } from "./event-translator.js";
 import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
@@ -205,7 +207,7 @@ export class CrewCoderAcpAgent implements Agent {
     // `models` is not in the 1.x ACP schema (the model API was removed), but
     // clients still read it off `session/new` to populate their model picker.
     // Emitting it is additive: clients that ignore it are unaffected.
-    return { sessionId, models: this.modelState(session) } as NewSessionResponse;
+    return { sessionId, models: await this.modelState(session) } as NewSessionResponse;
   }
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -240,7 +242,7 @@ export class CrewCoderAcpAgent implements Agent {
       }
     }
 
-    return { models: this.modelState(session) } as LoadSessionResponse;
+    return { models: await this.modelState(session) } as LoadSessionResponse;
   }
 
   /**
@@ -661,11 +663,11 @@ export class CrewCoderAcpAgent implements Agent {
    * the picker by the prefix, which is why CrewCoder presents as one provider
    * whose model list spans every configured backend.
    */
-  private modelState(session: AcpSession): AcpModelState | undefined {
+  private async modelState(session: AcpSession): Promise<AcpModelState | undefined> {
     const availableModels: AcpModelInfo[] = [];
-    for (const entry of listBuiltinProviderModels()) {
-      for (const name of entry.models) {
-        availableModels.push({ modelId: `${entry.provider}:${name}`, name: `${entry.provider} / ${name}` });
+    for (const provider of await listProviders()) {
+      for (const name of listProviderModelIds(provider)) {
+        availableModels.push({ modelId: `${provider.id}:${name}`, name: `${provider.id} / ${name}` });
       }
     }
     if (!availableModels.length) return undefined;

@@ -691,6 +691,8 @@ export class App implements Component {
     if (value.startsWith("/sidebar ") || value.startsWith("sidebar ")) { this.setSidebar(value.replace(/^\/?sidebar\s+/, "").trim()); return; }
     if (value === "/effort") { this.openEffortOverlay(); return; }
     if (value.startsWith("/effort ") || value.startsWith("effort ")) { this.setEffort(value.replace(/^\/?effort\s+/, "").trim()); return; }
+    if (value === "/identity" || value === "identity") { void this.setWorkerIdentity("status"); return; }
+    if (value.startsWith("/identity ") || value.startsWith("identity ")) { void this.setWorkerIdentity(value.replace(/^\/?identity\s+/, "")); return; }
     if (value === "/thinking" || value === "thinking") { void this.setThinking("status"); return; }
     if (value.startsWith("/thinking ") || value.startsWith("thinking ")) { void this.setThinking(value.replace(/^\/?thinking\s+/, "").trim()); return; }
     if (value === "/full-access" || value === "full-access") { this.toggleFullAccess(); return; }
@@ -1298,6 +1300,7 @@ export class App implements Component {
     if (config.defaultProvider) this.state.provider = config.defaultProvider;
     if (config.defaultModel) this.state.model = config.defaultModel;
     if (config.thinkingEnabled !== undefined) this.state.thinkingEnabled = config.thinkingEnabled;
+    if (config.workerIdentityEnabled !== undefined) this.state.workerIdentityEnabled = config.workerIdentityEnabled;
     if (config.allowExtensionLiveUi !== undefined) {
       this.state.allowExtensionLiveUi = config.allowExtensionLiveUi;
       this.liveUiTrustGate.allowed = config.allowExtensionLiveUi;
@@ -1491,13 +1494,14 @@ export class App implements Component {
   }
 
   private showModesOverlay(workers: Array<{ name: string; active: boolean; ownerName: string | null }>): void {
+    const selectedWorker = this.state.workerIdentityEnabled ? this.state.worker : undefined;
     const builtinModes: PickerOption[] = [
-      { label: !this.state.worker && this.state.mode === "general" ? "* general" : "general", value: "general", description: "General coding agent mode" },
-      { label: !this.state.worker && this.state.mode === "crewcoder" ? "* crewcoder" : "crewcoder", value: "crewcoder", description: "Deliberate clarify, plan, approve, and implement workflow" },
-      ...(this.state.integrationProfile === "crewcode" ? [{ label: !this.state.worker && this.state.mode === "plugin" ? "* plugin" : "plugin", value: "plugin", description: "CrewCode app plugin architect mode" }] : []),
-      { label: !this.state.worker && this.state.mode === "extension" ? "* extension" : "extension", value: "extension", description: "CrewCoder extension architect mode" }
+      { label: !selectedWorker && this.state.mode === "general" ? "* general" : "general", value: "general", description: "General coding agent mode" },
+      { label: !selectedWorker && this.state.mode === "crewcoder" ? "* crewcoder" : "crewcoder", value: "crewcoder", description: "Deliberate clarify, plan, approve, and implement workflow" },
+      ...(this.state.integrationProfile === "crewcode" ? [{ label: !selectedWorker && this.state.mode === "plugin" ? "* plugin" : "plugin", value: "plugin", description: "CrewCode app plugin architect mode" }] : []),
+      { label: !selectedWorker && this.state.mode === "extension" ? "* extension" : "extension", value: "extension", description: "CrewCoder extension architect mode" }
     ];
-    const activeWorkerName = this.state.worker ?? workers.find((worker) => worker.active)?.name;
+    const activeWorkerName = this.state.workerIdentityEnabled ? selectedWorker ?? workers.find((worker) => worker.active)?.name : undefined;
     const workerOptions: PickerOption[] = workers.map((worker) => ({
       label: worker.name === activeWorkerName ? `* ${worker.name}` : worker.name,
       value: worker.name,
@@ -1588,6 +1592,29 @@ export class App implements Component {
       }),
       8
     );
+  }
+
+  private async setWorkerIdentity(value: string): Promise<void> {
+    const action = value.trim().toLowerCase();
+    if (!action || action === "status") {
+      this.state.blocks.push({ type: "system", text: `Worker identity is ${this.state.workerIdentityEnabled ? "on" : "off"}.` });
+      return;
+    }
+    if (action !== "on" && action !== "off") {
+      this.state.blocks.push({ type: "error", text: "Usage: /identity on|off|status" });
+      return;
+    }
+    try {
+      const { stderr, exitCode } = await execCrewCoderCommand(["config", "set", "workerIdentityEnabled", action === "on" ? "true" : "false"]);
+      if (exitCode !== 0) {
+        this.state.blocks.push({ type: "error", text: stderr.trim() || "Could not update worker identity setting." });
+        return;
+      }
+      this.state.workerIdentityEnabled = action === "on";
+      this.state.blocks.push({ type: "system", text: `Worker identity turned ${action}. Applies to future runs.` });
+    } catch (error) {
+      this.state.blocks.push({ type: "error", text: `Could not update worker identity setting: ${error instanceof Error ? error.message : String(error)}` });
+    }
   }
 
   private async setThinking(value: string): Promise<void> {
@@ -3097,6 +3124,7 @@ type CrewCoderReloadConfig = {
   allowExtensionLiveUi?: boolean;
   checkpointsEnabled?: boolean;
   thinkingEnabled?: boolean;
+  workerIdentityEnabled?: boolean;
   goals?: { maxTurns: number; checkModel?: string; timeoutMinutes: number };
 };
 
@@ -3201,6 +3229,7 @@ async function readCrewCoderConfig(): Promise<CrewCoderReloadConfig | undefined>
       allowExtensionLiveUi: raw.allowExtensionLiveUi === true ? true : undefined,
       checkpointsEnabled: raw.checkpointsEnabled !== false,
       thinkingEnabled: raw.thinkingEnabled !== false,
+      workerIdentityEnabled: raw.workerIdentityEnabled === true,
       goals: goals ? {
         maxTurns: normalizedGoalConfigInteger(goals.maxTurns, 200, 10_000),
         timeoutMinutes: normalizedGoalConfigInteger(goals.timeoutMinutes, 480, 43_200),
@@ -3293,11 +3322,11 @@ function extractHostname(urlStr: string): string | undefined {
 
 export const builtinProviderDefaults: ProviderRecord[] = [
   {
-    id: "codex",
-    title: "OpenAI Codex",
+    id: "codex-cli",
+    title: "OpenAI Codex CLI",
     models: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
     defaultModel: "gpt-6-luna",
-    description: "- OAuth ChatGPT subscription. Run: crewcoder login codex."
+    description: "- Your installed Codex CLI and its login. Run: codex login."
   },
   {
     id: "opencode",

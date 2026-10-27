@@ -9,6 +9,7 @@ const directCapabilities = {
   acceptsWorkingDirectory: false
 };
 
+// Native discovery supplies picker choices; these retain known metadata and offline fallbacks.
 const codexModelCatalog: ProviderModel[] = [
   { id: "gpt-6-astra", contextWindow: 1_050_000 },
   { id: "gpt-6.1-sol", contextWindow: 1_050_000 },
@@ -35,21 +36,6 @@ const claudeModelCatalog: ProviderModel[] = [
 
 export const builtinProviders: ProviderDefinition[] = [
   {
-    id: "codex",
-    title: "OpenAI Codex",
-    kind: "builtin",
-    runtime: "openai-codex-responses",
-    command: "http",
-    args: [],
-    endpoint: process.env.CREWCODER_CODEX_ENDPOINT ?? "https://chatgpt.com/backend-api/codex/responses",
-    models: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
-    modelCatalog: codexModelCatalog,
-    defaultModel: "gpt-5.6-luna",
-    capabilities: directCapabilities,
-    transport: { channel: "process", continuation: "provider-session", fallback: "http-sse", replay: "never" },
-    description: "- OAuth ChatGPT subscription. Run: crewcoder login codex."
-  },
-  {
     id: "codex-cli",
     title: "OpenAI Codex CLI",
     kind: "builtin",
@@ -60,9 +46,7 @@ export const builtinProviders: ProviderDefinition[] = [
     modelCatalog: codexModelCatalog,
     defaultModel: "gpt-5.6-luna",
     capabilities: directCapabilities,
-    // The runtime's transport contract is fixed; codex-cli still never takes the
-    // direct fallback because that would need CrewCoder-owned credentials.
-    transport: { channel: "process", continuation: "provider-session", fallback: "http-sse", replay: "never" },
+    transport: { channel: "process", continuation: "provider-session", replay: "never" },
     description: "- Your own Codex CLI and its login. Install the Codex CLI, then run: codex login."
   },
   {

@@ -1,11 +1,15 @@
 # Bring-your-own Codex CLI provider
 
-The `codex-cli` provider runs the user's own installed Codex CLI (`codex app-server --stdio`) with the user's own Codex login. CrewCoder never reads, copies, refreshes, or stores those tokens. This is the opposite of the `codex` provider, which signs in through `crewcoder login codex` and holds ChatGPT OAuth tokens itself.
+The `codex-cli` provider is CrewCoder's sole Codex provider and fresh-install default.
+It runs the user's installed Codex CLI (`codex app-server --stdio`) with its own
+login. CrewCoder never reads, copies, refreshes, or stores those tokens. The former
+managed `codex` provider and `crewcoder login codex` flow have been removed.
 
 ## Setup
 
 ```bash
 codex login                 # the user's normal Codex CLI sign-in
+crewcoder config set defaultProvider codex-cli # replace a previously configured codex default
 crewcoder auth --json       # codex-cli should report "signed-in"
 crewcoder run --provider codex-cli --model gpt-5.6-luna "inspect this repository"
 ```

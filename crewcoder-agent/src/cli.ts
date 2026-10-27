@@ -34,10 +34,8 @@ import { ProviderModelClient } from "./providers/provider-model-client.js";
 import { createModelClientFromEnv } from "./core/model-client.js";
 import { listProviderModelIds } from "./providers/model-resolution.js";
 import { resolveModel } from "./providers/model-registry.js";
-import { loginCodexDeviceCode } from "./providers/oauth-codex.js";
-import { removeAuthCredential, setAuthCredential, readAuthFile, getAuthPath, getProviderAuth } from "./providers/auth-store.js";
+import { removeAuthCredential, setAuthCredential, readAuthFile, getAuthPath } from "./providers/auth-store.js";
 import { collectProviderAuthStatus, PROVIDER_AUTH_STATUS_SCHEMA_VERSION, runCliStatusCommand } from "./providers/provider-auth-status.js";
-import { saveCodexAppServerCredential } from "./providers/codex-app-server-provider.js";
 import { getActiveWorker, listWorkers, createWorker, deleteWorker, setActiveWorker, setWorkerIdentityValue, getWorkerIdentityMdPath, type IdentitySetKey } from "./core/identity.js";
 import { loadCrewCoderExtensions } from "./extensions/extension-loader.js";
 import { inspectExtension, setExtensionEnabled, setExtensionTrusted, setExtensionTrustTier, getExtensionTrustTier, validateExtensionPath } from "./extensions/extension-registry.js";
@@ -53,7 +51,6 @@ import { addSessionExternalDirectory, removeSessionExternalDirectory, setSession
 import { listSessionCheckpoints, previewSessionCheckpointRestore, restoreSessionCheckpoint } from "./core/session-checkpoints.js";
 import type { ApprovalMode } from "./core/approval.js";
 import { createBackendDebugLogger } from "./core/backend-debug-logger.js";
-import { openUrlInDefaultBrowser } from "./core/browser-opener.js";
 import type { AgentEventSink } from "./core/events.js";
 import { runCrewTaskCommand } from "./crew-tasks/cli.js";
 import { getSystemPrompt, listSystemPrompts, resolveSystemPromptsDir, saveSystemPrompt } from "./core/system-prompt-store.js";
@@ -188,7 +185,7 @@ crew.command("run")
   .argument("<prompt...>")
   .requiredOption("--workers <names>", "Comma-separated worker names, e.g. reviewer,builder")
   .option("-m, --mode <mode>", AGENT_MODE_LIST)
-  .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
+  .option("-p, --provider <provider>", "codex-cli, claude, opencode, or extension provider")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
   .option("--max-iterations <number>", "Maximum iterations")
@@ -205,7 +202,7 @@ crew.command("handoff")
   .argument("<sessionId>", "Source session id")
   .argument("[prompt...]")
   .option("-m, --mode <mode>", AGENT_MODE_LIST)
-  .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
+  .option("-p, --provider <provider>", "codex-cli, claude, opencode, or extension provider")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
   .option("--max-iterations <number>", "Maximum iterations")
@@ -233,7 +230,7 @@ crewTeam.command("run")
   .argument("<teamId>")
   .argument("<prompt...>")
   .option("-m, --mode <mode>", AGENT_MODE_LIST)
-  .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
+  .option("-p, --provider <provider>", "codex-cli, claude, opencode, or extension provider")
   .option("--model <model>", "Provider model")
   .option("--effort <level>", "Reasoning effort: none, low, medium, high, xhigh")
   .option("--max-iterations <number>", "Maximum iterations")
@@ -1088,26 +1085,10 @@ extension.command("live-ui").option("--json", "Output raw JSON").description("In
   }
 });
 
-program.command("login").argument("<provider>").description("Login to a subscription/OAuth provider or persist a provider API key from env.").action(async (provider: string) => {
-  if (provider !== "codex") {
-    await importProviderEnvKey(provider);
-    return;
-  }
-  const credential = await loginCodexDeviceCode({
-    onDeviceCode: (info) => {
-      console.log(pc.cyan("OpenAI Codex login"));
-      console.log(`Open: ${pc.bold(info.verificationUri)}`);
-      console.log(`Code: ${pc.bold(info.userCode)}`);
-      void openUrlInDefaultBrowser(info.verificationUri).then((opened) => {
-        console.log(opened ? pc.gray("Opened the login page in your default browser.") : pc.yellow("Could not open the login page automatically. Use the URL above."));
-      });
-      console.log(pc.gray(`Expires in ${Math.round(info.expiresInSeconds / 60)} minutes. Waiting for authorization...`));
-    },
-    onPoll: (message) => console.log(pc.gray(message))
-  });
-  setAuthCredential("codex", credential);
-  saveCodexAppServerCredential(credential);
-  console.log(pc.green(`Logged in to codex. Auth saved to ${getAuthPath()}`));
+program.command("login").argument("<provider>").description("Persist a provider API key from env. Native providers use their own CLI login.").action(async (provider: string) => {
+  if (provider === "codex-cli") throw new Error("Run `codex login` to sign in to the Codex CLI.");
+  if (provider === "claude") throw new Error("Run `claude auth login` to sign in to Claude Code.");
+  await importProviderEnvKey(provider);
 });
 
 program.command("logout").argument("<provider>").description("Remove stored provider credentials.").action((provider: string) => {
@@ -1119,7 +1100,7 @@ const auth = program.command("auth").description("Show and import provider auth 
 auth.option("--json", "Print read-only sign-in status per provider as JSON. Never refreshes or writes credentials.");
 auth.action(async (options: { json?: boolean }) => {
   if (options.json) {
-    const providers = await collectProviderAuthStatus(await listProviders(), {
+    const providers = await collectProviderAuthStatus(await listProviders({ discoverModels: false }), {
       authFile: readAuthFile(), env: process.env, platform: process.platform, now: Date.now(), runCli: runCliStatusCommand
     });
     console.log(JSON.stringify({ schemaVersion: PROVIDER_AUTH_STATUS_SCHEMA_VERSION, providers }, null, 2));
@@ -1131,18 +1112,7 @@ auth.action(async (options: { json?: boolean }) => {
   for (const provider of providers) {
     const credential = auth[provider.id];
     if (credential) {
-      if (provider.id === "codex" && credential.type === "oauth") {
-        try {
-          const active = await getProviderAuth(provider);
-          if (active?.credential?.type === "oauth") saveCodexAppServerCredential(active.credential);
-          console.log(`${pc.cyan(provider.id)}: oauth ready`);
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          console.log(`${pc.red(provider.id + ": oauth needs login")} Run: crewcoder login codex (${detail})`);
-        }
-      } else {
-        console.log(`${pc.cyan(provider.id)}: ${credential.type} stored`);
-      }
+      console.log(`${pc.cyan(provider.id)}: ${credential.type} stored`);
       printed = true;
       continue;
     }
@@ -1194,7 +1164,7 @@ workflow.command("show").argument("<ref>").option("--json", "Output raw JSON").d
   if (!entry.runnable) console.log(pc.yellow(`  Tool steps need trust: crewcoder extension trust ${entry.extensionId} --tier sandboxed`));
 });
 workflow.command("run").argument("<ref>")
-  .option("-p, --provider <provider>", "codex, claude, opencode, or extension provider")
+  .option("-p, --provider <provider>", "codex-cli, claude, opencode, or extension provider")
   .option("-m, --model <model>", "Model id for prompt steps")
   .option("--json", "Output the run result as JSON")
   .description("Run a workflow's steps in order.")
@@ -1260,7 +1230,7 @@ program.command("diff-models")
       knownProviderIds: providers.map((provider) => provider.id),
       defaultProviderId: process.env.CREWCODER_PROVIDER ?? config.defaultProvider
     });
-    if (!candidates.length) throw new Error("No models to compare. Pass --models codex:gpt-5.6,opencode:claude-sonnet-4-6");
+    if (!candidates.length) throw new Error("No models to compare. Pass --models codex-cli:gpt-5.6,opencode:claude-sonnet-4-6");
 
     const effort = normalizeEffortOption(options.effort);
     const storedPrompt = options.systemPrompt ? getSystemPrompt(options.systemPrompt) : undefined;
@@ -1281,7 +1251,7 @@ program.command("diff-models")
 
     // These are real billed turns, so they belong in the ledger like any other.
     if (options.ledger !== false) {
-      const worker = getActiveWorker().name;
+      const worker = config.workerIdentityEnabled ? getActiveWorker().name : undefined;
       for (const result of report.results) {
         if (!result.usage) continue;
         await recordModelUsageCost(
@@ -1328,15 +1298,16 @@ function collectModelSpec(value: string, previous: string[] = []): string[] {
 
 const workers = program.command("workers").description("Manage CrewCoder workers (named agent identities).");
 workers.command("list", { isDefault: true }).option("--json", "Output raw JSON").description("List available workers.").action((options: { json?: boolean }) => {
-  const active = getActiveWorker();
+  const config = readConfig();
+  const activeName = config.workerIdentityEnabled ? getActiveWorker().name : undefined;
   const all = listWorkers();
   if (options.json) {
-    console.log(JSON.stringify(all.map((w) => ({ name: w.name, active: w.name === active.name, ownerName: w.identity.ownerName ?? null, description: w.identity.description ?? null })), null, 2));
+    console.log(JSON.stringify(all.map((w) => ({ name: w.name, active: w.name === activeName, ownerName: w.identity.ownerName ?? null, description: w.identity.description ?? null })), null, 2));
     return;
   }
   if (!all.length) { console.log(pc.yellow("No workers found.")); return; }
   for (const w of all) {
-    const marker = w.name === active.name ? pc.green("*") : " ";
+    const marker = w.name === activeName ? pc.green("*") : " ";
     console.log(`${marker} ${pc.bold(w.name)}${w.identity.ownerName ? pc.gray(` (owner: ${w.identity.ownerName})`) : ""}`);
     if (w.identity.description) console.log(`    ${pc.gray(w.identity.description)}`);
   }
@@ -1378,6 +1349,20 @@ workers.command("delete").argument("<name>").description("Delete a worker.").act
 });
 
 const identity = program.command("identity").description("Manage the active worker's identity (shortcut for workers).");
+for (const action of ["on", "off"] as const) {
+  identity.command(action).description(`${action === "on" ? "Enable" : "Disable"} worker identity in future model prompts.`).action(() => {
+    setConfigValue("workerIdentityEnabled", action === "on" ? "true" : "false");
+    console.log(`Worker identity turned ${action}. Applies to future runs.`);
+  });
+}
+identity.command("status").option("--json", "Print identity setting and selected worker as JSON.").description("Show whether worker identity is enabled.").action((options: { json?: boolean }) => {
+  const config = readConfig();
+  if (options.json) {
+    console.log(JSON.stringify({ enabled: config.workerIdentityEnabled, activeWorker: config.activeWorker }, null, 2));
+    return;
+  }
+  console.log(`Worker identity is ${config.workerIdentityEnabled ? "on" : "off"}. Selected worker: ${config.activeWorker}.`);
+});
 identity.command("show", { isDefault: true }).description("Show the active worker identity.").action(() => {
   const w = getActiveWorker();
   console.log(JSON.stringify({ worker: w.name, ...w.identity }, null, 2));
@@ -1521,7 +1506,7 @@ cost.command("show", { isDefault: true })
     }
   });
 cost.command("price")
-  .argument("<key>", "provider:model (for example codex:gpt-5.6-luna) or a bare model id")
+  .argument("<key>", "provider:model (for example codex-cli:gpt-5.6-luna) or a bare model id")
   .description("Set a USD-per-million-token rate override used by the cost ledger.")
   .requiredOption("--input <usd>", "Input tokens, USD per million")
   .requiredOption("--output <usd>", "Output tokens, USD per million")
@@ -1656,7 +1641,7 @@ program.command("config").argument("<action>", "show or set").argument("[key]").
   }
   if (action !== "set") throw new Error("Supported actions: show, set.");
   if (!key || value === undefined) throw new Error("Usage: config set <key> <value>");
-  const allowed = ["defaultMode", "defaultProvider", "defaultModel", "maxIterations", "stallDetection", "stallRepeatThreshold", "stallErrorThreshold", "allowExtensionTools", "allowExtensionHooks", "allowExtensionModules", "allowExtensionLiveUi", "disabledExtensions", "trustedExtensions", "sandboxedExtensions", "sandboxAllowedHosts", "sandboxNetworkIsolation", "checkpointsEnabled", "autoCompact", "autoCompactThresholdTokens", "compactionPreview", "goals.maxTurns", "goals.checkModel", "goals.timeoutMinutes"] as const;
+  const allowed = ["defaultMode", "defaultProvider", "defaultModel", "workerIdentityEnabled", "maxIterations", "stallDetection", "stallRepeatThreshold", "stallErrorThreshold", "allowExtensionTools", "allowExtensionHooks", "allowExtensionModules", "allowExtensionLiveUi", "disabledExtensions", "trustedExtensions", "sandboxedExtensions", "sandboxAllowedHosts", "sandboxNetworkIsolation", "checkpointsEnabled", "autoCompact", "autoCompactThresholdTokens", "compactionPreview", "goals.maxTurns", "goals.checkModel", "goals.timeoutMinutes"] as const;
   if (!allowed.includes(key as typeof allowed[number])) throw new Error(`Supported keys: ${allowed.join(", ")}`);
   const config = setConfigValue(key as typeof allowed[number], value);
   console.log(JSON.stringify(config, null, 2));
@@ -2000,7 +1985,7 @@ function parseSinceOption(value: string): Date {
   return new Date(timestamp);
 }
 async function importProviderEnvKey(providerId: string): Promise<void> {
-  const provider = (await listProviders()).find((item) => item.id === providerId);
+  const provider = (await listProviders({ discoverModels: false })).find((item) => item.id === providerId);
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
   if (!provider.apiKeyEnv) throw new Error(`Provider ${providerId} does not declare an API-key environment variable.`);
   const key = process.env[provider.apiKeyEnv];

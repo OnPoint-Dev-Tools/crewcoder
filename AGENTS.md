@@ -254,6 +254,8 @@ crewcoder/
 
 ## Current hard-won notes
 
+- Worker identity is off by default and opt-in through `workerIdentityEnabled` and `identity on|off|status`. Preserve `activeWorker` selection while disabled; keep default/custom/host system prompts and propagate identity suppression to delegated runs. Host opt-in must never override the user's opt-out.
+- `codex-cli` is the sole registered Codex provider and fresh-install default; do not restore the managed `codex` provider or its bundled dependency/login flow. Claude model discovery and execution must share the executable resolver: explicit override, installed Claude Code on PATH, then the SDK bundle. An older SDK bundle must not hide models exposed by the user's installed CLI.
 - Provider thinking streams are user-visible behavior. Do not remove or simplify `onThinkingDelta`, `thinking_delta`, or TUI `thinking` blocks without replacing the behavior and tests.
 - Codex/OpenAI reasoning summaries can arrive as live `response.reasoning_summary_text.delta`, final `response.reasoning_*_done`, response-level `output` reasoning items, or completed `response.output_item.done` reasoning items.
 - OpenCode uses the Anthropic-compatible provider path and must request `stream: true` to surface thinking deltas.

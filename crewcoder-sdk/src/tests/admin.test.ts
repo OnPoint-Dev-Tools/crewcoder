@@ -29,6 +29,16 @@ describe("CrewCoderAdmin", () => {
     expect(() => admin.config.set("maxIterations", "invalid")).toThrow(/maxIterations/);
   });
 
+  it("toggles worker identity without changing the selected worker", () => {
+    const admin = new CrewCoderAdmin({ cwd: root });
+    const selected = admin.config.get().activeWorker;
+    expect(admin.config.get().workerIdentityEnabled).toBe(false);
+    expect(admin.config.set("workerIdentityEnabled", "false")).toMatchObject({ activeWorker: selected, workerIdentityEnabled: false });
+    expect(admin.config.get().workerIdentityEnabled).toBe(false);
+    expect(() => admin.config.set("workerIdentityEnabled", "off")).toThrow(/must be true or false/);
+    expect(admin.config.set("workerIdentityEnabled", "true").activeWorker).toBe(selected);
+  });
+
   it("reports profile precedence and updates project or user scope", () => {
     const admin = new CrewCoderAdmin({ cwd: root });
 

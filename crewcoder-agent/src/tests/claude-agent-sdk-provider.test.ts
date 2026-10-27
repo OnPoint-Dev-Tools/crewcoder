@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as claudeExecutable from "../providers/claude-executable.js";
 
 const queryMock = vi.hoisted(() => vi.fn());
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
@@ -13,8 +14,20 @@ import type { ProviderDefinition } from "../providers/types.js";
 const provider: ProviderDefinition = { id: "claude", title: "Claude SDK", kind: "builtin", runtime: "claude-agent-sdk", command: "sdk", args: [] };
 
 beforeEach(() => queryMock.mockReset());
+afterEach(() => vi.restoreAllMocks());
 
 describe("Claude Agent SDK provider", () => {
+  it("uses the same installed executable resolver as model discovery", async () => {
+    vi.spyOn(claudeExecutable, "resolveClaudeExecutable").mockReturnValue("/installed/claude");
+    queryMock.mockReturnValue({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } });
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo", model: "future-claude",
+      modelInput: { systemPrompt: "system", messages: [], availableTools: [] },
+      stream: { executeTool: vi.fn() }
+    });
+    expect(queryMock.mock.calls[0][0].options.pathToClaudeCodeExecutable).toBe("/installed/claude");
+  });
+
   it("uses project context, hybrid native tools, and CrewCoder MCP execution", async () => {
     queryMock.mockImplementation((request?: { options?: unknown }) => ({
       async *[Symbol.asyncIterator]() {

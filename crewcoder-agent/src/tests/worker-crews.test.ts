@@ -8,6 +8,7 @@ import type { ModelClient } from "../core/model-client.js";
 import type { ToolDefinition } from "../core/tool-types.js";
 import { delegateWorkerTool } from "../tools/delegate-worker.js";
 import { createWorker } from "../core/identity.js";
+import { setConfigValue } from "../core/config.js";
 import { saveSession } from "../core/session-store.js";
 import { loadSession } from "../core/session-loader.js";
 import { handoffToWorker, parseWorkerList, parseWorkerRef, runWorkerCrew } from "../core/worker-crews.js";
@@ -30,6 +31,7 @@ describe("worker crews", () => {
     const originalHome = process.env.CREWCODER_HOME;
     process.env.CREWCODER_HOME = home;
     try {
+      setConfigValue("workerIdentityEnabled", "true");
       createWorker("reviewer", { description: "Reviews code." });
       createWorker("builder", { description: "Builds code." });
       const seenPrompts: string[] = [];
@@ -60,6 +62,7 @@ describe("worker crews", () => {
     const originalHome = process.env.CREWCODER_HOME;
     process.env.CREWCODER_HOME = home;
     try {
+      setConfigValue("workerIdentityEnabled", "true");
       createWorker("reviewer", { description: "Reviews code." });
       createWorker("builder", { description: "Builds code." });
       const events: Array<{ type: string; worker?: string; status?: string }> = [];
@@ -121,6 +124,7 @@ describe("worker crews", () => {
     const originalHome = process.env.CREWCODER_HOME;
     process.env.CREWCODER_HOME = home;
     try {
+      setConfigValue("workerIdentityEnabled", "true");
       createWorker("researcher", { description: "Researches docs." });
       let call = 0;
       const modelClient: ModelClient = {
@@ -155,6 +159,7 @@ describe("worker crews", () => {
     const originalHome = process.env.CREWCODER_HOME;
     process.env.CREWCODER_HOME = home;
     try {
+      setConfigValue("workerIdentityEnabled", "true");
       createWorker("researcher", { description: "Researches docs." });
       const reader: ToolDefinition = {
         name: "read",
@@ -204,6 +209,7 @@ describe("worker crews", () => {
     const originalHome = process.env.CREWCODER_HOME;
     process.env.CREWCODER_HOME = home;
     try {
+      setConfigValue("workerIdentityEnabled", "true");
       createWorker("reviewer", { description: "Reviews code." });
       await saveSession({
         id: "session_source",

@@ -15,10 +15,20 @@ claude
 crewcoder run --provider claude --model claude-sonnet-5 "inspect this repository"
 ```
 
-The SDK bundles its platform Claude executable. Set `CREWCODER_CLAUDE_PATH` only when CrewCoder
-must use a specific installed Claude Code executable. CrewCoder defaults
+CrewCoder selects `CREWCODER_CLAUDE_PATH` when set, otherwise the first executable
+`claude` on `PATH`, and uses the SDK's bundled executable only when no installed
+CLI is available. Model discovery and inference share this resolver, so a newer
+installed CLI supplies its current catalog instead of the SDK bundle's older list.
+An explicit override is authoritative; an invalid override is not replaced.
+On Windows, use the actual executable through `CREWCODER_CLAUDE_PATH` when the
+installation exposes only a `.cmd` shim. CrewCoder defaults
 `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT` to 24 hours because MCP-backed tools can remain paused for user
 approval; an explicitly configured value is preserved.
+
+Model pickers call SDK `supportedModels()` without sending an inference prompt.
+Alias rows include their canonical `resolvedModel` IDs. Executable path and file
+changes invalidate the process catalog cache, so native CLI updates are detected
+without maintaining another model allowlist. See [automatic model discovery](PROVIDERS.md#automatic-model-discovery).
 
 ## Hybrid tool ownership
 

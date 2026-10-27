@@ -4,7 +4,7 @@ Run one prompt against N models side by side and compare **response, cost, and l
 
 ```bash
 crewcoder diff-models "Write a retry helper with exponential backoff" \
-  --models codex:gpt-5.6,opencode:claude-sonnet-4-6
+  --models codex-cli:gpt-5.6,opencode:claude-sonnet-4-6
 ```
 
 ## What it is (and is not)
@@ -28,8 +28,8 @@ active worker. Use `--no-ledger` to opt out.
 
 | Spec | Resolves to |
 |---|---|
-| `codex:gpt-5.6` | provider `codex`, model `gpt-5.6` |
-| `codex` | provider `codex`, its default model |
+| `codex-cli:gpt-5.6` | provider `codex-cli`, model `gpt-5.6` |
+| `codex` | provider `codex-cli`, its default model |
 | `gpt-5.6` | the default provider, model `gpt-5.6` |
 | `qwen-2.5:free` | the default provider, model `qwen-2.5:free` |
 
@@ -79,7 +79,7 @@ than comparing answers.
   "concurrent": true,
   "results": [
     {
-      "candidate": { "providerId": "codex", "model": "gpt-5.6", "label": "codex:gpt-5.6" },
+      "candidate": { "providerId": "codex-cli", "model": "gpt-5.6", "label": "codex-cli:gpt-5.6" },
       "ok": true,
       "text": "…",
       "latencyMs": 4180,

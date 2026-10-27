@@ -20,7 +20,10 @@ CrewCoder should become a best-in-class coding agent with:
 
 ## CLI aliases
 
-The `@openai/codex` dependency uses npm's `latest` tag so new CrewCoder installations receive the current stable Codex app-server. Keep `scripts/release.cjs` from replacing that tag with an exact version. Existing installations update only when their package manager installs again.
+`codex-cli` is the sole registered Codex provider and fresh-install default. It uses
+the user's installed Codex CLI and login; never restore the managed `codex` provider,
+its device login flow, or an `@openai/codex` package dependency through release automation.
+Existing configs naming `codex` must explicitly select `codex-cli`; there is no provider alias.
 
 The agent package maps `crewcoder`, `crew`, and `crewcoder-agent` to the same CLI entrypoint. Keep `crew` behavior identical to `crewcoder`, including no-argument TUI launch and all argument-bearing backend commands. Never restore the `cc` alias because it shadows the standard Unix C compiler command.
 
@@ -184,7 +187,7 @@ Do not store CrewCoder extensions under `/.crewcode`.
 
 ```txt
 1. Built-in providers
-   - codex
+   - codex-cli
    - claude
    - opencode
 
@@ -204,6 +207,20 @@ Do not store CrewCoder extensions under `/.crewcode`.
 Built-ins are not plugins. They live in `src/providers` and are first-class provider adapters.
 
 Users add additional providers through CrewCoder extensions.
+
+Native model catalogs for `codex-cli` and `claude` come from app-server
+`model/list` and Agent SDK `supportedModels()`. Keep the bundled catalogs as
+offline fallbacks and known context metadata, never as the picker allowlist.
+Update both `models` and `modelCatalog` when hydrating: picker resolution prefers
+the latter. Preserve five-second discovery deadlines, bounded pagination,
+five-minute process caching, account separation, and no-inference discovery.
+Claude catalog probes must disable hooks/tools/MCP/skills and persistence.
+Discovery and execution must share `resolveClaudeExecutable`: explicit override,
+installed `claude` on PATH, then the SDK bundle. Never let an older bundled CLI
+hide models available in the user's installed CLI. Executable changes invalidate the cache.
+ACP model state must await the same discovered registry used by CLI/TUI.
+`auth --json` must use `listProviders({ discoverModels: false })` to avoid
+credential refreshes and discovery subprocesses. See [Providers](docs/PROVIDERS.md#automatic-model-discovery).
 
 Thinking/reasoning stream behavior is part of the provider contract:
 
@@ -245,7 +262,7 @@ Codex / OpenAI Responses:
 - Never treat reasoning token usage as proof the UI received a summary; usage can show reasoning_tokens while no summary was emitted.
 - If successful Codex output leaks raw SSE `data:` lines, normalize it back into CrewCoder assistant JSON before returning.
 - HTTP 200 does not prove a successful Codex turn: SSE `error`, `response.failed`, and `response.incomplete` events are terminal provider failures. A stream ending without assistant text, tool calls, or completion metadata is also a provider/protocol failure, never a successful `(empty Codex response)` placeholder.
-- Codex primarily uses official app-server durable threads stored under CrewCoder's isolated Codex home. Persist only the encoded thread/contract identifier in `providerSessionIds.codex`; never auth tokens. Local app-server turns use its native workspace-write shell/patch capabilities, and provider-native approval requests must route through the active host interaction channel. When `useProviderNativeFileTools` is false for an ACP/SDK virtual filesystem, skip app-server entirely and use the direct Responses transport so built-in local shell/patch tools cannot bypass the host filesystem. Preserve failed native `fileChange` error detail rather than projecting only its proposed patch. The direct connection-cached WebSocket and stateless SSE transports are guarded fallbacks; never replay after app-server `turn/start` has been sent.
+- Codex CLI uses official app-server durable threads in the user's own Codex home. Persist the encoded native thread/contract identifier in `providerSessionIds["codex-cli"]`; never auth tokens. Hosted or virtual-filesystem sessions must lock native tools down and use CrewCoder dynamic tools under a read-only sandbox. Preserve native approval routing and failed tool details. The registered provider has no direct Responses, WebSocket, or SSE fallback; never replay a started native turn.
 - Native Codex approval questions show the reason without appending the shell command; keep command details in tool events and preserve all provider approval decision values. See `docs/CODEX_CLI_PROVIDER.md`.
 - Native Codex command failures must preserve error text and otherwise report declined status or exit code. Empty `aggregatedOutput` is not a useful failure result and must not become an unexplained blank tool row.
 - Provider-native compaction is observable lifecycle, not merely a token-count change. Codex app-server `contextCompaction` item start/completion and legacy `thread/compacted` notifications must emit one deduplicated provider-compaction lifecycle; Claude `compact_boundary` must emit provider completion. ACP projects these through `_crewcoder/compaction_update` without claiming the CrewCoder durable transcript itself was rewritten.
@@ -306,7 +323,7 @@ serialization      -> provider adapters read the file + base64 at request time
   into the user text; only the text is rewritten.
 - Encoded per runtime: `anthropic-messages` -> Anthropic `image`/base64 (or OpenAI
   chat `image_url` for OpenAI-shaped models); `openai-responses` and
-  `openai-codex-responses` (codex) -> Responses API `input_image` data URI.
+  `openai-codex-responses` (codex-cli) -> app-server `localImage` input.
 - Codex image input is additive: it adds an `input_image` content part to the user
   turn only. It does NOT change the sensitive ChatGPT OAuth contract (originator,
   headers, model access, session/thread metadata, tool_choice, prompt_cache_key) —
@@ -516,7 +533,7 @@ See `docs/COST_LEDGER.md`.
 
 ## Model diff (`diff-models`)
 
-`crewcoder diff-models <prompt> --models codex:gpt-5.6,opencode:claude-sonnet-4-6` races one
+`crewcoder diff-models <prompt> --models codex-cli:gpt-5.6,opencode:claude-sonnet-4-6` races one
 prompt across N models and reports response, cost, and latency. Like `session why`, it is a
 **one-shot call per candidate with `availableTools: []` and no session write** — it must never
 become an agent run or gain tools. Candidates run in parallel by default (`--sequential` when
@@ -727,9 +744,9 @@ crewcoder sessions
 crewcoder session show <id>
 crewcoder session show <id> --out conversation.md
 crewcoder session why <id>
-crewcoder diff-models "explain generics" --models codex:gpt-5.6,opencode:claude-sonnet-4-6
+crewcoder diff-models "explain generics" --models codex-cli:gpt-5.6,opencode:claude-sonnet-4-6
 crewcoder cost --today --by-model
-crewcoder cost price codex:gpt-5.6-luna --input 1.25 --output 10
+crewcoder cost price codex-cli:gpt-5.6-luna --input 1.25 --output 10
 crewcoder doctor
 ```
 
@@ -1047,7 +1064,12 @@ CrewCoder supports multiple named **workers** (agent identities) the user can sw
 - `identity.json` — structured identity: `workerName`, `ownerName`, `ownerHandle`, `description`.
 - `IDENTITY.md` (per worker) — freeform persona/instructions for that worker. Its body is embedded in the worker identity block in the system prompt. Defines WHO the worker is and HOW it behaves.
 
-The **active worker** is stored in `config.json` as `activeWorker` (default `"Crew"`). A default `Crew` worker is auto-created on first use; a legacy single `identity.json` is migrated into it once.
+The selected worker is stored in `config.json` as `activeWorker` (default `"Crew"`).
+`workerIdentityEnabled` (default `false`; explicit opt-in required) separately controls prompt identity.
+`crewcoder identity on|off|status` and TUI `/identity on|off|status` manage it.
+Disabling preserves worker files and the selected name; ordinary identity-off
+runs and worker listing must not auto-create a default worker. Explicit worker
+selections remain validated. See [optional worker identity](docs/WORKER_IDENTITY.md).
 
 ### Two instruction layers — keep them separate
 
@@ -1057,7 +1079,13 @@ Repo AGENTS.md         -> rules for the codebase in the working dir (normal AGEN
 This AGENTS.md         -> CrewCoder package docs/standards, documentation ONLY
 ```
 
-Identity assembly lives in `src/core/identity.ts` (`getActiveWorker`, `buildIdentityPrompt`). The agent loop passes the identity block, including the `IDENTITY.md` body, to `buildSystemPrompt` as `identityPrompt`, so it sits at the top of the system prompt on every run. Fresh installs auto-create `Crew` with owner placeholders `CrewCoder User` / `@CrewCoderUser` and a useful general-purpose starter identity; never overwrite an existing worker's customized files.
+Identity assembly lives in `src/core/identity.ts` (`getActiveWorker`, `buildIdentityPrompt`).
+The agent loop includes that block only when both user config and the host/run
+instruction policy permit it. Neither an explicit worker nor a host enabling its
+identity policy overrides user opt-out. Delegated children inherit suppression.
+Keep normal/custom/host system prompts and tool/approval policy intact. Fresh
+identity-enabled installs create `Crew` with placeholder owner metadata; never
+overwrite customized worker files.
 
 ### Worker commands
 

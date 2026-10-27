@@ -8,7 +8,7 @@ const DEFAULT_TRANSPORTS: Record<ProviderRuntime, ProviderTransportProfile> = {
   "anthropic-messages": { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
   "openai-chat-completions": { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
   "openai-responses": { channel: "http-sse", continuation: "none", replay: "pre-stream-only" },
-  "openai-codex-responses": { channel: "process", continuation: "provider-session", fallback: "http-sse", replay: "never" },
+  "openai-codex-responses": { channel: "process", continuation: "provider-session", replay: "never" },
   websocket: { channel: "websocket", continuation: "provider-session", replay: "never" }
 };
 
@@ -49,7 +49,7 @@ export function validateProviderTransport(runtime: ProviderRuntime, profile: Pro
   if (profile.continuation === "provider-session" && profile.channel !== "process" && profile.channel !== "websocket") {
     throw new Error("Provider-session continuation requires process or WebSocket transport");
   }
-  if (profile.fallback !== undefined && runtime !== "openai-codex-responses") {
+  if (profile.fallback !== undefined) {
     throw new Error(`Provider runtime ${runtime} does not implement transport fallback`);
   }
   if (profile.replay === "pre-stream-only" && profile.channel === "process") {

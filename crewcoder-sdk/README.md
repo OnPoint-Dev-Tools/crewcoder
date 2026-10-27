@@ -9,7 +9,7 @@ import { createCrewCoderSession } from "@onpoint-dev-tools/crewcoder-sdk";
 
 const session = createCrewCoderSession({
   cwd: process.cwd(),
-  provider: "codex",
+  provider: "codex-cli",
   approval: "review"
 });
 
@@ -35,7 +35,7 @@ import { CrewCoderAdmin } from "@onpoint-dev-tools/crewcoder-sdk";
 const admin = new CrewCoderAdmin({ cwd: process.cwd() });
 console.log(admin.config.get());
 console.log(admin.profiles.get()); // effective profile plus project/user precedence
-admin.config.set("defaultProvider", "codex");
+admin.config.set("defaultProvider", "codex-cli");
 admin.profiles.use("standalone", "project");
 
 admin.memory.setEnabled(true);

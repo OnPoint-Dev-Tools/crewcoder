@@ -4,8 +4,9 @@ import { providersFromExtensions } from "../extensions/extension-loader.js";
 import { listEnabledExtensions } from "../extensions/extension-registry.js";
 import { getProviderApiKey } from "./auth-store.js";
 import { resolveProviderTransport } from "./provider-transport.js";
+import { hydrateNativeProviderModels } from "./native-model-catalog.js";
 
-export async function listProviders(): Promise<ProviderDefinition[]> {
+export async function listProviders(options: { discoverModels?: boolean } = {}): Promise<ProviderDefinition[]> {
   const extensions = await listEnabledExtensions();
   const warnings: string[] = [];
   const providers = [...builtinProviders, ...providersFromExtensions(extensions)];
@@ -19,15 +20,18 @@ export async function listProviders(): Promise<ProviderDefinition[]> {
     return true;
   });
   for (const provider of unique) resolveProviderTransport(provider);
+  if (options.discoverModels === false) return unique;
   return Promise.all(unique.map(hydrateProviderModels));
 }
 
 export async function findProvider(id: string): Promise<ProviderDefinition | undefined> {
-  const providers = await listProviders();
-  return providers.find((provider) => provider.id === id);
+  const providers = await listProviders({ discoverModels: false });
+  const provider = providers.find((provider) => provider.id === id);
+  return provider ? hydrateProviderModels(provider) : undefined;
 }
 
 async function hydrateProviderModels(provider: ProviderDefinition): Promise<ProviderDefinition> {
+  if (provider.kind === "builtin" && ["codex-cli", "claude"].includes(provider.id)) return hydrateNativeProviderModels(provider);
   if (provider.runtime !== "anthropic-messages" && provider.runtime !== "openai-chat-completions" && provider.runtime !== "openai-responses") return provider;
   const modelsUrl = providerModelsUrl(provider);
   if (!modelsUrl) return provider;

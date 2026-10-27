@@ -11,6 +11,11 @@ const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-vitest-"));
 const testHome = path.join(testRoot, ".crewcoder");
 process.env.CREWCODER_HOME = testHome;
 
+// Model discovery must never launch the operator's logged-in native providers.
+// Provider integration tests override these with their own fake executables.
+process.env.CREWCODER_CODEX_PATH = path.join(testRoot, "missing-codex");
+process.env.CREWCODER_CLAUDE_PATH = path.join(testRoot, "missing-claude");
+
 // Live operator keys make listProviders() hydrate OpenAI/OpenCode catalogs over
 // the network. Tests then fail spy assertions and leak secrets in vitest output.
 for (const key of [

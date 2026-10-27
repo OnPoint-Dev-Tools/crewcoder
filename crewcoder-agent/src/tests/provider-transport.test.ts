@@ -43,18 +43,17 @@ describe("provider transport contracts", () => {
 
   it("resolves the curated Codex durable app-server continuation profile", () => {
     const provider: ProviderDefinition = {
-      id: "codex",
+      id: "codex-cli",
       title: "Codex",
       kind: "builtin",
       runtime: "openai-codex-responses",
-      command: "http",
+      command: "codex",
       args: []
     };
 
     expect(resolveProviderTransport(provider)).toEqual({
       channel: "process",
       continuation: "provider-session",
-      fallback: "http-sse",
       replay: "never"
     });
   });

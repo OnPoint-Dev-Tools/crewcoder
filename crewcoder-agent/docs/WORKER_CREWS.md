@@ -11,7 +11,7 @@ crewcoder crew run --workers reviewer,builder "Implement feature X"
 Each worker listed in `--workers`:
 
 - must already exist (`crewcoder workers create <name>`),
-- runs with its own worker identity,
+- uses its own worker identity when `workerIdentityEnabled` is on,
 - gets its own durable session,
 - uses the selected provider/model/options for the run.
 
@@ -20,7 +20,7 @@ Useful options mirror `crewcoder run`:
 ```bash
 crewcoder crew run \
   --workers architect,implementer,reviewer \
-  --provider codex \
+  --provider codex-cli \
   --model gpt-5 \
   --max-iterations 4 \
   "Plan and build the checkout flow"
@@ -47,7 +47,12 @@ Use `/reload` after creating workers, or restart the TUI.
 /workers
 ```
 
-Choose a worker from the picker. Future prompts use that identity, the composer shows its name, and the status bar displays `MODE: worker:<name>`. Selecting `general`, `crewcoder`, `plugin`, or `extension` clears the worker.
+Choose a worker from the picker. With worker identity enabled, future prompts use
+that identity, the composer shows its name, and the status bar displays
+`MODE: worker:<name>`. `/identity off` omits the persona and displays the current
+mode while preserving the selected worker. `/identity on` restores it. Selecting
+`general`, `crewcoder`, `plugin`, or `extension` clears the per-session worker.
+See [optional worker identity](WORKER_IDENTITY.md).
 
 ### Hand off the active session
 

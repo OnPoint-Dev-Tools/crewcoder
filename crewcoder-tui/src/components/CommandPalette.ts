@@ -41,6 +41,7 @@ export const commandCategories: CommandCategory[] = [
     ["/provider", "Pick any configured built-in or extension provider"], ["/model", "Pick model for the active provider"],
     ["/effort", "Pick reasoning effort for this model"], ["/thinking", "Enable or disable provider reasoning: /thinking on|off|status"], ["/modes", "Pick mode or worker: general, crewcoder, plugin, extension, or a saved worker"],
     ["/workers", "Pick mode or worker (alias of /modes)"], ["/prompts", "Pick a custom system prompt"],
+    ["/identity", "Enable or disable worker identity in prompts: /identity on|off|status"],
     ["/full-access", "Toggle approval bypass: /full-access on|off"],
     ["/checkpoints", "Enable or disable automatic checkpoints: /checkpoints on|off|status"],
     ["/file-changes", "Show or hide the file-changes panel: /file-changes on|off|status"],

@@ -178,7 +178,7 @@ npm run dev -w @onpoint-dev-tools/crewcoder-tui
 ```ts
 import { createCrewCoderSession } from "@onpoint-dev-tools/crewcoder-sdk";
 
-const session = createCrewCoderSession({ cwd: process.cwd(), provider: "codex", approval: "review" });
+const session = createCrewCoderSession({ cwd: process.cwd(), provider: "codex-cli", approval: "review" });
 session.subscribe((event) => {
   if (event.type === "assistant_delta") process.stdout.write(event.text);
 });
@@ -201,7 +201,7 @@ See [SDK.md](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-
 ## Detached durable goals
 
 ```sh
-crewcoder goal start "Complete the migration and stop when contract tests pass" --provider codex
+crewcoder goal start "Complete the migration and stop when contract tests pass" --provider codex-cli
 crewcoder goal status
 crewcoder goal approve
 ```

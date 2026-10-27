@@ -12,13 +12,14 @@ When no trustworthy context-window limit is available, the TUI falls back to cum
 
 Context windows are resolved in this order:
 
-1. `modelCatalog[].contextWindow` declared by the active built-in or extension provider.
+1. `modelCatalog[].contextWindow` from the active provider's discovered metadata or declared built-in/extension metadata.
 2. OpenRouter's public model catalog at `https://openrouter.ai/api/v1/models`.
 3. No context-window value; the TUI keeps its token-only fallback.
 
 Provider metadata wins because a provider-specific endpoint may expose less context than the
 underlying model supports. Every shipped built-in model has a positive declared
-window, so normal operation never depends on a network catalogue lookup. The
+window. Newly discovered models may need the OpenRouter lookup or remain token-only;
+discovery does not invent a context limit for a new model. See [automatic model discovery](PROVIDERS.md#automatic-model-discovery). The
 built-in Codex catalog declares the Sol, Terra, and Luna GPT-5.6 variants at
 1,050,000 tokens; their tiered auto-compaction trigger is therefore 630,000
 tokens (60%). CrewCoder passes both values as process-scoped Codex app-server

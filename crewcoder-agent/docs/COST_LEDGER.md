@@ -57,7 +57,7 @@ no configuration. The disk cache is `version: 2` — a v1 cache is discarded and
 Set an override when you are on a discounted, self-hosted, or unlisted endpoint:
 
 ```bash
-crewcoder cost price codex:gpt-5.6-luna --input 1.25 --output 10 --cache-read 0.125
+crewcoder cost price codex-cli:gpt-5.6-luna --input 1.25 --output 10 --cache-read 0.125
 crewcoder cost price claude-sonnet-4-5 --input 3 --output 15 --cache-read 0.3 --cache-write 3.75
 ```
 

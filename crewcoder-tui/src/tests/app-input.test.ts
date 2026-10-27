@@ -804,7 +804,7 @@ describe("App input", () => {
     expect(state.viewportScroll).toBe(0);
   });
 
-  it("reloads CLI metadata and rescans home ~/.crewcoder files", async () => {
+  it.each([false, true, undefined])("reloads CLI metadata and home files with worker identity setting %s", async (workerIdentityEnabled) => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-tui-home-"));
     process.env.HOME = home;
     delete process.env.CREWCODER_HOME;
@@ -814,7 +814,8 @@ describe("App input", () => {
       integrationProfile: "crewcode",
       defaultMode: "plugin",
       defaultProvider: "opencode",
-      defaultModel: "minimax-2.5"
+      defaultModel: "minimax-2.5",
+      workerIdentityEnabled
     }), "utf8");
     const state = createInitialState();
     state.provider = "missing";
@@ -843,6 +844,7 @@ describe("App input", () => {
     expect(state.running).toBe(false);
     expect(state.mode).toBe("plugin");
     expect(state.provider).toBe("opencode");
+    expect(state.workerIdentityEnabled).toBe(workerIdentityEnabled === true);
     expect(state.model).toBe("minimax-2.5");
     expect(state.systemPrompt).toBeUndefined();
     const last = state.blocks.at(-1);

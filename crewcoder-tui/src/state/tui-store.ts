@@ -131,6 +131,7 @@ export type TuiState = {
   mode: TuiMode;
   integrationProfile: TuiIntegrationProfile;
   worker?: string;
+  workerIdentityEnabled: boolean;
   provider: string;
   model: string;
   systemPrompt?: string;
@@ -183,7 +184,8 @@ export function createInitialState(): TuiState {
     mode: DEFAULT_TUI_MODE,
     integrationProfile: "standalone",
     worker: undefined,
-    provider: process.env.CREWCODER_PROVIDER ?? "codex",
+    workerIdentityEnabled: false,
+    provider: process.env.CREWCODER_PROVIDER ?? "codex-cli",
     model: process.env.CREWCODER_MODEL ?? "gpt-5.6-luna",
     systemPrompt: undefined,
     effort: DEFAULT_EFFORT,

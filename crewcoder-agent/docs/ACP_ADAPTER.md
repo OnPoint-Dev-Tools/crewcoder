@@ -157,6 +157,7 @@ CrewCoder's own instruction sources apply. It accepts
 Without a policy the session behaves as standalone CrewCoder: worker identity on, no global files.
 
 - `workerIdentity: false` omits the active worker's identity block (`~/.crewcoder/workers/<name>`).
+- `workerIdentity: true` permits identity only when the user's persistent `workerIdentityEnabled` setting is also on. Host opt-in never overrides user opt-out. See [worker identity](WORKER_IDENTITY.md).
   Hosted text-only sessions never include it either way.
 - `globalInstructions: true` adds the user's `$CODEX_HOME/AGENTS.md` (default `~/.codex`) and
   `$CLAUDE_CONFIG_DIR/CLAUDE.md` (default `~/.claude`) under a "Global user instructions" heading,

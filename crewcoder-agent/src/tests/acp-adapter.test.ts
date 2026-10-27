@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as nativeCatalog from "../providers/native-model-catalog.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -395,6 +396,23 @@ describe("acp server", () => {
     expect(models?.availableModels.length).toBeGreaterThan(0);
     // Clients group the picker by the `provider:` prefix.
     expect(models?.availableModels.every((entry) => entry.modelId.includes(":"))).toBe(true);
+  });
+
+  it("includes newly discovered native models in the ACP picker", async () => {
+    const discovery = vi.spyOn(nativeCatalog, "hydrateNativeProviderModels").mockImplementation(async (provider) => provider.id === "claude"
+      ? { ...provider, models: ["new-claude"], modelCatalog: [{ id: "new-claude" }], defaultModel: "new-claude" }
+      : provider);
+    try {
+      const { send, awaitResponse } = connect({ heuristic: true });
+      await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+      await awaitResponse(1);
+      await send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd: "/tmp", mcpServers: [] } });
+      const { response } = await awaitResponse(2);
+      const result = response.result as { models: { availableModels: Array<{ modelId: string; name: string }> } };
+      expect(result.models.availableModels).toContainEqual({ modelId: "claude:new-claude", name: "claude / new-claude" });
+    } finally {
+      discovery.mockRestore();
+    }
   });
 
   it("accepts session/set_model even though the 1.x schema dropped the method", async () => {
@@ -893,9 +911,9 @@ describe("acp instruction policy", () => {
     return input.systemPrompt ?? "";
   }
 
-  it("keeps standalone behavior without a policy: worker identity on, no global files", async () => {
+  it("defaults to no worker identity or global files without a policy", async () => {
     const prompt = await turnWith({ modelId: "openai:gpt-5.4" });
-    expect(prompt).toContain(WORKER_MARKER);
+    expect(prompt).not.toContain(WORKER_MARKER);
     expect(prompt).not.toContain("GLOBAL-MARKER");
   }, 30_000);
 

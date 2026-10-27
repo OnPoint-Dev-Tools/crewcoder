@@ -1,129 +1,78 @@
-# Codex Transport
+# Codex CLI transport
 
-CrewCoder's built-in ChatGPT OAuth Codex provider uses the official Codex app-server as its primary
-transport. App-server persists native Codex threads on disk, so continuation survives CrewCoder,
-CrewCode, and machine restarts. The direct Responses WebSocket/SSE implementation remains a guarded
-fallback for legacy credentials and pre-turn app-server failures.
+CrewCoder exposes Codex through the `codex-cli` provider. It runs the user's
+installed `codex app-server --stdio`, inherits the user's `CODEX_HOME` (normally
+`~/.codex`), and uses the CLI's own login. CrewCoder has no separate Codex OAuth
+login and does not install a bundled Codex runtime. See [Codex CLI setup](CODEX_CLI_PROVIDER.md).
+
+## Model discovery
+
+The model picker calls app-server `model/list` through the same installed CLI.
+Discovery sends no inference prompt, excludes hidden models, follows bounded
+pagination, and has a five-second deadline. Successful catalogs are cached for
+five minutes within the backend process. See [automatic model discovery](PROVIDERS.md#automatic-model-discovery).
 
 ## Durable native threads
 
-A successful `crewcoder login codex` now retains the OpenAI ID token needed by app-server. CrewCoder
-writes the minimum official auth shape with mode `0600` under
-`~/.crewcoder/codex-app-server/auth.json`; secrets are never placed in session files or logs. Codex
-stores its durable rollouts under that isolated home.
+For a new CrewCoder session, the adapter:
 
-Codex desktop/CLI login and CrewCoder login use separate credential stores. If Codex reports a
-revoked refresh token, run `crewcoder login codex` (or `crew login codex`) and complete the device
-login. A successful CrewCoder login replaces credentials in both its provider auth store and the
-isolated app-server home, so a stale app-server refresh token cannot override the new login. Check
-the active CrewCoder credentials with `crewcoder auth`; Codex OAuth is refreshed before it is
-reported as ready.
+1. Starts the installed Codex app-server.
+2. Performs its JSON-RPC initialize handshake with experimental dynamic-tool support.
+3. Calls `thread/start` with CrewCoder's developer instructions and tools.
+4. Persists an encoded thread/contract identifier in `providerSessionIds["codex-cli"]`.
 
-For a new CrewCoder session, the provider:
+Later prompts call `thread/resume` and send only the latest user turn. If a
+native thread cannot be resumed, CrewCoder starts a replacement seeded from its
+current conversation history.
 
-1. Starts `codex app-server --stdio` from the installed `@openai/codex` package. New installations resolve npm's `latest` tag; existing installations keep their installed version until updated.
-2. Performs the JSON-RPC initialize handshake with experimental dynamic-tool support.
-3. Calls `thread/start` and sends the current CrewCoder conversation context for the first turn.
-4. Persists an encoded native thread ID in `providerSessionIds.codex`.
-
-The launch also passes CrewCoder's resolved model context and compaction policy
-as process-scoped Codex configuration. For every built-in GPT-5.6 variant this
-is `model_context_window=1050000` and, with normal auto-compaction enabled,
-`model_auto_compact_token_limit=630000` with `total` scope. This keeps Codex's
-native thread from compacting at its smaller catalog default before CrewCoder's
-60% boundary. It does not edit the user's Codex `config.toml`.
-
-CrewCoder disables Codex reasoning summaries because they are short heading-like descriptions of
-the next action rather than the native thought/progress text shown by Codex clients. Raw
-`item/reasoning/textDelta` events and the authoritative completed reasoning item's `content` blocks
-are routed through `thinking_delta`; streamed text is deduplicated against the completed content.
-`commentary`-phase agent messages also remain visible in the thinking area, while `final_answer`
-messages remain assistant output.
-
-The app-server thread keeps the selected model's built-in Codex base instructions. CrewCoder's
-system prompt is supplied as developer instructions, so it extends rather than replaces Codex's
-native behavior. App-server approvals and sandboxing derive from CrewCoder's selected approval
-mode: normal modes retain a workspace-write boundary, `review`/`always` requests are bridged to
-CrewCoder's approval UI, and only `full-access` selects Codex's unrestricted sandbox. CrewCoder's
-dynamic tools continue through CrewCoder's own approval and safety-policy path.
-
-On later prompts—even in a new process—it calls `thread/resume` and sends only the latest user turn.
-If the native thread was pruned or cannot be resumed, CrewCoder starts a replacement thread and
-seeds it from the current compacted CrewCoder history.
+The continuation contract covers the model, system prompt, tool definitions,
+working roots, and approval policy. Contract changes start a new native thread.
+Workspace paths are replaced before hashing so session bundles can move between
+machines while preserving a compatible native thread. See [session bundles](SESSION_BUNDLE.md).
 
 ### Pooled app-server under ACP
 
-One-shot commands (`crewcoder run`, print mode) still start one app-server per turn. `crewcoder acp`
-is long-lived, so it keeps **one app-server process per CrewCoder session** (same working directory,
-launch arguments, and Codex home) and reuses it across turns:
+One-shot commands start an app-server per turn. Long-lived ACP hosts keep one
+process per CrewCoder session and reuse already-loaded threads directly through
+`turn/start`. This avoids repeated skill/plugin loading and context uploads.
 
-- A thread already loaded in that process under the same continuation contract goes straight to
-  `turn/start`; `thread/resume` is skipped. Every resume makes Codex rebuild its world state
-  (skills, plugins, environment). With a fresh process per turn, that rebuild raced remote plugin
-  loading, the skill list differed between turns, and Codex re-sent the entire skills catalog to the
-  model, roughly 2,300 to 3,000 extra tokens per affected turn.
-- A process that did not finish its turn cleanly (abort, transport error, early failure) is closed
-  and never reused. The next turn starts a fresh process and resumes the thread normally.
-- A concurrent turn for a session whose process is busy runs on a separate, unpooled process.
-- Idle processes close after 10 minutes, and the pool is closed when the ACP server's stdin ends or
-  the CrewCoder process exits.
-- Refreshed app-server credentials are still copied back to CrewCoder's auth store after every turn.
+Failed or aborted processes are closed rather than reused. Concurrent turns
+use separate processes when a pooled process is busy. Idle processes close
+after ten minutes; ACP shutdown and process exit close the pool.
 
-The persisted continuation includes a hash of the stable request contract: model, system prompt,
-working roots, and tool definitions. A contract change starts a fresh native thread instead of
-silently attaching incompatible context. Compaction clears the native thread ID, as it does for
-Claude, so discarded pre-compaction history cannot reappear.
+## Tools, approvals, and filesystem custody
 
-The workspace path is replaced with a placeholder before hashing, wherever it appears (the working
-root, the system prompt, tool text). A session moved to another machine or folder with a session
-bundle therefore keeps its Codex thread, while a different model, prompt, tool list, or approval mode
-still starts a new one. Ids saved with the older hash (path included) are still accepted, so
-upgrading does not drop existing threads. See `docs/SESSION_BUNDLE.md`.
+Local sessions use Codex native tools within the active approval and sandbox
+policy. Approval and question requests route through CrewCoder's host interaction
+channel. Native tool failures preserve provider error text and exit status.
 
-## Tools and safety
+Hosted or virtual filesystem sessions disable native shell, file, network,
+MCP, hook, and agent tools, add a read-only sandbox, and use CrewCoder dynamic
+tools for workspace operations. Failure to establish that lockdown refuses the
+launch. See [hosted-tools-only lockdown](CODEX_CLI_PROVIDER.md#hosted-tools-only-lockdown).
 
-For local workspaces, app-server runs its native shell and patch capabilities inside Codex's
-`workspaceWrite` filesystem boundary. Its approval policy follows CrewCoder's active approval mode,
-and provider-native approval requests route through the active host interaction channel. CrewCoder's
-tool definitions remain registered as dynamic tools for specialized operations.
+Only explicit `sandboxed` approval mode requests native network isolation.
+Normal approval modes preserve network access; forcing a private namespace there
+can fail on restricted hosts with `bwrap: loopback: Failed RTM_NEWADDR`.
 
-When an ACP or SDK host supplies a virtual filesystem (including SSH/SFTP workspaces), CrewCoder
-does not start app-server because its built-in shell and patch tools operate on the local host and
-cannot honor that virtual filesystem boundary. The Codex provider uses its direct Responses
-transport for that session, where reads and writes are exposed only as CrewCoder tools and remain
-routed through the host filesystem. Failed native `fileChange` events retain the provider's error
-detail alongside the proposed patch instead of presenting the patch as if it were the result.
-Failed native `commandExecution` events likewise retain provider error text and otherwise report
-their declined status or exit code; an empty `aggregatedOutput` must never render as an unexplained
-empty error.
+Thinking remains visible through raw reasoning deltas, completed reasoning
+content, and commentary-phase messages, with streamed/final content deduplicated.
+Final-answer messages remain assistant output.
 
-CrewCoder requests Codex network isolation only for the explicit `sandboxed` approval mode.
-`review`, `always`, and `never` are approval policies rather than strict network sandboxes, so their
-app-server turns keep `networkAccess: true`. Forcing `networkAccess: false` in those modes makes
-Codex create a private network namespace and can fail on restricted Linux hosts with
-`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`.
+## Failure behavior
 
-## Fallback and replay safety
+There is no direct HTTP/SSE or WebSocket fallback. A missing CLI or failed
+app-server launch returns an actionable provider error, and no started turn is
+replayed through another transport. Authentication, billing, protocol, and turn
+errors are terminal failures.
 
-Older saved OAuth credentials do not contain an ID token. They continue using the direct Codex
-Responses transport until the user runs `crewcoder login codex` again. The direct implementation
-uses connection-cached WebSocket continuation within a live process and SSE/full-context replay as
-its fallback.
+## Context and compaction
 
-An app-server failure before `turn/start` is safe to fall back because no model output or tool side
-effect can have occurred. CrewCoder never replays through the direct transport after `turn/start`
-has been sent: the native turn may have started even if the local stream subsequently failed.
+CrewCoder passes known context-window and compaction limits as process-only
+Codex configuration without editing the user's `config.toml`. GPT-5.6 fallback
+metadata declares 1,050,000 tokens with a normal 630,000-token compaction boundary.
+Unknown discovered model windows are resolved separately rather than guessed.
 
-Provider error events remain terminal. Authentication, billing, failed turns, and protocol errors
-must never be rendered as successful assistant text.
-
-## Compaction still matters
-
-Durable threads avoid repeated uploads; they do not create unlimited model context. CrewCoder
-compacts known million-token windows at 60% and smaller known windows at 50%, and retains an 80%
-emergency guard when normal auto-compaction is disabled. All built-in GPT-5.6
-variants declare a 1,050,000-token window, so their normal trigger is 630,000
-tokens in both CrewCoder and nested app-server. Applying compaction clears the Codex native
-thread and initializes a replacement from the compacted summary plus recent messages.
-
-See [`AUTO_COMPACTION.md`](./AUTO_COMPACTION.md).
+Applying CrewCoder compaction clears the native thread ID so discarded history
+cannot return on the next turn. Durable threads reduce repeated uploads; they
+remain subject to the model's context limit. See [automatic compaction](AUTO_COMPACTION.md).

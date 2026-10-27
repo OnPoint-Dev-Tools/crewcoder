@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { listProviders } from "../providers/provider-registry.js";
 import { builtinProviders } from "../providers/builtins.js";
+import { readConfig } from "../core/config.js";
 
 describe("provider registry", () => {
   afterEach(() => {
@@ -21,7 +22,12 @@ describe("provider registry", () => {
 
   it("includes built-in providers", async () => {
     const providers = await listProviders();
-    expect(providers.map(p => p.id)).toEqual(expect.arrayContaining(["codex", "opencode", "opencode-go"]));
+    expect(providers.map(p => p.id)).toEqual(expect.arrayContaining(["codex-cli", "claude", "opencode", "opencode-go"]));
+    expect(providers.map(p => p.id)).not.toContain("codex");
+  });
+
+  it("defaults new installations to the installed Codex CLI", () => {
+    expect(readConfig().defaultProvider).toBe("codex-cli");
   });
 
   it("uses the OpenCode Go Kimi code model id", () => {

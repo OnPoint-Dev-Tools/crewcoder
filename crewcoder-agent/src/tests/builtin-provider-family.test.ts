@@ -36,10 +36,10 @@ describe("built-in provider family", () => {
       continuation: "provider-session",
       replay: "never"
     });
-    expect(resolveProviderTransport(builtinProviders.find((provider) => provider.id === "codex")!)).toMatchObject({
+    expect(resolveProviderTransport(builtinProviders.find((provider) => provider.id === "codex-cli")!)).toEqual({
       channel: "process",
       continuation: "provider-session",
-      fallback: "http-sse"
+      replay: "never"
     });
   });
 

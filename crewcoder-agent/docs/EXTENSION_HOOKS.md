@@ -65,7 +65,7 @@ Payload:
 ```jsonc
 { "summary": "…the proposed summary…",
   "source": "model",          // or "deterministic" when the LLM summarizer failed
-  "fallbackReason": "Provider codex requires OAuth login. Run: crewcoder login codex",
+  "fallbackReason": "Codex CLI was not found: set CREWCODER_CODEX_PATH to the installed executable",
   "originalMessageCount": 42,
   "retainedMessageCount": 8,
   "cwd": "/repo", "sessionId": "…" }

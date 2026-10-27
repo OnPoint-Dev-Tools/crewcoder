@@ -1,5 +1,5 @@
 import { builtinProviders } from "./builtins.js";
-import { listProviders } from "./provider-registry.js";
+import { findProvider } from "./provider-registry.js";
 import { getProviderApiKey } from "./auth-store.js";
 import { listProviderModelIds, resolveProviderModel } from "./model-resolution.js";
 import { resolveOpenRouterContextWindow } from "./openrouter-model-catalog.js";
@@ -13,7 +13,7 @@ export type CrewCoderResolvedModel = {
 };
 
 export async function resolveModel(providerId: string, requested?: string): Promise<CrewCoderResolvedModel | undefined> {
-  const provider = (await listProviders()).find((item) => item.id === providerId);
+  const provider = await findProvider(providerId);
   if (!provider) return undefined;
   const model = resolveProviderModel(provider, requested) ?? listProviderModelIds(provider)[0];
   if (!model) return undefined;

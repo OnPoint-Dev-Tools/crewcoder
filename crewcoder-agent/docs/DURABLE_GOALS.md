@@ -27,7 +27,7 @@ A goal runs in a detached CrewCoder worker and survives closing the TUI or termi
 
 ```bash
 crewcoder goal start "Migrate the project and stop when contract tests pass" \
-  --provider codex --model gpt-5.6-luna --approval review
+  --provider codex-cli --model gpt-5.6-luna --approval review
 crewcoder goal status [goal-id]
 crewcoder goal list
 crewcoder goal pause [goal-id]

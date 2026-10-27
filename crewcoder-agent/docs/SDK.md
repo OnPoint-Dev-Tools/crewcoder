@@ -38,7 +38,7 @@ import { createCrewCoderSession } from "@onpoint-dev-tools/crewcoder-sdk";
 
 const session = createCrewCoderSession({
   cwd: process.cwd(),
-  provider: "codex",
+  provider: "codex-cli",
   model: "gpt-5.6",
   approval: "review"
 });
@@ -69,11 +69,17 @@ const config = admin.config.get();
 const profile = admin.profiles.get();
 
 admin.config.set("autoCompact", "true");
+admin.config.set("workerIdentityEnabled", "false"); // use system prompts without a worker persona
 admin.profiles.use("crewcode", "project");
 console.log(admin.profiles.detect());
 ```
 
 `admin.config` reads and updates the user configuration under `CREWCODER_HOME`. Its `set()` method uses the CLI's validated string-value contract. `admin.profiles` applies the normal `./crewcoder.json` over user-config precedence, supports `project` and `user` selection scopes, detects CrewCode markers, and can persist profile-prompt dismissal. Project writes preserve unrelated manifest fields. These APIs access the local filesystem and are not exported by the browser-safe client.
+
+`workerIdentityEnabled` defaults to `false`. Set it to `"false"` to omit named
+worker identity from future sessions and runs while preserving normal, custom,
+and host system prompts. `activeWorker` retains the selected name, and explicit
+worker selections do not override the setting. See [worker identity](WORKER_IDENTITY.md).
 
 Repository memory is opt-in and scoped to the admin's `cwd`:
 
@@ -133,7 +139,7 @@ import { createCrewCoderOrchestrator } from "@onpoint-dev-tools/crewcoder-sdk";
 
 const orchestrator = createCrewCoderOrchestrator({
   cwd: "/workspace",
-  provider: "codex",
+  provider: "codex-cli",
   approval: "review"
 });
 
@@ -164,7 +170,7 @@ const session = createCrewCoderSession({
   cwd: "/workspace",
   externalDirectories: ["/shared/library"], // explicit session-scoped filesystem grants
   mode: "general",                  // general | crewcoder | plugin | extension
-  provider: "codex",
+  provider: "codex-cli",
   model: "gpt-5.6",
   effort: "high",
   approval: "review",              // defaults to never

@@ -342,6 +342,19 @@ Tool results can carry images too. A tool declaring `ToolResult.details.images[]
 
 ## Verification notes
 
+Worker identity defaults off in fresh state and when config omits the flag;
+only a saved boolean `true` opts in. `/identity on|off|status` persists `workerIdentityEnabled` through the backend
+config command. Preserve the selected worker and custom prompt, show the current
+mode in the composer when identity is off, and update local state only after
+successful persistence. `/reload` must reload the flag. Choosing a worker must
+not silently re-enable identity. See [identity settings](docs/SETTINGS.md#optional-worker-identity).
+
+`codex-cli` is the sole Codex provider and the fresh-state/offline-picker default.
+Keep its GPT-6 reasoning efforts, including `xhigh`, available. Never restore a
+managed `codex` fallback entry. Model pickers must use the backend's discovered
+catalogs, including models from the user's installed Claude Code. See
+[provider settings](docs/SETTINGS.md#provider-and-model-discovery).
+
 Run from the monorepo root:
 
 ```bash

@@ -27,7 +27,7 @@ describe("model registry context windows", () => {
       data: [{ id: "openai/catalog-only-model", context_length: 400_000 }]
     }), { status: 200 })));
 
-    const resolved = await resolveModel("codex", "catalog-only-model");
+    const resolved = await resolveModel("codex-cli", "catalog-only-model");
 
     expect(resolved?.metadata).toEqual({ id: "catalog-only-model", contextWindow: 400_000 });
   });
@@ -39,7 +39,7 @@ describe("model registry context windows", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 
-    const resolved = await resolveModel("codex", model);
+    const resolved = await resolveModel("codex-cli", model);
 
     expect(resolved?.metadata?.contextWindow).toBe(1_050_000);
     expect(fetch).not.toHaveBeenCalled();

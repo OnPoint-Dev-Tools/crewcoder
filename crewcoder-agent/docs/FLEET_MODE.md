@@ -233,7 +233,7 @@ The deployment command prints that retrieval command, not the secret value.
 ```sh
 ssh user@vps
 cd /path/to/project
-~/crewcoder-runner/crewcoder run --provider codex \
+~/crewcoder-runner/crewcoder run --provider codex-cli \
   "Inspect this project and fix the failing tests"
 ```
 

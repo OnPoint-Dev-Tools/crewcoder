@@ -79,7 +79,6 @@ function updateReleaseMetadata(repositoryRoot, version) {
   }
 
   manifests.get("package.json").manifest.dependencies["@onpoint-dev-tools/crewcoder-agent"] = version;
-  manifests.get("crewcoder-agent/package.json").manifest.dependencies["@openai/codex"] = "latest";
   manifests.get("crewcoder-sdk/package.json").manifest.dependencies["@onpoint-dev-tools/crewcoder-agent"] = version;
   manifests.get("crewcoder-sdk/package.json").manifest.dependencies["@onpoint-dev-tools/crewcoder-client"] = version;
 
@@ -134,7 +133,7 @@ function main(args) {
 
   console.log(`Preparing ${tag} from ${branch} for ${remote}.`);
   console.log(`Packages: ${currentVersions.join(", ")} -> ${version}`);
-  console.log("Codex runtime: @openai/codex@latest (resolved when installed)");
+  console.log("Codex runtime: the user's installed Codex CLI (codex-cli provider)");
   if (dryRun) {
     console.log("Dry run passed; no files, commits, tags, or Git remotes were changed.");
     return;

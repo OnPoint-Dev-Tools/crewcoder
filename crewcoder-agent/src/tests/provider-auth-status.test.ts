@@ -67,7 +67,7 @@ describe("provider auth status", () => {
   });
 
   it("reads stored and environment credentials without refreshing", async () => {
-    const providers = [byId("codex"), byId("openai"), byId("anthropic"), byId("openrouter"), byId("grok")];
+    const providers = [byId("openai"), byId("anthropic"), byId("openrouter"), byId("grok")];
     const statuses = await collectProviderAuthStatus(providers, probe({
       authFile: {
         codex: { type: "oauth", access: "a", refresh: "r", expires: 500, accountId: "acct" },
@@ -77,13 +77,12 @@ describe("provider auth status", () => {
       env: { OPENROUTER_API_KEY: "or-key" }
     }));
     expect(statuses.map((status) => [status.id, status.state, status.source])).toEqual([
-      ["codex", "signed-in", "crewcoder-oauth"],
       ["openai", "signed-in", "stored-api-key"],
       ["anthropic", "signed-out", "stored-api-key"],
       ["openrouter", "signed-in", "env"],
       ["grok", "unknown", undefined]
     ]);
-    expect(statuses[0]?.detail).toContain("expired");
+    expect(statuses.some((status) => status.id === "codex")).toBe(false);
     expect(JSON.stringify(statuses)).not.toContain("sk-test");
   });
 

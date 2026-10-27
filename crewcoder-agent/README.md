@@ -33,12 +33,17 @@ Layout:
 
 ## Default worker
 
-On first use, CrewCoder creates the global `Crew` worker under `~/.crewcoder/workers/Crew/` (or the configured CrewCoder home). Its starter metadata identifies the owner as `CrewCoder User` (`@CrewCoderUser`), and its `IDENTITY.md` provides a practical general-purpose coding-partner role and working style. Both files are user-editable; existing workers are not overwritten.
+Worker identity is off by default for new users. After `crewcoder identity on`, first use creates the global `Crew` worker under `~/.crewcoder/workers/Crew/` (or the configured CrewCoder home). Its starter metadata identifies the owner as `CrewCoder User` (`@CrewCoderUser`), and its `IDENTITY.md` provides a practical general-purpose coding-partner role and working style. Both files are user-editable; existing workers are not overwritten.
+
+Use `crewcoder identity off` or TUI `/identity off` to keep the normal and custom
+system prompts while omitting the worker persona. `identity on` restores it, and
+`identity status` reports the setting. `activeWorker` preserves the selected name;
+`workerIdentityEnabled` stores the toggle. See [optional worker identity](docs/WORKER_IDENTITY.md).
 
 ## Three separate systems
 
 ```txt
-1. Built-in providers: codex, claude, opencode
+1. Built-in providers: codex-cli, claude, opencode
 2. CrewCoder extensions: /.crewcoder/extensions, crewcoder.extension.json
 3. CrewCode app plugins: crewcode.plugin.json, generated from /CrewCode/examples/plugins when available
 ```
@@ -94,7 +99,7 @@ crewcoder upgrade
 crewcoder update --yes
 ```
 
-New installations resolve the current npm `@openai/codex@latest` app-server. Existing installations keep their installed Codex version until npm updates them.
+Codex uses your separately installed Codex CLI and its login. Install/update that CLI normally; CrewCoder does not install a second Codex runtime.
 
 The scoped agent and TUI packages can still be installed separately for development or custom packaging.
 
@@ -104,16 +109,18 @@ The scoped agent and TUI packages can still be installed separately for developm
 crewcoder providers
 crewcoder run --provider opencode "fix this bug"
 crewcoder run --provider claude "refactor this module"
-crewcoder run --provider codex "write tests for this CLI"
+crewcoder run --provider codex-cli "write tests for this CLI"
 crewcoder run --provider claude --model claude-sonnet-5 "review this change"    # local Claude Code login
 crewcoder run --provider anthropic --model claude-sonnet-5 "review this change" # direct API key
 crewcoder run --provider openrouter --model openai/gpt-5.4 "fix this bug"
 crewcoder config set defaultProvider opencode
 ```
 
+Codex CLI and Claude model pickers automatically discover models from their native runtimes. Claude discovery and inference prefer your installed Claude Code over the SDK bundle. New runtime-reported models appear without editing CrewCoder's model list. Discovery uses a five-minute process cache and falls back to the last successful or bundled list when unavailable. See [automatic model discovery](docs/PROVIDERS.md#automatic-model-discovery).
+
 CrewCoder resolves model context windows from provider metadata first, then from a strict-match, 24-hour disk cache of OpenRouter's public model catalog. Unknown or offline models remain token-only. See `docs/MODEL_CONTEXT_WINDOWS.md`.
 
-The built-in Codex provider uses official app-server threads persisted under CrewCoder's home, so resumed turns send only new input across process and machine restarts. The direct WebSocket/SSE transport remains a guarded fallback. See `docs/CODEX_TRANSPORT.md`.
+`codex-cli` is the sole Codex provider and fresh-install default. It uses official app-server threads in the user's Codex home, so resumed turns send only new input across process and machine restarts. Existing configurations with `defaultProvider: codex` must run `crewcoder config set defaultProvider codex-cli`. See `docs/CODEX_TRANSPORT.md`.
 
 Provider adapters use checked process, HTTP/SSE, WebSocket, continuation, fallback, and replay profiles. Built-ins include Claude Code Agent SDK, Grok CLI (ACP stdio), OpenAI, Anthropic, OpenRouter, xAI, DeepSeek, Mistral, Codex, and OpenCode; extensions may select vetted generic transports without receiving CrewCoder-owned OAuth credentials. Models/providers can advertise parallel tool-call support, while only tools explicitly marked parallel-safe execute concurrently; sequential tools remain ordering barriers. See `docs/PROVIDERS.md`, `docs/PARALLEL_TOOL_CALLS.md`, `docs/contributor/PROVIDER_TRANSPORTS.md`, and `docs/ACP_CLIENT_PROVIDER.md`.
 
@@ -122,7 +129,7 @@ Provider adapters use checked process, HTTP/SSE, WebSocket, continuation, fallba
 CrewCoder owns a detached, provider-independent goal supervisor. Codex is the model provider; `/goal` is not forwarded to the Codex Responses endpoint.
 
 ```bash
-crewcoder goal start "Complete the migration and stop when contract tests pass" --provider codex --approval review
+crewcoder goal start "Complete the migration and stop when contract tests pass" --provider codex-cli --approval review
 crewcoder goal status
 crewcoder goal approve
 crewcoder goal pause

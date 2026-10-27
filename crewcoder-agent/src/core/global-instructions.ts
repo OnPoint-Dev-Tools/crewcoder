@@ -7,7 +7,7 @@ import type { ProviderDefinition } from "../providers/types.js";
 /**
  * Per-session instruction policy set by an embedding host over ACP
  * `session/set_instruction_policy`. Defaults keep CrewCoder's standalone behavior:
- * the worker identity is on and no user-global instruction files are added.
+ * worker identity is permitted (subject to user config) and no user-global instruction files are added.
  */
 export type InstructionPolicy = { workerIdentity: boolean; globalInstructions: boolean };
 export const DEFAULT_INSTRUCTION_POLICY: InstructionPolicy = { workerIdentity: true, globalInstructions: false };

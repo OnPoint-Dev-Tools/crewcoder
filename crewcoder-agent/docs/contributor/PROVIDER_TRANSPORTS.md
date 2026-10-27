@@ -42,10 +42,11 @@ requires a new or upgraded core runtime that implements and tests that lifecycle
 | `openai-chat-completions` | HTTP/SSE | none | none | allowed |
 | `openai-responses` | HTTP/SSE | none | none | allowed |
 | `websocket` | WebSocket | provider session | none | allowed |
-| `openai-codex-responses` | app-server process | durable provider thread | HTTP/SSE | **built-in only** |
+| `openai-codex-responses` (`codex-cli`) | app-server process | durable provider thread | none | **built-in only** |
 
-Codex and Claude Agent SDK are built-in only because they own provider authentication/session state. Codex's adapter reads CrewCoder's stored ChatGPT OAuth credential. An
-extension-controlled endpoint must never receive that credential. Extension providers may read an
+Codex CLI and Claude Agent SDK are built-in only because their native runtimes own
+authentication, tools, and session state. Codex CLI uses the user's native login;
+CrewCoder does not manage a separate Codex OAuth login. Extension providers may read an
 API key stored under their own provider id or their explicitly named environment variable, but they
 cannot alias another auth-store entry through `apiKeyEnv` and cannot consume OAuth credentials.
 

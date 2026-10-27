@@ -8,7 +8,7 @@ import type { AgentMessage, AssistantMessage } from "../core/messages.js";
 import { getText } from "../core/messages.js";
 import { ensureCrewCoderHome } from "../core/crewcoder-home.js";
 import type { ModelUsage } from "../core/usage.js";
-import type { ProviderRunInput, ProviderRunResult } from "./types.js";
+import type { ProviderDefinition, ProviderRunInput, ProviderRunResult } from "./types.js";
 import { getProviderAuth, setAuthCredential } from "./auth-store.js";
 import type { CodexOAuthCredentials } from "./oauth-codex.js";
 import { CREWCODER_VERSION } from "../core/version.js";
@@ -163,6 +163,37 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
 
 export function isCodexCliProvider(provider: Pick<ProviderRunInput["provider"], "id" | "kind">): boolean {
   return provider.kind === "builtin" && provider.id === "codex-cli";
+}
+
+/** Discover without creating a thread or starting inference. The caller bounds the lifetime. */
+export async function listCodexModels(provider: ProviderDefinition, signal: AbortSignal): Promise<unknown[]> {
+  if (!isCodexCliProvider(provider) || signal.aborted) return [];
+  const command = process.env.CREWCODER_CODEX_PATH || "codex";
+  const server = new CodexAppServer(command, ["app-server", "--stdio"], process.cwd(), undefined, () => undefined);
+  let rejectAbort: (error: Error) => void = () => undefined;
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const abort = () => { server.close(); rejectAbort(new Error("Model discovery aborted")); };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    if (signal.aborted) throw new Error("Model discovery aborted");
+    await Promise.race([server.initialize(), aborted]);
+    const models: unknown[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const result = await Promise.race([server.rpc.request("model/list", { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) }), aborted]);
+      if (!Array.isArray(result.data) || models.length + result.data.length > 1_000) throw new Error("Invalid Codex model catalog");
+      models.push(...result.data);
+      if (result.nextCursor != null && (typeof result.nextCursor !== "string" || result.nextCursor.length > 2_048)) throw new Error("Invalid Codex model catalog cursor");
+      cursor = typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : undefined;
+      if (cursor && (cursors.has(cursor) || cursors.size >= 100)) throw new Error("Invalid Codex model catalog pagination");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    return models;
+  } finally {
+    signal.removeEventListener("abort", abort);
+    server.close();
+  }
 }
 
 /**
@@ -575,18 +606,26 @@ async function permissionDecision(params: RpcRecord, input: ProviderRunInput): P
 
 class AppServerRpc {
   private nextId = 1;
+  private closed = false;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly lines: readline.Interface;
   onMessage?: (message: RpcRecord) => Promise<void> | void;
   constructor(private readonly stdin: NodeJS.WritableStream, stdout: NodeJS.ReadableStream) {
+    this.stdin.on("error", (error: Error) => {
+      for (const pending of this.pending.values()) pending.reject(error);
+      this.pending.clear();
+      this.close();
+    });
     this.lines = readline.createInterface({ input: stdout });
     this.lines.on("line", (line) => { void this.handleLine(line); });
     this.lines.on("close", () => {
+      this.closed = true;
       for (const pending of this.pending.values()) pending.reject(new Error("Codex app-server closed before responding"));
       this.pending.clear();
     });
   }
   request(method: string, params: RpcRecord): Promise<RpcRecord> {
+    if (this.closed) return Promise.reject(new Error("Codex app-server closed before responding"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -601,8 +640,8 @@ class AppServerRpc {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
-  close(): void { this.lines.close(); for (const pending of this.pending.values()) pending.reject(new Error("Codex app-server closed")); this.pending.clear(); }
-  private write(message: RpcRecord): void { this.stdin.write(`${JSON.stringify(message)}\n`); }
+  close(): void { this.closed = true; this.lines.close(); for (const pending of this.pending.values()) pending.reject(new Error("Codex app-server closed")); this.pending.clear(); }
+  private write(message: RpcRecord): void { if (!this.closed) this.stdin.write(`${JSON.stringify(message)}\n`); }
   private async handleLine(line: string): Promise<void> {
     let message: RpcRecord;
     try { message = JSON.parse(line) as RpcRecord; } catch { return; }

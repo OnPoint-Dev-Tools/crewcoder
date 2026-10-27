@@ -77,6 +77,8 @@ describe("Composer", () => {
     expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("Extension »");
 
     state.worker = "scout";
+    expect(composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n")).toContain("Extension »");
+    state.workerIdentityEnabled = true;
     const workerPrompt = composer.render({ theme: crewCoderTheme, size: { width: 80, height: 8 } }).map(stripAnsi).join("\n");
     expect(workerPrompt).toContain("Scout »");
     expect(workerPrompt).not.toContain("Plugin »");
@@ -133,6 +135,7 @@ describe("Composer", () => {
   it("shows mode and model to the right of access below the composer", () => {
     const state = createInitialState();
     state.worker = "builder";
+    state.workerIdentityEnabled = true;
     state.provider = "anthropic";
     state.model = "claude-sonnet";
     const composer = new Composer(state, () => {});
@@ -217,6 +220,7 @@ describe("Composer", () => {
 
   it("copies selected composer text on mouse release", () => {
     const state = createInitialState();
+    state.workerIdentityEnabled = true;
     state.worker = "scout";
     state.input = "copy me";
     state.inputCursor = state.input.length;
