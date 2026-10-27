@@ -25,6 +25,7 @@ Layout:
   config.json
   fleet-token
   sessions/
+  artifacts/
   goals/
   extensions/
   cache/
@@ -280,6 +281,11 @@ ACP editor -> ACP over SSH stdio -> CrewCoder ACP adapter -> remote agent
 ```
 
 Use ACP when editor interoperability matters. ACP is a standardized editor-facing protocol; it is not CrewCoder's persistent multi-run service. See `docs/ACP_ADAPTER.md`.
+
+ACP sessions expose durable HTML, SVG, Mermaid, and Markdown artifacts through model tools,
+list/read/write endpoints, and change notifications. Your app owns the artifact browser,
+sandboxed preview, source editor, and download controls. See [Artifacts over ACP](docs/ARTIFACTS.md)
+for the versioned wire contract and integration examples.
 
 ### Fleet mode: applications and orchestration
 

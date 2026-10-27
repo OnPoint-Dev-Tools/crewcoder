@@ -205,6 +205,18 @@ full `UsageSummary` including `contextWindow` and `lastInputTokens`) and a top-l
 Agent-to-client calls used: `session/update`, `session/request_permission`,
 `fs/read_text_file`, `fs/write_text_file`.
 
+## Artifacts
+
+`initialize._meta["crewcoder/artifacts"]` advertises the versioned
+`session/artifacts/list`, `session/artifacts/read`, and `session/artifacts/write`
+methods. Normal ACP sessions offer `artifact_write`, `artifact_read`, and
+`artifact_list` to tool-routed models. Changes emit a separate
+`_crewcoder/artifact_updated` JSON-RPC notification with session-scoped metadata.
+Hosts re-list after loading or reconnecting and fetch source to render or download.
+The embedding app owns preview isolation and editing UI; CrewCoder never executes source.
+Hosted-text-only sessions exclude these tools and refuse artifact write RPCs.
+See [Artifacts over ACP](ARTIFACTS.md) for schemas, revisions, permissions, and limitations.
+
 ## Event translation
 
 `src/acp/event-translator.ts` maps `AgentEvent`s onto `session/update` payloads:

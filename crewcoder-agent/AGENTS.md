@@ -920,6 +920,15 @@ replay. Treat persisted prompts/events as sensitive and preserve package/protoco
 
 ## ACP adapter
 
+ACP artifact storage and model tools live in `src/core/artifact-store.ts` and
+`src/acp/artifacts.ts`; see [Artifacts over ACP](docs/ARTIFACTS.md). Keep source inert,
+session-scoped, bounded, private, and independent of workspace/host filesystem I/O.
+Updates require the current revision; notify `_crewcoder/artifact_updated` only after
+committing, and keep list/read authoritative for reconnect recovery. Never execute,
+render, sanitize, or resolve artifact dependencies inside CrewCoder. The embedding app
+owns its preview sandbox. Preserve mutation approvals, cancellation, and exclusion from
+hosted-text-only tools/writes. Reserve artifact tool names against host shadowing.
+
 Host-managed Supervisor sessions use the versioned `session/set_tool_policy` contract in [Hosted text tool policy](docs/HOSTED_TOOL_POLICY.md). Preserve fail-closed native-tool restrictions, hosted I/O without disk/image fallback, and exclusion of executable extension hooks. Loaded sessions must receive the policy again before prompting; unrestricted Crew Member and CLI sessions remain unchanged.
 
 The `codex-cli` provider runs the user's own Codex CLI and login; with provider-native file tools off it must stay locked to dynamic tools (see [Bring-your-own Codex CLI](docs/CODEX_CLI_PROVIDER.md)). `crewcoder auth --json` must stay read-only and identity-free.

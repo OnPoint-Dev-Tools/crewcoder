@@ -4,6 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createAcpServer } from "../acp/acp-server.js";
+import { CREWCODER_ARTIFACTS_META } from "../acp/artifacts.js";
+import type { Artifact, ArtifactMetadata } from "../core/artifact-store.js";
 import type { AcpAgentOptions } from "../acp/acp-agent.js";
 import { translateEvent } from "../acp/event-translator.js";
 import { toolKind, toolLocations, toolTitle } from "../acp/tool-kind.js";
@@ -18,6 +20,133 @@ import { CLIENT_SYSTEM_PROMPT_HEADING, CLIENT_SYSTEM_PROMPT_MAX_CHARS, appendCli
 import { getText } from "../core/messages.js";
 import { HOST_PROJECT_INSTRUCTIONS_MAX_CHARS } from "../core/host-project-instructions.js";
 import type { AssistantMessage } from "../core/messages.js";
+
+describe("ACP artifacts", () => {
+  beforeEach(() => vi.stubEnv("CREWCODER_HOME", fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-acp-artifacts-"))));
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function open(modelClient = recordingModelClient(), approvalMode: AcpAgentOptions["approvalMode"] = "full-access") {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-artifact-workspace-"));
+    const conn = connect({ modelClient, approvalMode, maxIterations: 4 });
+    await conn.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } } } });
+    await conn.awaitResponse(1);
+    await conn.send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+    const sessionId = ((await conn.awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+    let requestId = 10;
+    return {
+      ...conn, sessionId, cwd,
+      async request(method: string, params: Record<string, unknown> = {}) {
+        const id = ++requestId;
+        await conn.send({ jsonrpc: "2.0", id, method, params: { sessionId, version: 1, ...params } });
+        return conn.awaitResponse(id);
+      }
+    };
+  }
+
+  it("lets an app list, create, download source, and edit artifacts with change notifications", async () => {
+    const conn = await open();
+    expect((await conn.request("session/artifacts/list")).response.result).toEqual({ artifacts: [] });
+    const source = "<button onclick='this.textContent=42'>Calculate</button>";
+    const created = await conn.request("session/artifacts/write", { title: "Calculator", format: "html", content: source });
+    expect(created.response.error).toBeUndefined();
+    const artifact = (created.response.result as { artifact: Artifact }).artifact;
+    expect(artifact).toMatchObject({ content: source, revision: 1, mimeType: "text/html" });
+    expect(created.notifications).toContainEqual({
+      jsonrpc: "2.0", method: "_crewcoder/artifact_updated",
+      params: { sessionId: conn.sessionId, version: 1, action: "created", artifact: expect.objectContaining({ id: artifact.id, revision: 1 }) }
+    });
+    expect((await conn.request("session/artifacts/read", { id: artifact.id })).response.result).toEqual({ artifact });
+    const list = (await conn.request("session/artifacts/list")).response.result as { artifacts: ArtifactMetadata[] };
+    expect(list.artifacts).toHaveLength(1);
+    expect(list.artifacts[0]).not.toHaveProperty("content");
+    const edited = await conn.request("session/artifacts/write", { id: artifact.id, expectedRevision: 1, title: "Calculator", format: "html", content: "edited source" });
+    expect(edited.response.result).toMatchObject({ artifact: { revision: 2, content: "edited source" } });
+    expect(edited.notifications[0]).toMatchObject({ method: "_crewcoder/artifact_updated", params: { action: "updated" } });
+    const stale = await conn.request("session/artifacts/write", { id: artifact.id, expectedRevision: 1, title: "Calculator", format: "html", content: "stale edit" });
+    expect(stale.response.error).toMatchObject({ data: { artifactCode: "conflict" } });
+    expect(stale.notifications).toEqual([]);
+    expect((await conn.request("session/artifacts/read", { id: artifact.id })).response.result).toMatchObject({ artifact: { content: "edited source" } });
+  });
+
+  it("validates wire input, session ownership, versions, and reserved tool names", async () => {
+    const conn = await open();
+    const created = await conn.request("session/artifacts/write", { title: "Diagram", format: "mermaid", content: "graph TD; A-->B" });
+    const artifact = (created.response.result as { artifact: Artifact }).artifact;
+    await conn.send({ jsonrpc: "2.0", id: 3, method: "session/new", params: { cwd: conn.cwd, mcpServers: [] } });
+    const other = ((await conn.awaitResponse(3)).response.result as { sessionId: string }).sessionId;
+    expect((await conn.request("session/artifacts/read", { sessionId: other, id: artifact.id })).response.error).toMatchObject({ data: { artifactCode: "not_found" } });
+    expect((await conn.request("session/artifacts/read", { id: "../outside" })).response.error).toBeTruthy();
+    expect((await conn.request("session/artifacts/list", { sessionId: "unknown" })).response.error).toBeTruthy();
+    expect((await conn.request("session/artifacts/list", { version: 2 })).response.error).toBeTruthy();
+    expect((await conn.request("session/artifacts/write", { title: "Bad", format: "exe", content: "" })).response.error).toBeTruthy();
+    expect((await conn.request("session/set_client_tools", {
+      tools: [{ name: "artifact_write", description: "shadow", inputSchema: { type: "object" } }]
+    })).response.error).toBeTruthy();
+  });
+
+  it("offers model tools through the real loop and restores artifacts after reconnect and load", async () => {
+    const client = recordingModelClient();
+    client.complete = async (input) => {
+      client.inputs.push(input);
+      if (client.inputs.length > 1) return assistantText("Created the diagram");
+      return {
+        role: "assistant", stopReason: "tool_calls", timestamp: Date.now(),
+        content: [{ type: "toolCall", id: "artifact-call", name: "artifact_write", arguments: { title: "Flow", format: "svg", content: "<svg xmlns='http://www.w3.org/2000/svg'><text>Flow</text></svg>" } }]
+      };
+    };
+    const conn = await open(client);
+    const turn = await conn.request("session/prompt", { prompt: [{ type: "text", text: "Create an artifact diagram" }] });
+    expect(turn.response.error).toBeUndefined();
+    expect(client.inputs[0]!.availableTools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["artifact_write", "artifact_read", "artifact_list"]));
+    const change = turn.notifications.find((message) => message.method === "_crewcoder/artifact_updated");
+    expect(change).toBeTruthy();
+    const artifactId = ((change!.params as { artifact: ArtifactMetadata }).artifact).id;
+    expect(client.inputs[1]!.messages.some((message) => message.role === "toolResult" && message.toolName === "artifact_write" && !message.isError)).toBe(true);
+    expect(fs.readdirSync(conn.cwd)).toEqual([]);
+    const reconnected = connect({ heuristic: true });
+    await reconnected.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } });
+    await reconnected.awaitResponse(1);
+    await reconnected.send({ jsonrpc: "2.0", id: 2, method: "session/load", params: { sessionId: conn.sessionId, cwd: conn.cwd, mcpServers: [] } });
+    expect((await reconnected.awaitResponse(2)).response.error).toBeUndefined();
+    await reconnected.send({ jsonrpc: "2.0", id: 3, method: "session/artifacts/read", params: { sessionId: conn.sessionId, version: 1, id: artifactId } });
+    expect((await reconnected.awaitResponse(3)).response.result).toMatchObject({ artifact: { id: artifactId, format: "svg", revision: 1 } });
+  }, 30_000);
+
+  it("keeps artifact tools and writes outside the hosted-text-only policy", async () => {
+    const client = recordingModelClient();
+    const conn = await open(client);
+    expect((await conn.request("session/set_tool_policy", { policy: "hosted-text-only" })).response.error).toBeUndefined();
+    expect((await conn.request("session/artifacts/write", { title: "Blocked", format: "html", content: "" })).response.error).toBeTruthy();
+    const turn = await conn.request("session/prompt", { prompt: [{ type: "text", text: "go" }] });
+    expect(turn.response.error).toBeUndefined();
+    expect(client.inputs[0]!.availableTools.map((tool) => tool.name).sort()).toEqual(["read", "write"]);
+  }, 30_000);
+
+  it("honors permission denial before a model can persist an artifact", async () => {
+    const client = recordingModelClient();
+    client.complete = async (input) => {
+      client.inputs.push(input);
+      return { role: "assistant", stopReason: "tool_calls", timestamp: Date.now(), content: [
+        { type: "toolCall", id: "denied-artifact", name: "artifact_write", arguments: { title: "Blocked", format: "html", content: "blocked" } }
+      ] };
+    };
+    const conn = await open(client, "review");
+    await conn.send({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: conn.sessionId, prompt: [{ type: "text", text: "go" }] } });
+    const observed: Record<string, unknown>[] = [];
+    for (;;) {
+      const message = await conn.next();
+      if (message.id === 3 && !message.method) {
+        expect(message.result).toMatchObject({ stopReason: "refusal" });
+        break;
+      }
+      observed.push(message);
+      if (message.method === "session/request_permission") await conn.send({ jsonrpc: "2.0", id: message.id, result: { outcome: { outcome: "selected", optionId: "reject_once" } } });
+    }
+    expect(observed.some((message) => message.method === "session/request_permission")).toBe(true);
+    expect(observed.some((message) => message.method === "_crewcoder/artifact_updated")).toBe(false);
+    expect((await conn.request("session/artifacts/list")).response.result).toEqual({ artifacts: [] });
+  }, 30_000);
+});
 
 /** Records every model input so tests can assert what reached the system field versus the transcript. */
 function recordingModelClient(): ModelClient & { inputs: ModelInput[] } {
@@ -380,7 +509,8 @@ describe("acp server", () => {
       "crewcoder/projectInstructions": { method: "session/set_project_instructions", version: 1, files: ["AGENTS.md"], maxChars: HOST_PROJECT_INSTRUCTIONS_MAX_CHARS, persisted: false },
       "crewcoder/instructionPolicy": { method: "session/set_instruction_policy", version: 1, globalSources: ["codex-agents", "claude-md"], persisted: false },
       "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
-      "crewcoder/clientTools": { method: "session/set_client_tools", callMethod: "crewcoder/client_tool/call", version: 1, maxTools: 32 }
+      "crewcoder/clientTools": { method: "session/set_client_tools", callMethod: "crewcoder/client_tool/call", version: 1, maxTools: 32 },
+      "crewcoder/artifacts": CREWCODER_ARTIFACTS_META
     });
   });
 

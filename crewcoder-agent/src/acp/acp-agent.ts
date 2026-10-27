@@ -48,6 +48,7 @@ import { createClientTextFileHost, virtualFilesystemFromMeta } from "./client-fi
 import { translateEvent, type SessionUpdate } from "./event-translator.js";
 import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
 import { hostedTextTools } from "./hosted-text-tools.js";
+import { ARTIFACT_TOOL_NAMES, CREWCODER_ARTIFACTS_META, artifactMethod, createArtifactTools } from "./artifacts.js";
 import { clientHostedTools, CREWCODER_CLIENT_TOOLS_META, parseClientToolDefinitions, type ClientToolDefinition } from "./client-hosted-tools.js";
 import { createToolRegistry } from "../tools/index.js";
 import { findProvider } from "../providers/provider-registry.js";
@@ -120,6 +121,9 @@ export const CREWCODER_SESSION_SYSTEM_PROMPT_META = {
 } as const;
 
 const EXT_METHODS = new Set([
+  CREWCODER_ARTIFACTS_META.listMethod,
+  CREWCODER_ARTIFACTS_META.readMethod,
+  CREWCODER_ARTIFACTS_META.writeMethod,
   "session/set_tool_policy",
   "session/set_client_tools",
   "session/set_system_prompt",
@@ -140,7 +144,7 @@ function reservedToolNames(): ReadonlySet<string> {
   if (!reservedNames) {
     const modes = ["general", "crewcoder", "plugin", "extension"] as const;
     const profiles = ["standalone", "crewcode"] as const;
-    reservedNames = new Set(profiles.flatMap((profile) => modes.flatMap((mode) => createToolRegistry(profile, mode).map((tool) => tool.name))));
+    reservedNames = new Set([...ARTIFACT_TOOL_NAMES, ...profiles.flatMap((profile) => modes.flatMap((mode) => createToolRegistry(profile, mode).map((tool) => tool.name)))]);
   }
   return reservedNames;
 }
@@ -191,7 +195,8 @@ export class CrewCoderAcpAgent implements Agent {
         "crewcoder/projectInstructions": CREWCODER_PROJECT_INSTRUCTIONS_META,
         "crewcoder/instructionPolicy": CREWCODER_INSTRUCTION_POLICY_META,
         "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
-        "crewcoder/clientTools": CREWCODER_CLIENT_TOOLS_META
+        "crewcoder/clientTools": CREWCODER_CLIENT_TOOLS_META,
+        "crewcoder/artifacts": CREWCODER_ARTIFACTS_META
       }
     };
   }
@@ -254,6 +259,10 @@ export class CrewCoderAcpAgent implements Agent {
     if (!EXT_METHODS.has(method)) throw RequestError.methodNotFound(method);
     const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
     const session = this.session(sessionId);
+
+    if (method.startsWith("session/artifacts/")) {
+      return artifactMethod(this.conn, session.sessionId, method, params, session.hostedTextOnly === true);
+    }
 
     if (method === "session/set_tool_policy") {
       if (session.abort) throw RequestError.invalidParams({ reason: "Cannot change tool policy during a prompt" });
@@ -473,7 +482,10 @@ export class CrewCoderAcpAgent implements Agent {
       signal: abort.signal,
       textFiles: createClientTextFileHost(this.conn, session.sessionId, this.clientCapabilities),
       virtualFilesystem: session.hostedTextOnly || session.virtualFilesystem,
-      additionalTools: session.clientTools?.length ? clientHostedTools(this.conn, session.sessionId, session.clientTools) : undefined,
+      additionalTools: [
+        ...(session.hostedTextOnly ? [] : createArtifactTools(this.conn, session.sessionId)),
+        ...clientHostedTools(this.conn, session.sessionId, session.clientTools ?? [])
+      ],
       ...(session.hostedTextOnly ? {
         tools: hostedTextTools(createClientTextFileHost(this.conn, session.sessionId, this.clientCapabilities)),
         hostedToolsOnly: true,
