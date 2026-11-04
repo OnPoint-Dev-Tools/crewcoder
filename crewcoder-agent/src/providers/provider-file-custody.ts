@@ -19,7 +19,7 @@ export function virtualFileSystemPolicy(runtime: ProviderRuntime): VirtualFileSy
 }
 
 export function enforceProviderFileCustody(input: Pick<ProviderRunInput, "provider" | "modelInput" | "cwd">): void {
-  if (input.modelInput?.useProviderNativeFileTools !== false) return;
+  if (input.modelInput?.useProviderNativeFileTools !== false && input.modelInput?.toolMode !== "crewcoder") return;
   if (virtualFileSystemPolicy(input.provider.runtime) !== "unsupported") return;
   throw new Error(
     `Virtual filesystem custody unavailable for provider "${input.provider.id}" `

@@ -1641,7 +1641,7 @@ program.command("config").argument("<action>", "show or set").argument("[key]").
   }
   if (action !== "set") throw new Error("Supported actions: show, set.");
   if (!key || value === undefined) throw new Error("Usage: config set <key> <value>");
-  const allowed = ["defaultMode", "defaultProvider", "defaultModel", "workerIdentityEnabled", "maxIterations", "stallDetection", "stallRepeatThreshold", "stallErrorThreshold", "allowExtensionTools", "allowExtensionHooks", "allowExtensionModules", "allowExtensionLiveUi", "disabledExtensions", "trustedExtensions", "sandboxedExtensions", "sandboxAllowedHosts", "sandboxNetworkIsolation", "checkpointsEnabled", "autoCompact", "autoCompactThresholdTokens", "compactionPreview", "goals.maxTurns", "goals.checkModel", "goals.timeoutMinutes"] as const;
+  const allowed = ["toolMode", "defaultMode", "defaultProvider", "defaultModel", "workerIdentityEnabled", "maxIterations", "stallDetection", "stallRepeatThreshold", "stallErrorThreshold", "allowExtensionTools", "allowExtensionHooks", "allowExtensionModules", "allowExtensionLiveUi", "disabledExtensions", "trustedExtensions", "sandboxedExtensions", "sandboxAllowedHosts", "sandboxNetworkIsolation", "checkpointsEnabled", "autoCompact", "autoCompactThresholdTokens", "compactionPreview", "goals.maxTurns", "goals.checkModel", "goals.timeoutMinutes"] as const;
   if (!allowed.includes(key as typeof allowed[number])) throw new Error(`Supported keys: ${allowed.join(", ")}`);
   const config = setConfigValue(key as typeof allowed[number], value);
   console.log(JSON.stringify(config, null, 2));

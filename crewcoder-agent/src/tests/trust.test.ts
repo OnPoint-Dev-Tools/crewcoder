@@ -4,6 +4,7 @@ import { getTrustTier, isExtensionTrusted, isTrustTier, getExtensionCapabilities
 
 function config(overrides: Partial<CrewCoderConfig> = {}): CrewCoderConfig {
   return {
+    toolMode: "crewcoder",
     integrationProfile: "standalone",
     defaultMode: "general",
     defaultProvider: "codex",

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { isToolMode, type ToolMode } from "./tool-mode.js";
 import { ensureCrewCoderHome } from "./crewcoder-home.js";
 import { isAgentMode, normalizeAgentMode, AGENT_MODE_LIST, DEFAULT_AGENT_MODE } from "./mode-router.js";
 import { DEFAULT_STALL_CONFIG } from "./stall-detector.js";
@@ -23,6 +24,8 @@ export type ModelPriceEntry = {
 };
 
 export interface CrewCoderConfig {
+  /** Default for new sessions. Host filesystem policy always takes precedence. */
+  toolMode: ToolMode;
   /** Optional CrewCode desktop compatibility bundle. Standalone is the fresh-install default. */
   integrationProfile: IntegrationProfile;
   defaultMode: AgentMode;
@@ -86,6 +89,7 @@ const MIN_STALL_THRESHOLD = 2;
 const MAX_STALL_THRESHOLD = 100;
 
 const defaultConfig: CrewCoderConfig = {
+  toolMode: "crewcoder",
   integrationProfile: DEFAULT_INTEGRATION_PROFILE,
   defaultMode: DEFAULT_AGENT_MODE,
   defaultProvider: "codex-cli",
@@ -144,7 +148,10 @@ export type CrewCoderConfigSetKey = keyof CrewCoderConfig | "goals.maxTurns" | "
 export function setConfigValue(key: CrewCoderConfigSetKey, value: string): CrewCoderConfig {
   const current = readConfig();
   const next: CrewCoderConfig = { ...current };
-  if (key === "integrationProfile") {
+  if (key === "toolMode") {
+    if (!isToolMode(value)) throw new Error("toolMode must be one of: crewcoder, native");
+    next.toolMode = value;
+  } else if (key === "integrationProfile") {
     if (!isIntegrationProfile(value)) throw new Error("integrationProfile must be one of: standalone, crewcode");
     next.integrationProfile = value;
   } else if (key === "defaultMode") {
@@ -266,6 +273,7 @@ function clampStallThreshold(value: unknown, fallback: number): number {
 
 function normalizeConfig(input: Partial<CrewCoderConfig>): CrewCoderConfig {
   return {
+    toolMode: isToolMode(input.toolMode) ? input.toolMode : defaultConfig.toolMode,
     integrationProfile: isIntegrationProfile(input.integrationProfile) ? input.integrationProfile : DEFAULT_INTEGRATION_PROFILE,
     defaultMode: normalizeAgentMode(input.defaultMode),
     defaultProvider: typeof input.defaultProvider === "string" && input.defaultProvider.trim() ? input.defaultProvider.trim() : defaultConfig.defaultProvider,

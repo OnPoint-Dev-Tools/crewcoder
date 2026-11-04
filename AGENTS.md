@@ -254,6 +254,8 @@ crewcoder/
 
 ## Current hard-won notes
 
+- Tool mode defaults to `crewcoder` for new sessions; `native` uses Codex CLI or Claude SDK tools without CrewCoder built-in/extension tools. Preserve saved mode on resume and host custody precedence. Host-supplied tools, virtual filesystems and specialized agent modes force CrewCoder tools. Never apply the standalone preference around host approvals. See `crewcoder-agent/docs/TOOL_MODE.md`.
+
 - ACP hosts advertise `_meta["crewcoder/questions"].version: 1` to receive `_crewcoder/request_question` with original option values, free-text/Other, secret flags, and exact provider permission details. Questions must never become automatic permission approvals. Cancel pending cards on session/provider cancellation. Explicit Never remains non-interactive; use Review when escalation should ask. See `crewcoder-agent/docs/ACP_ADAPTER.md`.
 
 - Reuse provider-specific computer-use integrations where available; the universal computer-use layer is deferred. Claude's built-in CLI computer use is documented as macOS-only and interactive-only, so CrewCoder's non-interactive Agent SDK transport cannot currently reuse it. Claude Desktop Windows support does not establish SDK support; never relax strict MCP isolation as a workaround. See `crewcoder-agent/docs/CODEX_CLI_PROVIDER.md`.

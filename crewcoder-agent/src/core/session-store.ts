@@ -6,6 +6,7 @@ import { ensureCrewCoderHome } from "./crewcoder-home.js";
 import type { AgentEvent } from "./events.js";
 import type { AgentMessage, ToolResultMessage } from "./messages.js";
 import type { ModelInput } from "./model-client.js";
+import type { ToolMode } from "./tool-mode.js";
 import type { UsageSummary } from "./usage.js";
 import type { SessionCompaction } from "./session-compaction.js";
 import type { SessionCheckpoint, SessionCheckpointRestore } from "./session-checkpoints.js";
@@ -15,6 +16,7 @@ import type { CrewcoderWorkflowState } from "../modes/crewcoder-workflow.js";
 export type SessionModelTurn = { iteration: number; input: ModelInput; promptHash: string; responseHash: string; responseId: string };
 
 export type SessionRecord = {
+  toolMode?: ToolMode;
   id: string;
   startedAt: string;
   cwd: string;
@@ -50,6 +52,7 @@ export type SessionRecord = {
 };
 
 type SessionHeaderEntry = {
+  toolMode?: ToolMode;
   type: "session";
   version: 2;
   id: string;
@@ -373,6 +376,7 @@ function recordToJsonl(record: SessionRecord): SessionJsonlEntry[] {
   const header: SessionHeaderEntry = {
     type: "session",
     version: 2,
+    toolMode: record.toolMode,
     id: record.id,
     timestamp: record.startedAt,
     cwd: record.cwd,
@@ -450,6 +454,7 @@ function entriesToRecord(entries: SessionJsonlEntry[]): SessionRecord {
   const compactions = pathEntries.flatMap((entry) => entry.type === "compaction" ? [entry.compaction] : []);
   return {
     id: header.id,
+    toolMode: header.toolMode,
     startedAt: header.timestamp,
     cwd: header.cwd,
     externalDirectories: latestMetadataField(metadataEntries, "externalDirectories") ?? header.externalDirectories,
@@ -550,6 +555,7 @@ async function readSessionHeaderEntry(sessionId: string): Promise<SessionHeaderE
 
 function headerToRecord(header: SessionHeaderEntry): SessionRecord {
   return {
+    toolMode: header.toolMode,
     id: header.id,
     startedAt: header.timestamp,
     cwd: header.cwd,

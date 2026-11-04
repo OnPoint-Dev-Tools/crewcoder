@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { ToolMode } from "./tool-mode.js";
 import { ProviderModelClient } from "../providers/provider-model-client.js";
 import type { AgentMessage, AssistantMessage, ToolCallPart, ToolResultMessage } from "./messages.js";
 import { assistantText, getText } from "./messages.js";
@@ -6,7 +7,7 @@ import type { JsonObjectSchema } from "./tool-types.js";
 import type { ModelUsage } from "./usage.js";
 import type { ApprovalMode } from "./approval.js";
 export type ModelSessionContext = { sessionId: string; resumeFromSessionId?: string; continuation: boolean; providerSessionId?: string };
-export type ModelInput = { systemPrompt: string; messages: AgentMessage[]; externalDirectories?: string[]; useProviderNativeFileTools?: boolean; approvalMode?: ApprovalMode; contextWindow?: number; autoCompactTokenLimit?: number; availableTools: Array<{ name: string; description: string; parameters?: JsonObjectSchema }>; session?: ModelSessionContext };
+export type ModelInput = { systemPrompt: string; messages: AgentMessage[]; externalDirectories?: string[]; toolMode?: ToolMode; useProviderNativeFileTools?: boolean; approvalMode?: ApprovalMode; contextWindow?: number; autoCompactTokenLimit?: number; availableTools: Array<{ name: string; description: string; parameters?: JsonObjectSchema }>; session?: ModelSessionContext };
 export type ModelQuestion = {
   title: string;
   options?: Array<{ label: string; value: string; description?: string }>;

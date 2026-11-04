@@ -30,6 +30,9 @@ export class ProviderModelClient implements ModelClient {
     const model = resolveProviderModel(provider, this.model);
     const transport = resolveProviderTransport(provider);
     enforceProviderFileCustody({ provider, modelInput: input, cwd: this.cwd });
+    if (input.toolMode === "native" && provider.runtime !== "openai-codex-responses" && provider.runtime !== "claude-agent-sdk") {
+      throw new Error(`Provider ${provider.id} does not expose native tools through CrewCoder. Select CrewCoder tool mode, or use codex-cli or claude.`);
+    }
     await this.debug?.event({ level: "debug", source: "provider.client", message: "provider prompt prepared", details: { providerId: this.providerId, model, promptChars: prompt.length, transport: transport.channel, continuation: transport.continuation, replay: transport.replay } });
     const request = { provider, prompt, cwd: this.cwd, model, reasoningEffort: this.reasoningEffort, modelInput: input, session: input.session, debug: this.debug, stream };
     const result = provider.runtime === "claude-agent-sdk"

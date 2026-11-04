@@ -15,6 +15,7 @@ import { CREWCODER_VERSION } from "../core/version.js";
 import { codexHostedToolsOnlyArgs, listCodexMcpServerNames } from "./codex-cli-lockdown.js";
 import { answerCodexMcpElicitation } from "./codex-mcp-elicitation.js";
 import { answerCodexUserInput } from "./codex-user-input.js";
+import { codexToolResult } from "./codex-tool-images.js";
 
 const require = createRequire(import.meta.url);
 const SESSION_PREFIX = "codex-thread-v1";
@@ -151,7 +152,7 @@ export async function runCodexAppServerProvider(input: ProviderRunInput, signal?
   // App-server owns its built-in shell/apply-patch tools and cannot route them
   // through an ACP/SDK virtual filesystem. Use the direct Responses adapter in
   // that case so every filesystem operation remains a CrewCoder dynamic tool.
-  if (input.modelInput.useProviderNativeFileTools === false) return undefined;
+  if (input.modelInput.useProviderNativeFileTools === false || input.modelInput.toolMode === "crewcoder") return undefined;
   const invocation = resolveCodexInvocation();
   if (!invocation) return undefined;
   const existingAppServerAuth = readCodexHomeCredential();
@@ -206,7 +207,7 @@ export async function listCodexModels(provider: ProviderDefinition, signal: Abor
 export async function runCodexCliProvider(input: ProviderRunInput, signal?: AbortSignal): Promise<ProviderRunResult> {
   if (!input.modelInput) throw new Error("Provider codex-cli requires a model session");
   const command = process.env.CREWCODER_CODEX_PATH || "codex";
-  const hostedToolsOnly = input.modelInput.useProviderNativeFileTools === false;
+  const hostedToolsOnly = input.modelInput.useProviderNativeFileTools === false || input.modelInput.toolMode === "crewcoder";
   let lockdown: string[] = [];
   if (hostedToolsOnly) {
     try { lockdown = codexHostedToolsOnlyArgs(await listCodexMcpServerNames(command, input.cwd)); }
@@ -326,7 +327,9 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
         const name = typeof params.tool === "string" ? params.tool : "";
         const args = isRecord(params.arguments) ? params.arguments : {};
         const result = input.stream?.executeTool ? await input.stream.executeTool({ type: "toolCall", id: String(params.callId ?? message.id), name, arguments: args }) : undefined;
-        rpc.respond(message.id, { contentItems: [{ type: "inputText", text: result ? getText(result) : `Tool ${name} is unavailable.` }], success: Boolean(result && !result.isError) });
+        rpc.respond(message.id, result
+          ? await codexToolResult(result, input.cwd, input.modelInput?.externalDirectories)
+          : { contentItems: [{ type: "inputText", text: `Tool ${name} is unavailable.` }], success: false });
         return;
       }
       if (message.id !== undefined && (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval")) {
@@ -457,7 +460,7 @@ function threadParams(input: ProviderRunInput, extra: RpcRecord = {}, hostedTool
 }
 
 function contractJson(input: ProviderRunInput): string {
-  return JSON.stringify({ model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools });
+  return JSON.stringify({ model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), toolMode: input.modelInput?.toolMode, approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools });
 }
 const hashContract = (json: string): string => createHash("sha256").update(json).digest("hex").slice(0, 24);
 /**

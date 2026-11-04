@@ -60,6 +60,8 @@ export async function runAgentLoopContinue(input: {
     images: input.images
   }, {
     ...options,
+    // A changed global default must not change the tool authority of a resumed session.
+    toolMode: session.toolMode ?? "legacy",
     sessionId: input.sessionId,
     resumeFromSessionId: input.sessionId,
     resumeContext: session.pendingResumeContext,

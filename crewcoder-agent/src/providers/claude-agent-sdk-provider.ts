@@ -19,6 +19,8 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
   if (!input.stream?.executeTool) throw new Error("Claude Agent SDK requires the CrewCoder tool executor");
   const model = input.model?.trim();
   const modelInput = input.modelInput;
+  const nativeMode = modelInput.toolMode === "native" && modelInput.useProviderNativeFileTools !== false;
+  if (nativeMode && modelInput.approvalMode === "sandboxed") throw new Error("Claude native tools do not implement CrewCoder's OS sandbox. Select CrewCoder tools or another approval mode.");
   const requestedEffort = input.reasoningEffort?.trim().toLowerCase();
   const claudeEffort = requestedEffort && CLAUDE_EFFORTS.has(requestedEffort as "low" | "medium" | "high" | "xhigh" | "max")
     ? requestedEffort as "low" | "medium" | "high" | "xhigh" | "max"
@@ -26,7 +28,7 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
   const nativeToolNames = new Map<string, string>();
   const startedNativeToolIds = new Set<string>();
   const streamBlockTypes = new Map<number, string>();
-  const nativeFileTools = modelInput.useProviderNativeFileTools === false ? [] : NATIVE_FILE_TOOLS;
+  const nativeFileTools = modelInput.useProviderNativeFileTools === false || modelInput.toolMode === "crewcoder" ? [] : NATIVE_FILE_TOOLS;
   const nativeTools = [...nativeFileTools, "AskUserQuestion"];
   const mcpTools = modelInput.availableTools
     .filter((definition) => nativeFileTools.length === 0 || !CREWCODER_NATIVE_FILE_EQUIVALENTS.has(definition.name))
@@ -52,7 +54,19 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
   let resultError: string | undefined;
 
   const canUseTool: CanUseTool = async (toolName, toolInput) => {
-    if (!isAskUserQuestion(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    if (!isAskUserQuestion(toolName)) {
+      if (toolName.startsWith("mcp__crewcoder__") || nativeFileTools.includes(toolName)) return { behavior: "allow", updatedInput: toolInput };
+      if (!nativeMode) return { behavior: "deny", message: "Native coding tools are disabled by CrewCoder tool policy" };
+      if (signal?.aborted) return { behavior: "deny", message: "Run cancelled" };
+      if (modelInput.approvalMode === "full-access") return { behavior: "allow", updatedInput: toolInput };
+      // Only explicit permission answers authorize native actions the SDK asks us to review.
+      if (modelInput.approvalMode === "never" || !input.stream?.requestQuestion) return { behavior: "deny", message: "Native tool permission requires an interactive approval" };
+      const answer = await input.stream.requestQuestion({
+        title: `Allow Claude ${toolName}?`, kind: "permission", detail: JSON.stringify(toolInput, null, 2), signal,
+        options: [{ label: "Allow once", value: "allow" }, { label: "Decline", value: "deny" }]
+      });
+      return answer === "allow" && !signal?.aborted ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: "Native tool permission declined" };
+    }
     const questions = claudeQuestions(toolInput);
     if (questions.length === 0) return { behavior: "deny", message: "Interactive question unavailable" };
     const existingAnswers = isRecord(toolInput.answers) ? toolInput.answers : {};
@@ -101,7 +115,7 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
           ? { thinking: { type: "disabled" as const } }
           : claudeEffort ? { thinking: { type: "adaptive" as const }, effort: claudeEffort } : {}),
         systemPrompt: { type: "preset", preset: "claude_code", append: modelInput.systemPrompt },
-        tools: nativeTools,
+        tools: nativeMode ? { type: "preset", preset: "claude_code" } : nativeTools,
         allowedTools: [...nativeFileTools, ...mcpNames],
         canUseTool,
         mcpServers: { crewcoder: server },

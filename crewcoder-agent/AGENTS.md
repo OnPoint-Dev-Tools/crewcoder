@@ -276,7 +276,7 @@ Codex / OpenAI Responses:
 Claude Agent SDK:
 - `claude` is the local-login Agent SDK provider; `anthropic` remains the direct API-key Messages provider.
 - Keep `settingSources: ["project"]`, `skills: []`, and `strictMcpConfig: true`: preserve project CLAUDE.md guidance without auto-injecting global skill catalogs or undeclared MCP servers. On-demand skill files under `~/.agents/skills` and the other user catalogs remain readable; do not force Skill-tool activation.
-- Tool ownership is hybrid. Native Claude is limited to Read/Grep/Glob/AskUserQuestion; Bash, mutations, and specialized tools must route through the in-process CrewCoder MCP server and existing executor.
+- New sessions use explicit Tool mode: `crewcoder` disables native Claude coding tools and uses the CrewCoder MCP executor; `native` uses the SDK tool preset and provider permission routing. Pre-setting sessions retain the original hybrid Read/Grep/Glob/AskUserQuestion behavior. Host custody always overrides the preference. See `docs/TOOL_MODE.md`.
 - Disable native Read/Grep/Glob whenever a virtual `TextFileHost` is active (especially ACP SSH/SFTP); route those operations through CrewCoder MCP so the local Claude process cannot cross host boundaries.
 - Persist returned SDK session ids in `providerSessionIds.claude`; never substitute the CrewCoder session id or send Claude ids to another provider.
 - Preserve assistant/thinking deltas, native read/search tool activity, cancellation, and CrewCoder MCP tool lifecycle events.

@@ -6,6 +6,7 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 
 | Command | Scope | Behavior |
 | --- | --- | --- |
+| `/tool-mode [crewcoder\|native\|status]` | backend default for new sessions | Open the Tool mode picker or select CrewCoder tools versus provider-native tools. Use `/new` to apply a changed default. |
 | `/provider` | session selection | Select the provider used by future prompts. |
 | `/model` | session selection | Select a model for the active provider. |
 | `/effort` | session selection | Select supported reasoning effort. |
@@ -21,6 +22,11 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 | `/sidebar on\|off\|status` | TUI display | Open or close the blank right sidebar. Bare `/sidebar` and `Ctrl+B` toggle it. |
 
 Provider, model, effort, mode, worker, and system prompt affect future backend runs. They do not rewrite historical turns.
+
+Tool mode is saved per session and restored on resume. Codex CLI and Claude support
+native tools; API-only providers require CrewCoder tools. Host custody and specialized
+agent modes take precedence. See [Tool mode](../../crewcoder-agent/docs/TOOL_MODE.md)
+for provider support, approvals, and host restrictions.
 
 ## Optional worker identity
 

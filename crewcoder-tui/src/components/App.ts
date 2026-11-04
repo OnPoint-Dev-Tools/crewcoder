@@ -690,6 +690,8 @@ export class App implements Component {
     if (value === "/sidebar" || value === "sidebar") { this.toggleSidebar(); return; }
     if (value.startsWith("/sidebar ") || value.startsWith("sidebar ")) { this.setSidebar(value.replace(/^\/?sidebar\s+/, "").trim()); return; }
     if (value === "/effort") { this.openEffortOverlay(); return; }
+    if (value === "/tool-mode" || value === "tool-mode") { void this.configureToolMode(); return; }
+    if (value.startsWith("/tool-mode ") || value.startsWith("tool-mode ")) { void this.configureToolMode(value.replace(/^\/?tool-mode\s+/, "").trim()); return; }
     if (value.startsWith("/effort ") || value.startsWith("effort ")) { this.setEffort(value.replace(/^\/?effort\s+/, "").trim()); return; }
     if (value === "/identity" || value === "identity") { void this.setWorkerIdentity("status"); return; }
     if (value.startsWith("/identity ") || value.startsWith("identity ")) { void this.setWorkerIdentity(value.replace(/^\/?identity\s+/, "")); return; }
@@ -892,6 +894,42 @@ export class App implements Component {
         : "Full access disabled. Future mutating and dangerous tool calls will require approval."
     });
     this.showNoticePopup(this.state.fullAccess ? "⚠ Full access enabled" : "Full access disabled", this.state.fullAccess ? "warning" : "success");
+  }
+
+  private async configureToolMode(value?: string): Promise<void> {
+    if (this.state.running || this.bridge.running) {
+      this.state.blocks.push({ type: "error", text: "Wait for the current run to finish before changing Tool mode." });
+      return;
+    }
+    if (value === undefined || value === "status") {
+      const config = await readCrewCoderConfig();
+      const selected = config?.toolMode ?? "crewcoder";
+      if (value === "status") {
+        this.state.blocks.push({ type: "system", text: `Tool mode for new sessions: ${selected}. Existing sessions keep their saved mode; host policy takes precedence.` });
+        return;
+      }
+      this.openPanelPopover(new PickerOverlay("Tool mode for new sessions", [
+        { label: `${selected === "crewcoder" ? "* " : ""}CrewCoder tools`, value: "crewcoder", description: "CrewCoder handles coding tools and approvals across providers" },
+        { label: `${selected === "native" ? "* " : ""}Provider-native tools`, value: "native", description: "Codex CLI or Claude tools and approvals; CrewCoder coding tools disabled" }
+      ], (option) => { this.closeActivePopover(); void this.configureToolMode(option.value); }), 7);
+      this.repaint?.();
+      return;
+    }
+    if (value !== "crewcoder" && value !== "native") {
+      this.state.blocks.push({ type: "error", text: "Usage: /tool-mode crewcoder|native|status" });
+      return;
+    }
+    this.state.running = true;
+    try {
+      const { stderr, exitCode } = await execCrewCoderCommand(["config", "set", "toolMode", value]);
+      if (exitCode !== 0) throw new Error(stderr.trim() || "Could not save Tool mode.");
+      this.state.blocks.push({ type: "system", text: `Tool mode set to ${value} for new sessions. Use /new to apply it. Existing sessions keep their mode; host policy and specialized agent modes require CrewCoder tools.` });
+    } catch (error) {
+      this.state.blocks.push({ type: "error", text: error instanceof Error ? error.message : String(error) });
+    } finally {
+      this.state.running = false;
+      this.repaint?.();
+    }
   }
 
   private async setCheckpoints(value: string): Promise<void> {
@@ -3117,6 +3155,7 @@ function stripToWidth(line: string, width: number): string {
 type MentionToken = { start: number; end: number; query: string };
 
 type CrewCoderReloadConfig = {
+  toolMode?: "crewcoder" | "native";
   integrationProfile?: "standalone" | "crewcode";
   defaultMode?: string;
   defaultProvider?: string;
@@ -3224,6 +3263,7 @@ async function readCrewCoderConfig(): Promise<CrewCoderReloadConfig | undefined>
     const goals = raw.goals && typeof raw.goals === "object" && !Array.isArray(raw.goals) ? raw.goals as Record<string, unknown> : undefined;
     return {
       defaultMode: typeof raw.defaultMode === "string" ? raw.defaultMode : undefined,
+      toolMode: raw.toolMode === "native" ? "native" : "crewcoder",
       defaultProvider: typeof raw.defaultProvider === "string" && raw.defaultProvider.trim() ? raw.defaultProvider.trim() : undefined,
       defaultModel: typeof raw.defaultModel === "string" && raw.defaultModel.trim() ? raw.defaultModel.trim() : undefined,
       allowExtensionLiveUi: raw.allowExtensionLiveUi === true ? true : undefined,

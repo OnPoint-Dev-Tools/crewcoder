@@ -60,6 +60,31 @@ See [Claude Code computer use](https://code.claude.com/docs/en/computer-use).
 Connecting an external automation service would be separate work; do not
 disable strict MCP isolation as a workaround.
 
+## Image results from hosted tools
+
+CrewCoder's guest/local read tool declares images on the tool result's image metadata.
+The Codex app-server adapter now reads those authorized local files and sends their
+pixels as dynamic-tool inputImage content items alongside the text description.
+Native view_image remains disabled in hosted-tools-only sessions. ACP client text
+I/O and hosted-text-only tools do not gain a binary filesystem fallback.
+
+The adapter rechecks workspace and session external-directory scope, sniffs PNG,
+JPEG, GIF or WebP bytes, and limits a response to four images, 8 MiB per image and
+16 MiB total. Missing, changed, unsupported or oversized images produce a failed
+tool response with a readable delivery error, without partial image content.
+Image bytes are encoded only on the app-server wire; durable tool records retain
+paths and metadata.
+
+Regression command from the repository root:
+
+```sh
+node node_modules/vitest/vitest.mjs run --config test/codex-tool-images.config.ts
+```
+
+A guest with an older CrewCoder bundle still returns only the binary description.
+Build and install the updated bundle in that guest before repeating VM GUI acceptance;
+restarting the desktop application alone does not update an existing guest disk.
+
 ## No fallback
 
 If the app-server cannot start, the turn fails with the cause. It never falls back to the direct Responses transport, because that would need CrewCoder-owned credentials.
@@ -69,7 +94,7 @@ If the app-server cannot start, the turn fails with the cause. It never falls ba
 
 ## Hosted-tools-only lockdown
 
-When CrewCoder routes the filesystem itself (`useProviderNativeFileTools: false`, which ACP virtual-filesystem sessions and Supervisor hosted sessions set), only CrewCoder's dynamic tools may act. The launch adds:
+When `toolMode: crewcoder` is selected, or `useProviderNativeFileTools: false` enforces ACP virtual-filesystem or Supervisor custody, only CrewCoder's dynamic tools may act. The launch adds:
 
 | Control | Why |
 | --- | --- |
@@ -97,4 +122,4 @@ Fail-closed rules:
 ## Limits
 
 - Feature names are tied to the Codex versions above. A Codex update that adds a new native tool under a new feature name is not removed until it is added here. The read-only sandbox still blocks native writes and command execution.
-- Without lockdown (plain CrewCoder use), Codex keeps its native tools and the user's full Codex config, as when running `codex` directly.
+- With native Tool mode, Codex keeps its native tools and the user's full Codex config, as when running `codex` directly. New standalone sessions default to CrewCoder tools. See [Tool mode](TOOL_MODE.md).

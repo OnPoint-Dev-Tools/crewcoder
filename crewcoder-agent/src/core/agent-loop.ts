@@ -34,6 +34,7 @@ import { inspectProject, formatProjectInspection, type ProjectInspection } from 
 import { prepareLiveCompaction, applyCompactionProposal, summarizeMessagesForHandoff, type SessionCompaction } from "./session-compaction.js";
 import { createSessionCheckpoint, MAX_SESSION_CHECKPOINTS, type SessionCheckpoint } from "./session-checkpoints.js";
 import { readConfig } from "./config.js";
+import { resolveToolMode, type ToolMode } from "./tool-mode.js";
 import { resolveActiveWorker, buildIdentityPrompt } from "./identity.js";
 import { dumpModelInput } from "./model-input-dump.js";
 import { appendAuditLog } from "./audit-log.js";
@@ -55,6 +56,8 @@ import {
 } from "../modes/crewcoder-workflow.js";
 
 export type AgentLoopOptions = {
+  /** Session tool selection; host custody takes precedence. */
+  toolMode?: ToolMode | "legacy";
   /** Host policy: only supplied text tools, without extension hooks or local project discovery. */
   hostedToolsOnly?: boolean;
   modelClient?: ModelClient;
@@ -200,6 +203,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   if (options.hostedToolsOnly && (!options.tools || !options.textFiles?.readTextFile || !options.textFiles.writeTextFile)) throw new Error("Hosted tool policy requires supplied tools and both host text methods");
   const sessionId = options.sessionId ?? createSessionId();
   const runtimeConfig = readConfig();
+  const virtualFilesystem = options.hostedToolsOnly || (options.virtualFilesystem ?? options.textFiles !== undefined);
   const integrationProfile = options.integrationProfile ?? resolveIntegrationProfile(request.cwd, runtimeConfig);
   const mode = options.hostedToolsOnly ? "general" : resolveMode(request.requestedMode);
   if (mode === "plugin" && integrationProfile !== "crewcode") {
@@ -244,17 +248,17 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   let budgetWarningEmitted = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).warningReached;
   let budgetDownshiftRequested = false;
   let budgetExceeded = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).exceeded;
-  const builtInTools = withCrewcoderWorkflowTools(options.tools ?? createToolRegistry(integrationProfile, mode), mode);
+  const toolMode = resolveToolMode(options.toolMode ?? runtimeConfig.toolMode, { ...options, virtualFilesystem, suppliedTools: options.tools, mode });
+  const builtInTools = withCrewcoderWorkflowTools(options.tools ?? (toolMode === "native" ? [] : createToolRegistry(integrationProfile, mode)), mode);
   // Host-executed tools stay available under the hosted policy: the host, not CrewCoder, authorizes them.
   const tools = options.hostedToolsOnly ? [...builtInTools.filter(tool => tool.name === "read" || tool.name === "write"), ...(options.additionalTools ?? [])] : options.tools
     ? [...builtInTools, ...(options.additionalTools ?? [])]
-    : [...builtInTools, ...(await loadTrustedExtensionTools()), ...(options.additionalTools ?? [])];
+    : [...builtInTools, ...(toolMode === "native" ? [] : await loadTrustedExtensionTools()), ...(options.additionalTools ?? [])];
   const crewcoderWorkflow = mode === "crewcoder"
     ? applyIncomingUserMessage(options.initialCrewcoderWorkflow ?? reconstructCrewcoderWorkflow(initialMessages), request.prompt)
     : undefined;
   const modelClient = options.modelClient ?? createModelClientFromEnv();
   const approvalMode = options.approvalMode ?? "never";
-  const virtualFilesystem = options.hostedToolsOnly || (options.virtualFilesystem ?? options.textFiles !== undefined);
   // 0/undefined means unlimited. A working agent is bounded by the task, by an
   // opt-in token budget, or by stall detection — never by a turn counter.
   const requestedIterations = options.maxIterations ?? runtimeConfig.maxIterations;
@@ -332,7 +336,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const skills = selectSkills(mode, request.prompt);
   const docs = selectDocs(mode);
   const crewTasksConfig = readCrewTasksConfig();
-  const crewTasksPrompt = crewTasksConfig.enabled && !options.hostedToolsOnly
+  const crewTasksPrompt = crewTasksConfig.enabled && !options.hostedToolsOnly && toolMode !== "native"
     ? [
         "crew-tasks is enabled for this project/session.",
         "For complex multi-step work, use TaskCreate/TaskList/TaskGet/TaskUpdate to maintain persistent project tasks in .crewcoder/tasks.",
@@ -348,6 +352,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const selectedSystemPromptName = options.systemPromptName;
   const selectedSystemPrompt = selectedSystemPromptName ? getSystemPrompt(selectedSystemPromptName) : null;
   const defaultSystemPrompt = [
+    ...(toolMode ? [`Tool mode: ${toolMode}. ${toolMode === "native" ? "Use the provider's native tools. CrewCoder built-in and extension tools are unavailable." : "Use the tools supplied by CrewCoder for actions."}`] : []),
     options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: workerIdentityEnabled && activeWorker ? buildIdentityPrompt(activeWorker) : null, crewTasksPrompt, extensionContext }),
     formatExternalDirectories(externalDirectories)
   ].filter(Boolean).join("\n\n");
@@ -382,6 +387,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         contextWindow: usageSummary.contextWindow,
         approvalMode,
         modelClient,
+        toolMode: toolMode ?? "legacy",
         // Unlimited unless the parent explicitly caps it. Child workers are
         // bounded by stall detection and maxChildWorkerDepth, not a turn count.
         maxIterations: delegation.maxIterations,
@@ -437,6 +443,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       provider: options.providerId,
       model: options.model,
       effort: options.effort,
+      toolMode,
       events,
       messages,
       modelTurns,
@@ -624,6 +631,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           // A file host may also represent local unsaved buffers, so capability
           // presence alone is not enough to classify the workspace as virtual.
           useProviderNativeFileTools: !virtualFilesystem,
+          toolMode,
           approvalMode,
           // Native-session providers must use the same context policy as the
           // outer CrewCoder loop or they can compact first at a smaller default.
