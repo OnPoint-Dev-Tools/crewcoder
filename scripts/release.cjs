@@ -28,7 +28,10 @@ function fail(message) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  // Windows cannot execute npm batch launchers directly; retain argument boundaries.
+  const executable = command === "npm" ? process.execPath : command;
+  const commandArgs = command === "npm" ? [process.env.npm_execpath, ...args] : args;
+  const result = spawnSync(executable, commandArgs, {
     cwd: root,
     encoding: options.capture ? "utf8" : undefined,
     stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit"
@@ -105,7 +108,8 @@ function main(args) {
 
   const version = positional[0];
   stableVersionParts(version);
-  if (run("git", ["rev-parse", "--show-toplevel"], { capture: true }) !== root) {
+  // Git reports forward slashes on Windows while path.resolve uses native separators.
+  if (path.resolve(run("git", ["rev-parse", "--show-toplevel"], { capture: true })) !== root) {
     fail(`Release script must run from the CrewCoder repository at ${root}.`);
   }
   if (run("git", ["status", "--porcelain", "--untracked-files=all"], { capture: true })) {

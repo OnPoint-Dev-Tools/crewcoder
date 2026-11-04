@@ -6,7 +6,7 @@ Create a coordinated release from a clean branch with one command:
 npm run release -- 0.7.0
 ```
 
-The command keeps the agent package's `@openai/codex` dependency on npm's `latest` tag, so each new user installation resolves the current stable Codex release. It updates the umbrella, agent, browser client, and SDK package versions as one coordinated release group. It preserves the TUI package version and the umbrella package's existing exact TUI dependency. It also updates the release group's exact internal dependencies, runtime version constants, generated client and SDK version API baselines, and `package-lock.json`; runs the SDK release checks; creates a `chore(release): v0.7.0` commit and annotated `v0.7.0` tag; then atomically pushes the current branch and tag to its configured remote.
+The Codex provider uses the user's installed Codex CLI. The command updates the umbrella, agent, browser client, and SDK package versions as one coordinated release group. It preserves the TUI package version and the umbrella package's existing exact TUI dependency. It also updates the release group's exact internal dependencies, runtime version constants, generated client and SDK version API baselines, and `package-lock.json`; runs the SDK release checks; creates a `chore(release): v0.7.0` commit and annotated `v0.7.0` tag; then atomically pushes the current branch and tag to its configured remote.
 
 Only `crewcoder-client/api/version.d.ts` and `crewcoder-sdk/api/version.d.ts` may change during the automatic API baseline refresh. Any other public declaration change stops the release for explicit review.
 
@@ -31,3 +31,5 @@ npm run release -- 0.7.0 --dry-run
 ```
 
 Pushing the tag does not publish npm packages by itself. Publishing remains controlled by the protected `CrewCoder SDK release` GitHub Actions workflow.
+
+Windows release automation normalizes Git's repository path and invokes npm through its JavaScript entry to preserve argument boundaries. Full release readiness can run on the workflow's Ubuntu runner when local tests require Unix facilities.
