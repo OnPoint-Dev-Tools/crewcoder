@@ -25,6 +25,41 @@ without appending the raw shell command. The command remains in its tool transcr
 entry. Allow once, Allow session, and Decline keep their provider decision values;
 cancellation or an unrecognized answer declines the request.
 
+Computer-use and browser MCP services can also send
+`mcpServer/elicitation/request`. CrewCoder forwards consent-only forms and URL
+confirmation through its provider-question channel, including ACP permission
+cards in CrewCode. It sends an explicit MCP action and content, preserving the
+numeric or string request id. Cancellation or a missing interactive host cancels
+the request. Data forms require a JSON object; ACP currently cannot collect
+free-text provider questions unless the host negotiates the version-1
+`crewcoder/questions` extension. Updated CrewCode negotiates that extension and
+collects JSON data through its request card; other clients cancel these forms
+instead of inventing data.
+Unknown server requests receive an explicit JSON-RPC error.
+
+Full access now uses Codex `on-request` with `danger-full-access`, preserving
+automatic command/file approval while allowing the service's own consent and
+additional-permission questions. Review uses `on-request` with workspace-write.
+Never and Sandboxed remain non-interactive. Hosted-tools-only lockdown is
+unchanged: native computer use and MCP servers remain disabled and unsolicited
+elicitation requests are declined.
+
+This uses the computer-use service already configured in the user's Codex
+installation. It does not install a backend or expose Codex's private native
+tools to other providers. In SSH sessions, Codex and its configured services run
+on the workspace host; they do not thereby gain access to the client desktop.
+
+The current direction is to reuse provider-specific computer-use integrations
+where available. A universal CrewCoder computer-use backend is deferred.
+Other adapters must explicitly expose their provider's tools and consent flow;
+a model supporting computer use is not sufficient. Claude's built-in CLI
+computer-use server is documented as macOS-only and unavailable in
+non-interactive mode, so CrewCoder's Agent SDK transport cannot currently
+reuse it. Claude Desktop's Windows support does not establish SDK support.
+See [Claude Code computer use](https://code.claude.com/docs/en/computer-use).
+Connecting an external automation service would be separate work; do not
+disable strict MCP isolation as a workaround.
+
 ## No fallback
 
 If the app-server cannot start, the turn fails with the cause. It never falls back to the direct Responses transport, because that would need CrewCoder-owned credentials.

@@ -42,7 +42,7 @@
       "crewcoder-agent": "./dist/cli.js"
    },
    "scripts": {
-      "clean": "rm -rf dist",
+      "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
       "prebuild": "npm run clean",
       "build": "tsc -p tsconfig.build.json",
       "build:standalone": "node ./scripts/build-standalone.cjs",

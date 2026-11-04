@@ -50,6 +50,7 @@ import { toolKind, toolLocations, toolTitle } from "./tool-kind.js";
 import { hostedTextTools } from "./hosted-text-tools.js";
 import { ARTIFACT_TOOL_NAMES, CREWCODER_ARTIFACTS_META, artifactMethod, createArtifactTools } from "./artifacts.js";
 import { clientHostedTools, CREWCODER_CLIENT_TOOLS_META, parseClientToolDefinitions, type ClientToolDefinition } from "./client-hosted-tools.js";
+import { CREWCODER_QUESTIONS_META, requestProviderQuestion } from "./provider-questions.js";
 import { createToolRegistry } from "../tools/index.js";
 import { findProvider } from "../providers/provider-registry.js";
 import { buildGlobalInstructions, CREWCODER_INSTRUCTION_POLICY_META, DEFAULT_INSTRUCTION_POLICY, nativelyLoadedGlobalSources, parseInstructionPolicy, type InstructionPolicy } from "../core/global-instructions.js";
@@ -162,6 +163,7 @@ export class CrewCoderAcpAgent implements Agent {
   private readonly sessions = new Map<string, AcpSession>();
   private clientCapabilities: ClientCapabilities | undefined;
   private virtualFilesystem = false;
+  private clientQuestions = false;
   /** Tools the user chose "always allow" for, per session. */
   private readonly alwaysAllow = new Map<string, Set<string>>();
   private readonly alwaysReject = new Map<string, Set<string>>();
@@ -176,6 +178,8 @@ export class CrewCoderAcpAgent implements Agent {
     // every read/write to decide between the client filesystem and local disk.
     this.clientCapabilities = params.clientCapabilities;
     this.virtualFilesystem = virtualFilesystemFromMeta(params._meta);
+    const questions = params._meta?.["crewcoder/questions"];
+    this.clientQuestions = Boolean(questions && typeof questions === "object" && "version" in questions && questions.version === 1);
     return {
       protocolVersion: Math.min(params.protocolVersion ?? PROTOCOL_VERSION, PROTOCOL_VERSION),
       agentCapabilities: {
@@ -196,7 +200,8 @@ export class CrewCoderAcpAgent implements Agent {
         "crewcoder/instructionPolicy": CREWCODER_INSTRUCTION_POLICY_META,
         "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
         "crewcoder/clientTools": CREWCODER_CLIENT_TOOLS_META,
-        "crewcoder/artifacts": CREWCODER_ARTIFACTS_META
+        "crewcoder/artifacts": CREWCODER_ARTIFACTS_META,
+        "crewcoder/questions": CREWCODER_QUESTIONS_META
       }
     };
   }
@@ -597,6 +602,10 @@ export class CrewCoderAcpAgent implements Agent {
   }
 
   private async resolveProviderQuestion(session: AcpSession, question: ModelQuestion): Promise<string | undefined> {
+    if (this.clientQuestions) {
+      const requestId = `provider_question_${session.sessionId}_${(++session.providerQuestionSequence).toString(36)}`;
+      return requestProviderQuestion(this.conn, session.sessionId, requestId, question, session.abort?.signal);
+    }
     if (!question.options?.length) return undefined;
     const choices = providerPermissionChoices(question.options);
     const toolCallId = `provider_question_${session.sessionId}_${(++session.providerQuestionSequence).toString(36)}`;

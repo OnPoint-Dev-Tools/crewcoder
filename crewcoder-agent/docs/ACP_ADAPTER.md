@@ -22,6 +22,26 @@ owns the model and the tools. CrewCode already implements the **client** half in
 `src/main/agents/hermes-bridge.ts`; this adapter is the **agent** half. There is no
 reason for CrewCode to also implement an agent — nothing would spawn it.
 
+## Structured provider questions
+
+A client advertises `_meta["crewcoder/questions"]: { version: 1 }` at initialize
+to receive `_crewcoder/request_question`. Requests carry `version`, `sessionId`,
+`requestId`, `title`, `kind` (`question` or `permission`), optional `options`
+(`label`, `value`, `description`), `allowFreeform`, `multiple`, `secret`, `placeholder`,
+`message`, and `detail`. Return `{ cancelled: false, value: "actual answer" }`
+or `{ cancelled: true }`. Empty or unoffered answers cancel; an ordinary
+question must never become an automatic approval under Full access.
+Multi-select replies use `{ cancelled: false, values: ["first", "second"] }`;
+validated values become Claude's comma-separated answer string.
+
+Provider approvals carry `kind: permission` and exact scope in `detail`.
+CrewCode returns only once/turn grants. Nested Codex questions retain their
+original question ids; Claude retains its Other/free-text affordance. Abort
+or connection loss cancels pending questions. The agent sends
+`_crewcoder/question_cancelled` with the exact `sessionId` and `requestId` so
+the host withdraws the matching card. Clients without the capability retain
+option-only ACP permission transport, without free-text support.
+
 ## Stdout is reserved
 
 This is the single most important constraint. ACP frames occupy stdout exclusively;

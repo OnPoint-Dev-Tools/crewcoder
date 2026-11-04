@@ -7,7 +7,18 @@ import type { ModelUsage } from "./usage.js";
 import type { ApprovalMode } from "./approval.js";
 export type ModelSessionContext = { sessionId: string; resumeFromSessionId?: string; continuation: boolean; providerSessionId?: string };
 export type ModelInput = { systemPrompt: string; messages: AgentMessage[]; externalDirectories?: string[]; useProviderNativeFileTools?: boolean; approvalMode?: ApprovalMode; contextWindow?: number; autoCompactTokenLimit?: number; availableTools: Array<{ name: string; description: string; parameters?: JsonObjectSchema }>; session?: ModelSessionContext };
-export type ModelQuestion = { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string };
+export type ModelQuestion = {
+  title: string;
+  options?: Array<{ label: string; value: string; description?: string }>;
+  placeholder?: string;
+  kind?: "question" | "permission";
+  message?: string;
+  detail?: string;
+  allowFreeform?: boolean;
+  multiple?: boolean;
+  secret?: boolean;
+  signal?: AbortSignal;
+};
 export type ProviderCompactionUpdate = { status: "started" | "completed" | "failed"; message?: string; percent?: number };
 export type ModelStreamCallbacks = {
   onAssistantDelta?(text: string): Promise<void> | void;

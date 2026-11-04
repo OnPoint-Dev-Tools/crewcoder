@@ -254,6 +254,12 @@ crewcoder/
 
 ## Current hard-won notes
 
+- ACP hosts advertise `_meta["crewcoder/questions"].version: 1` to receive `_crewcoder/request_question` with original option values, free-text/Other, secret flags, and exact provider permission details. Questions must never become automatic permission approvals. Cancel pending cards on session/provider cancellation. Explicit Never remains non-interactive; use Review when escalation should ask. See `crewcoder-agent/docs/ACP_ADAPTER.md`.
+
+- Reuse provider-specific computer-use integrations where available; the universal computer-use layer is deferred. Claude's built-in CLI computer use is documented as macOS-only and interactive-only, so CrewCoder's non-interactive Agent SDK transport cannot currently reuse it. Claude Desktop Windows support does not establish SDK support; never relax strict MCP isolation as a workaround. See `crewcoder-agent/docs/CODEX_CLI_PROVIDER.md`.
+
+- Codex Full access uses `on-request` with `danger-full-access` so MCP computer-use consent can surface, while command/file approval stays automatic. Reply to MCP elicitations with explicit action/content and cancel without an interactive host; never silently ignore a server request. Keep Never/Sandboxed and hosted-tools-only lockdown intact. See `crewcoder-agent/docs/CODEX_CLI_PROVIDER.md`.
+
 - Worker identity is off by default and opt-in through `workerIdentityEnabled` and `identity on|off|status`. Preserve `activeWorker` selection while disabled; keep default/custom/host system prompts and propagate identity suppression to delegated runs. Host opt-in must never override the user's opt-out.
 - `codex-cli` is the sole registered Codex provider and fresh-install default; do not restore the managed `codex` provider or its bundled dependency/login flow. Claude model discovery and execution must share the executable resolver: explicit override, installed Claude Code on PATH, then the SDK bundle. An older SDK bundle must not hide models exposed by the user's installed CLI.
 - Provider thinking streams are user-visible behavior. Do not remove or simplify `onThinkingDelta`, `thinking_delta`, or TUI `thinking` blocks without replacing the behavior and tests.

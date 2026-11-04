@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 import * as claudeExecutable from "../providers/claude-executable.js";
 
 const queryMock = vi.hoisted(() => vi.fn());
@@ -67,7 +68,7 @@ describe("Claude Agent SDK provider", () => {
     expect(options.settingSources).toEqual(["project"]);
     expect(options.skills).toEqual([]);
     expect(options.tools).toEqual(["Read", "Grep", "Glob", "AskUserQuestion"]);
-    expect(options.additionalDirectories).toEqual(expect.arrayContaining(["/shared"]));
+    expect(options.additionalDirectories).toEqual(expect.arrayContaining([path.resolve("/shared")]));
     expect(options.systemPrompt).toMatchObject({ preset: "claude_code", append: "CrewCoder system" });
     expect(options.strictMcpConfig).toBe(true);
     expect(options.settings.autoCompactEnabled).toBe(false);
@@ -125,11 +126,13 @@ describe("Claude Agent SDK provider", () => {
 
     expect(requestQuestion).toHaveBeenNthCalledWith(1, {
       title: "Approach?",
+      allowFreeform: true,
       options: [{ label: "Safe", value: "safe-id", description: "Prefer safety" }],
       placeholder: "reply to Claude…"
     });
     expect(requestQuestion).toHaveBeenNthCalledWith(2, {
       title: "Anything else?",
+      allowFreeform: true,
       options: undefined,
       placeholder: "reply to Claude…"
     });

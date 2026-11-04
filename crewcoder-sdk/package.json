@@ -39,7 +39,7 @@
     }
   },
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "prebuild": "npm run build -w @onpoint-dev-tools/crewcoder-client && npm run clean",
     "build": "tsc -p tsconfig.build.json",
     "pretypecheck": "npm run build -w @onpoint-dev-tools/crewcoder-client",

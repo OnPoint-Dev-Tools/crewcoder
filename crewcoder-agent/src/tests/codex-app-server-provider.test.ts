@@ -284,7 +284,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(codexTurnPermissions(input("review"))).toMatchObject({ sandboxPolicy: { networkAccess: true } });
     expect(codexTurnPermissions(input("sandboxed"))).toMatchObject({ sandboxPolicy: { networkAccess: false } });
     expect(codexTurnPermissions(input("full-access"))).toEqual({
-      approvalPolicy: "never",
+      approvalPolicy: "on-request",
       sandboxPolicy: { type: "dangerFullAccess" }
     });
   });

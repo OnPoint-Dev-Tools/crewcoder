@@ -13,6 +13,8 @@ import { getProviderAuth, setAuthCredential } from "./auth-store.js";
 import type { CodexOAuthCredentials } from "./oauth-codex.js";
 import { CREWCODER_VERSION } from "../core/version.js";
 import { codexHostedToolsOnlyArgs, listCodexMcpServerNames } from "./codex-cli-lockdown.js";
+import { answerCodexMcpElicitation } from "./codex-mcp-elicitation.js";
+import { answerCodexUserInput } from "./codex-user-input.js";
 
 const require = createRequire(import.meta.url);
 const SESSION_PREFIX = "codex-thread-v1";
@@ -236,6 +238,7 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
   const { server, pooled } = acquireAppServer(poolKey, (onExit) => new CodexAppServer(invocation.command, args, input.cwd, codexHome, onExit));
   server.busy = true;
   const { child, rpc } = server;
+  const openQuestions = new Map<unknown, AbortController>();
   const stderrStart = server.stderr.length;
   const stderrForTurn = () => server.stderr.slice(Math.min(stderrStart, server.stderr.length));
   // A turn that did not finish cleanly leaves the process in an unknown state; never reuse it.
@@ -303,6 +306,22 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
     rpc.onMessage = async (message) => {
       const method = typeof message.method === "string" ? message.method : "";
       const params = isRecord(message.params) ? message.params : {};
+      if (method === "serverRequest/resolved") {
+        openQuestions.get(params.requestId)?.abort();
+        return;
+      }
+      if (message.id !== undefined && (method === "item/tool/requestUserInput" || method === "tool/requestUserInput")) {
+        const controller = new AbortController();
+        openQuestions.set(message.id, controller);
+        const questionSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+        try {
+          const answers = await answerCodexUserInput(params, input.stream?.requestQuestion, questionSignal);
+          if (!questionSignal.aborted) rpc.respond(message.id, { answers });
+        } catch (error) {
+          if (!questionSignal.aborted) rpc.respondError(message.id, error instanceof Error ? error.message : String(error));
+        } finally { openQuestions.delete(message.id); }
+        return;
+      }
       if (message.id !== undefined && method === "item/tool/call") {
         const name = typeof params.tool === "string" ? params.tool : "";
         const args = isRecord(params.arguments) ? params.arguments : {};
@@ -316,6 +335,22 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
       }
       if (message.id !== undefined && method === "item/permissions/requestApproval") {
         rpc.respond(message.id, hostedToolsOnly ? { permissions: {}, scope: "turn" } : await permissionDecision(params, input));
+        return;
+      }
+      if (message.id !== undefined && method === "mcpServer/elicitation/request") {
+        try {
+          const mode = input.modelInput?.approvalMode;
+          const result = hostedToolsOnly || mode === "never" || mode === "sandboxed"
+            ? { action: "decline", content: null }
+            : await answerCodexMcpElicitation(params, input.stream?.requestQuestion, signal);
+          if (!signal?.aborted) rpc.respond(message.id, result);
+        } catch (error) {
+          if (!signal?.aborted) rpc.respondError(message.id, error instanceof Error ? error.message : String(error));
+        }
+        return;
+      }
+      if (message.id !== undefined) {
+        rpc.respondError(message.id, `Unsupported Codex server request: ${method}`);
         return;
       }
       if (method === "item/started" && isRecord(params.item) && params.item.type === "contextCompaction") {
@@ -397,6 +432,8 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
   } finally {
     await emitNativeCompaction("failed");
     signal?.removeEventListener("abort", abort);
+    for (const controller of openQuestions.values()) controller.abort();
+    openQuestions.clear();
     // App-server may rotate the refresh token. Copy its validated result back to
     // CrewCoder's 0600 auth store so the direct fallback and next process do not
     // retain an invalidated predecessor token.
@@ -544,8 +581,9 @@ function unstreamedRemainder(streamed: string, completed: string): string {
 function approvalPolicy(input: ProviderRunInput): string | undefined {
   const mode = input.modelInput?.approvalMode;
   if (mode === "always") return "untrusted";
-  if (mode === "review") return "on-request";
-  if (mode === "never" || mode === "sandboxed" || mode === "full-access") return "never";
+  // Full filesystem access must not suppress a computer-use service's own consent dialog.
+  if (mode === "review" || mode === "full-access") return "on-request";
+  if (mode === "never" || mode === "sandboxed") return "never";
   return undefined;
 }
 function threadPermissions(input: ProviderRunInput): RpcRecord {
@@ -576,10 +614,13 @@ export function codexTurnPermissions(input: ProviderRunInput, hostedToolsOnly = 
   };
 }
 async function approvalDecision(params: RpcRecord, input: ProviderRunInput): Promise<string> {
+  if (input.modelInput?.approvalMode === "full-access") return "accept";
   if (!input.stream?.requestQuestion) return "decline";
   const reason = typeof params.reason === "string" ? params.reason : undefined;
 
   const answer = await input.stream.requestQuestion({
+    kind: "permission",
+    detail: JSON.stringify({ command: params.command, cwd: params.cwd, changes: params.changes }, null, 2),
     title: reason?.trim() || `${input.provider.title} requests approval`,
     options: [
       { label: "Allow once", value: "accept" },
@@ -592,6 +633,8 @@ async function approvalDecision(params: RpcRecord, input: ProviderRunInput): Pro
 async function permissionDecision(params: RpcRecord, input: ProviderRunInput): Promise<RpcRecord> {
   if (!input.stream?.requestQuestion || !isRecord(params.permissions)) return { permissions: {}, scope: "turn" };
   const answer = await input.stream.requestQuestion({
+    kind: "permission",
+    detail: JSON.stringify(params.permissions, null, 2),
     title: typeof params.reason === "string" ? params.reason : `${input.provider.title} requests additional permissions`,
     options: [
       { label: "Allow once", value: "turn" },
@@ -634,6 +677,7 @@ class AppServerRpc {
   }
   notify(method: string, params: RpcRecord): void { this.write({ method, params }); }
   respond(id: unknown, result: RpcRecord): void { this.write({ id, result }); }
+  respondError(id: unknown, message: string): void { this.write({ id, error: { code: -32603, message } }); }
   async waitUntil(predicate: () => boolean, signal?: AbortSignal): Promise<void> {
     while (!predicate()) {
       if (signal?.aborted) throw new Error("Codex turn aborted");

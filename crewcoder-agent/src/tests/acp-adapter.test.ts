@@ -168,6 +168,29 @@ function toolResult(text: string, isError = false): ToolResultMessage {
  * Drives the ACP server over in-memory streams, speaking raw JSON-RPC. This
  * exercises the real wire (framing included) without spawning a subprocess.
  */
+it("negotiates provider questions over the real ACP wire including free-text answers", async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-question-wire-"));
+  let answer: string | undefined;
+  const modelClient: ModelClient = { async complete(_input, _signal, stream) {
+    answer = await stream?.requestQuestion?.({ title: "What should I do next?", allowFreeform: true });
+    return assistantText("Question answered");
+  } };
+  const conn = connect({ modelClient, approvalMode: "full-access", maxIterations: 1 });
+  await conn.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: {
+    protocolVersion: 1, clientCapabilities: {}, _meta: { "crewcoder/questions": { version: 1 } }
+  } });
+  expect((await conn.awaitResponse(1)).response.result).toMatchObject({ _meta: { "crewcoder/questions": { version: 1 } } });
+  await conn.send({ jsonrpc: "2.0", id: 2, method: "session/new", params: { cwd, mcpServers: [] } });
+  const sessionId = ((await conn.awaitResponse(2)).response.result as { sessionId: string }).sessionId;
+  await conn.send({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "Ask me" }] } });
+  let question: Record<string, unknown>;
+  do { question = await conn.next(); } while (question.method !== "_crewcoder/request_question");
+  expect(question.params).toMatchObject({ sessionId, title: "What should I do next?", kind: "question", allowFreeform: true });
+  await conn.send({ jsonrpc: "2.0", id: question.id, result: { cancelled: false, value: "Use the small change" } });
+  expect((await conn.awaitResponse(3)).response.error).toBeUndefined();
+  expect(answer).toBe("Use the small change");
+});
+
 function connect(options: AcpAgentOptions) {
   const toServer = new TransformStream<Uint8Array, Uint8Array>();
   const toClient = new TransformStream<Uint8Array, Uint8Array>();

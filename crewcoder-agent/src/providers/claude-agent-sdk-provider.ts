@@ -334,7 +334,7 @@ function zodValue(schema: JsonSchema): z.ZodType {
   return z.unknown();
 }
 
-type ClaudeQuestion = { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string };
+type ClaudeQuestion = { title: string; options?: Array<{ label: string; value: string; description?: string }>; placeholder?: string; allowFreeform?: boolean; multiple?: boolean };
 
 function claudeQuestions(input: Record<string, unknown>): ClaudeQuestion[] {
   if (!Array.isArray(input.questions)) return [];
@@ -350,7 +350,7 @@ function claudeQuestions(input: Record<string, unknown>): ClaudeQuestion[] {
           }];
         })
       : undefined;
-    return [{ title: candidate.question, options: options?.length ? options : undefined, placeholder: "reply to Claude…" }];
+    return [{ title: candidate.question, options: options?.length ? options : undefined, placeholder: "reply to Claude…", allowFreeform: candidate.custom !== false && candidate.allowFreeform !== false, ...(candidate.multiSelect === true ? { multiple: true } : {}) }];
   });
 }
 

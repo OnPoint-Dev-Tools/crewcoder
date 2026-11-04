@@ -1006,10 +1006,12 @@ loop's `approvalSignal` (same channel as stdin control) — never saved-session 
 Permission responses are matched **by id prefix**, because clients answer with shortened
 ids (CrewCode replies `reject`, not `reject_once`).
 
-Provider-native approvals and questions use the loop's `requestQuestion` channel. The ACP
-adapter must route option-based requests through `session/request_permission`; never leave
-the callback absent, because Codex app-server interprets that as `decline` and reports a
-misleading `patch rejected by user` without showing the user an approval prompt.
+Provider-native approvals and questions use the loop's `requestQuestion` channel. Hosts
+advertising `_meta["crewcoder/questions"].version: 1` receive the structured
+`_crewcoder/request_question` extension, retaining choices, free text/Other, secret input,
+and exact permission details. Keep questions separate from permission policy. Other ACP
+clients retain option-only `session/request_permission`; free text is unavailable there.
+Never leave the callback absent: Codex can otherwise report a misleading user rejection.
 Canonical ACP answers must map back to the provider's original value: Codex uses both
 `accept` and elevated-permission `turn` for once-only approval, and CrewCode returns
 `allow_once` for either.
