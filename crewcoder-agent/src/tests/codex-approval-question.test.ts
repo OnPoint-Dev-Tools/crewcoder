@@ -16,7 +16,7 @@ const provider: ProviderDefinition = {
 };
 
 describe("native approval questions", () => {
-  it.each(["accept", "acceptForSession", "decline", undefined])("shows only the reason and preserves decision %s", async (answer) => {
+  it.each(["accept", "acceptForSession", "decline", undefined])("keeps the reason as title, includes permission detail, and preserves decision %s", async (answer) => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crew-question-"));
     // Node runs this extensionless fixture on Windows as well as POSIX.
     process.env.CREWCODER_CODEX_PATH = process.execPath;
@@ -48,7 +48,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe(answer ?? "decline");
       expect(questions).toEqual([{
+        kind: "permission",
         title: "May I run the focused checks?",
+        detail: JSON.stringify({ command: "powershell.exe -Command " + "source code ".repeat(1000) }, null, 2),
         options: [
           { label: "Allow once", value: "accept" },
           { label: "Allow session", value: "acceptForSession" },

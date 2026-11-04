@@ -533,7 +533,8 @@ describe("acp server", () => {
       "crewcoder/instructionPolicy": { method: "session/set_instruction_policy", version: 1, globalSources: ["codex-agents", "claude-md"], persisted: false },
       "crewcoder/sessionToolPolicy": { method: "session/set_tool_policy", version: 1, policies: ["hosted-text-only"] },
       "crewcoder/clientTools": { method: "session/set_client_tools", callMethod: "crewcoder/client_tool/call", version: 1, maxTools: 32 },
-      "crewcoder/artifacts": CREWCODER_ARTIFACTS_META
+      "crewcoder/artifacts": CREWCODER_ARTIFACTS_META,
+      "crewcoder/questions": { version: 1, method: "_crewcoder/request_question" }
     });
   });
 
