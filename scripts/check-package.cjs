@@ -8,13 +8,14 @@ if (!process.argv[2]) {
   process.exit(1);
 }
 
-const result = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+// Windows cannot spawn npm batch launchers; use the invoking npm JavaScript entry.
+const result = spawnSync(process.execPath, [process.env.npm_execpath, "pack", "--dry-run", "--json", "--ignore-scripts"], {
   cwd: packageDirectory,
   encoding: "utf8",
   env: { ...process.env, npm_config_loglevel: "silent" }
 });
 if (result.status !== 0) {
-  process.stderr.write(result.stderr || result.stdout);
+  process.stderr.write(result.error?.message || result.stderr || result.stdout || "npm pack failed.");
   process.exit(result.status || 1);
 }
 
