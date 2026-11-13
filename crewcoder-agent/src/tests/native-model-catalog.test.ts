@@ -1,8 +1,15 @@
+import * as childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { isolatedCrewCoderTestHome } from "./test-home-setup.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof childProcess>();
+  return { ...original, spawn: vi.fn(original.spawn) };
+});
+const originalSpawn = vi.mocked(childProcess.spawn).getMockImplementation()!;
 
 const queryMock = vi.hoisted(() => vi.fn());
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({ query: queryMock }));
@@ -53,6 +60,9 @@ require("node:readline").createInterface({input: process.stdin}).on("line", (lin
   }
 });
 `, { mode: 0o755 });
+  // Windows cannot launch a JavaScript shebang as an executable.
+  vi.mocked(childProcess.spawn).mockImplementation(((command: string, args: readonly string[] = [], options: childProcess.SpawnOptions = {}) =>
+    originalSpawn(command === executable ? process.execPath : command, command === executable ? [executable, ...args] : args, options)) as typeof childProcess.spawn);
   vi.stubEnv("CREWCODER_CODEX_PATH", executable);
   return { requests: () => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : [] };
 }
@@ -79,6 +89,28 @@ describe("native provider model discovery", () => {
     expect(requests.some((request) => request.method === "thread/start" || request.method === "turn/start")).toBe(false);
     expect(requests.filter((request) => request.method === "spawn")).toHaveLength(1);
     expect(cli.models).not.toContain("future-codex");
+  });
+
+  it.each([{ data: [] }, { data: [{ model: "hidden", hidden: true }] }])("does not restore bundled choices for an empty visible Codex catalog (%#)", async ({ data }) => {
+    fakeCodex([{ data }]);
+    const result = await hydrateNativeProviderModels(cli);
+    expect(result.models).toEqual([]);
+    expect(result.modelCatalog).toEqual([]);
+    expect(result.defaultModel).toBeUndefined();
+    expect(listProviderModelIds(result)).toEqual([]);
+    expect(await resolveModel("codex-cli")).toBeUndefined();
+  });
+
+  it("replaces an earlier Codex catalog when the account reports no visible models", async () => {
+    const server = fakeCodex([{ data: [{ model: "account-a" }] }]);
+    expect((await hydrateNativeProviderModels(cli)).models).toEqual(["account-a"]);
+    const clock = vi.spyOn(Date, "now");
+    clock.mockReturnValue(Date.now() + 5 * 60_000 + 1);
+    fakeCodex([{ data: [] }]);
+    const result = await hydrateNativeProviderModels(cli);
+    expect(listProviderModelIds(result)).toEqual([]);
+    expect(result.defaultModel).toBeUndefined();
+    expect(server.requests().filter((request) => request.method === "model/list")).toHaveLength(2);
   });
 
   it("uses the provider's recommended default when the bundled default disappears", async () => {

@@ -71,6 +71,10 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
   const wire = JSON.parse(fs.readFileSync(wireLog, "utf8"));
   expect(wire.success).toBe(true);
   expect(wire.contentItems).toContainEqual({ type: "inputImage", imageUrl: "data:image/png;base64," + png.toString("base64") });
+  expect(wire.contentItems[0].text).toContain('image(line)');
+  expect(wire.contentItems[0].text).not.toContain('It is displayed to the user inline.');
+  const thread = JSON.parse(fs.readFileSync(path.join(root, "thread.json"), "utf8"));
+  expect(thread.dynamicTools[0].description).toContain('image(line)');
   expect(JSON.parse(fs.readFileSync(path.join(root, "thread.json"), "utf8")).sandbox).toBe("read-only");
   expect(launches[1]).toContain("view_image");
   expect(launches[1]).toContain("--disable");

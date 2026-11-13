@@ -7,8 +7,9 @@ export function resolveProviderModel(provider: ProviderDefinition, requested?: s
 }
 
 export function listProviderModelIds(provider: ProviderDefinition): string[] {
-  if (provider.modelCatalog?.length) return provider.modelCatalog.map((model) => model.id);
-  if (provider.models?.length) return provider.models;
+  // An explicit empty catalog means discovery found no selectable models.
+  if (provider.modelCatalog) return provider.modelCatalog.map((model) => model.id);
+  if (provider.models) return provider.models;
   return provider.defaultModel ? [provider.defaultModel] : ["default"];
 }
 

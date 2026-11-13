@@ -35,6 +35,15 @@ MCP lockdown as hosted sessions, including a read-only native sandbox as a
 backstop for native writes. CrewCoder tools still read, execute and write through
 their normal executor and CrewCoder approval policy.
 
+Workspace edits remain available through CrewCoder tools under every approval
+policy. Review and Always request permission for mutations; Full access executes
+them automatically, and Never and Sandboxed permit ordinary workspace edits
+without prompts. Actual denials, workspace scope and approved-plan gates still
+apply. The Codex adapter explicitly explains that its native read-only/never
+notice does not describe CrewCoder dynamic tools, including how to call them in
+code mode. This guidance is part of the native thread contract, so existing
+sessions receive it through a replacement provider thread on their next turn.
+
 Claude supports both modes. CrewCoder mode disables native Read/Grep/Glob and
 routes coding actions through CrewCoder's MCP tools. Native mode uses the SDK's
 `claude_code` tool preset and forwards SDK permission requests to the interactive

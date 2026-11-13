@@ -204,6 +204,18 @@ Do not store CrewCoder extensions under `/.crewcode`.
 
 ## Provider architecture
 
+Codex MCP lockdown must supply complete disabled transport entries for every
+discovered server, including plugin entries absent from user config. Partial
+`enabled=false` overrides can fail startup with `invalid transport` on 0.167.
+Keep overrides process-local and preserve discovery, name validation and native
+tool restrictions; never repair this by editing user MCP config or enabling tools.
+
+Workspace editing through CrewCoder tools remains available under every approval
+policy; approvals control whether mutations require user permission. Codex's
+native read-only/never backstop must never be presented as a prohibition on
+CrewCoder dynamic-tool edits. Preserve the adapter's explicit tool-execution
+guidance and its continuation-contract invalidation. See `docs/TOOL_MODE.md`.
+
 Built-ins are not plugins. They live in `src/providers` and are first-class provider adapters.
 
 Users add additional providers through CrewCoder extensions.
@@ -219,6 +231,8 @@ Discovery and execution must share `resolveClaudeExecutable`: explicit override,
 installed `claude` on PATH, then the SDK bundle. Never let an older bundled CLI
 hide models available in the user's installed CLI. Executable changes invalidate the cache.
 ACP model state must await the same discovered registry used by CLI/TUI.
+A successful empty Codex catalog clears picker choices and the default; never
+replace it with the bundled list or a synthetic default model.
 `auth --json` must use `listProviders({ discoverModels: false })` to avoid
 credential refreshes and discovery subprocesses. See [Providers](docs/PROVIDERS.md#automatic-model-discovery).
 

@@ -113,10 +113,11 @@ function parseCatalog(rows: unknown, claude: boolean): Catalog | undefined {
   if (!Array.isArray(rows) || rows.length > 1_000) return undefined;
   const models = new Map<string, ProviderModel>();
   let defaultModel: string | undefined;
+  let visibleRows = rows.length;
   for (const row of rows) {
     if (!row || typeof row !== "object" || Array.isArray(row)) continue;
     const record = row as Record<string, unknown>;
-    if (record.hidden === true) continue;
+    if (record.hidden === true) { visibleRows--; continue; }
     const id = modelId(claude ? record.value : record.model ?? record.id);
     if (!id) continue;
     const title = record.displayName;
@@ -133,7 +134,9 @@ function parseCatalog(rows: unknown, claude: boolean): Catalog | undefined {
     if (resolved && !models.has(resolved)) models.set(resolved, { id: resolved, ...metadata });
     if (record.isDefault === true && !defaultModel) defaultModel = id;
   }
-  return models.size ? { models: [...models.values()], defaultModel } : undefined;
+  // A valid empty Codex list must clear choices, rather than restore unadvertised models.
+  if (!models.size && (claude || visibleRows > 0)) return undefined;
+  return { models: [...models.values()], defaultModel };
 }
 
 function modelId(value: unknown): string | undefined {

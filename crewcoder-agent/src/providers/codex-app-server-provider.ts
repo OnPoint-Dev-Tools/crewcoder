@@ -15,10 +15,19 @@ import { CREWCODER_VERSION } from "../core/version.js";
 import { codexHostedToolsOnlyArgs, listCodexMcpServerNames } from "./codex-cli-lockdown.js";
 import { answerCodexMcpElicitation } from "./codex-mcp-elicitation.js";
 import { answerCodexUserInput } from "./codex-user-input.js";
-import { codexToolResult } from "./codex-tool-images.js";
+import { CODEX_IMAGE_READ_GUIDANCE, codexToolResult } from "./codex-tool-images.js";
+
+import { CodexProgress } from "./codex-progress.js";
 
 const require = createRequire(import.meta.url);
 const SESSION_PREFIX = "codex-thread-v1";
+const CREWCODER_TOOL_GUIDANCE = [
+  "CrewCoder tool execution and approvals:",
+  "The read-only sandbox and approval_policy: never describe Codex native tools only. CrewCoder dynamic tools execute outside that native sandbox through the CrewCoder harness and its approval policy.",
+  "Use the supplied CrewCoder tools for workspace actions, including edits and writes. Workspace editing is available under every CrewCoder approval policy; the harness requests permission when required. Full access allows those edits automatically.",
+  "In code mode, call the supplied tools through tools (for example, await tools.edit(...) or await tools.write(...) when offered). Do not use native apply_patch or native shell tools as an alternative.",
+  "Do not infer that CrewCoder tools are read-only or claim workspace edits are blocked from the native sandbox notice. Attempt the appropriate supplied tool for authorized work and report a restriction only if its result establishes one. Respect actual tool denials, host scope restrictions, plan gates, and cancellations."
+].join("\n");
 
 type RpcRecord = Record<string, unknown>;
 type PendingRequest = { resolve(value: RpcRecord): void; reject(error: Error): void };
@@ -298,15 +307,29 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
     await input.stream?.onProviderSessionId?.(formatSessionId(threadId, contractHash));
 
     const textParts: string[] = [];
-    const agentMessagePhases = new Map<string, string>();
-    const commentaryByItem = new Map<string, string>();
-    const reasoningByItem = new Map<string, string>();
+    const assistantByItem = new Map<string, string>();
+    const messagePhases = new Map<string, string>();
+    let assistantPublished = Promise.resolve();
+    const emitAssistant = async (itemId: string, delta: string) => {
+      if (!delta) return;
+      const separator = !assistantByItem.has(itemId) && textParts.length ? "\n\n" : "";
+      assistantByItem.set(itemId, `${assistantByItem.get(itemId) ?? ""}${delta}`);
+      textParts.push(separator + delta);
+      assistantPublished = assistantPublished.then(async () => { await input.stream?.onAssistantDelta?.(separator + delta, messagePhases.get(itemId)); });
+      await assistantPublished;
+    };
+    const progress = new CodexProgress();
+    let progressPublished = Promise.resolve();
     let usage: ModelUsage | undefined;
     let turnError: string | undefined;
     let completed = false;
     rpc.onMessage = async (message) => {
       const method = typeof message.method === "string" ? message.method : "";
       const params = isRecord(message.params) ? message.params : {};
+      if ((method === "item/started" || method === "item/completed") && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.id === "string" && typeof params.item.phase === "string") messagePhases.set(params.item.id, params.item.phase);
+      for (const emission of progress.handle(method, params)) {
+        progressPublished = progressPublished.then(async () => { await input.stream?.onThinkingDelta?.(emission.delta, emission.progress); });
+      }
       if (method === "serverRequest/resolved") {
         openQuestions.get(params.requestId)?.abort();
         return;
@@ -324,6 +347,8 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
         return;
       }
       if (message.id !== undefined && method === "item/tool/call") {
+        // RPC callbacks overlap; finish publishing prior dialogue before the host checks its gate.
+        await assistantPublished;
         const name = typeof params.tool === "string" ? params.tool : "";
         const args = isRecord(params.arguments) ? params.arguments : {};
         const result = input.stream?.executeTool ? await input.stream.executeTool({ type: "toolCall", id: String(params.callId ?? message.id), name, arguments: args }) : undefined;
@@ -362,8 +387,6 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
         await emitNativeCompaction("completed");
       } else if (method === "thread/compacted") {
         await emitNativeCompaction("completed");
-      } else if (method === "item/started" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.id === "string") {
-        if (typeof params.item.phase === "string") agentMessagePhases.set(params.item.id, params.item.phase);
       } else if (method === "item/started" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
         await input.stream?.onProviderToolStart?.({ type: "toolCall", id: params.item.id, name: "Codex command", arguments: { command: params.item.command, cwd: params.item.cwd } });
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "commandExecution" && typeof params.item.id === "string") {
@@ -374,31 +397,12 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
         await input.stream?.onProviderToolEnd?.({ toolCallId: params.item.id, toolName: "Codex file change", text: formatCodexFileChangeResult(params.item), isError: params.item.status !== "completed" });
       } else if (method === "item/agentMessage/delta" && typeof params.delta === "string") {
         const itemId = typeof params.itemId === "string" ? params.itemId : "";
-        if (agentMessagePhases.get(itemId) === "commentary") {
-          commentaryByItem.set(itemId, `${commentaryByItem.get(itemId) ?? ""}${params.delta}`);
-          await input.stream?.onThinkingDelta?.(params.delta);
-        } else {
-          textParts.push(params.delta);
-          await input.stream?.onAssistantDelta?.(params.delta);
-        }
-      } else if (method === "item/reasoning/textDelta" && typeof params.delta === "string") {
-        const itemId = typeof params.itemId === "string" ? params.itemId : "";
-        reasoningByItem.set(itemId, `${reasoningByItem.get(itemId) ?? ""}${params.delta}`);
-        await input.stream?.onThinkingDelta?.(params.delta);
-      } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "reasoning") {
-        const itemId = typeof params.item.id === "string" ? params.item.id : "";
-        const content = reasoningContent(params.item.content);
-        const remainder = unstreamedRemainder(reasoningByItem.get(itemId) ?? "", content);
-        if (remainder) await input.stream?.onThinkingDelta?.(remainder);
+        // Commentary is public assistant dialogue; hosts must see it before a following tool dispatch.
+        await emitAssistant(itemId, params.delta);
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "agentMessage" && typeof params.item.text === "string") {
         const itemId = typeof params.item.id === "string" ? params.item.id : "";
-        if (params.item.phase === "commentary" || agentMessagePhases.get(itemId) === "commentary") {
-          const emitted = commentaryByItem.get(itemId) ?? "";
-          if (!emitted && params.item.text) await input.stream?.onThinkingDelta?.(params.item.text);
-        } else if (!textParts.join("").trim()) {
-          textParts.push(params.item.text);
-          await input.stream?.onAssistantDelta?.(params.item.text);
-        }
+        const remainder = unstreamedRemainder(assistantByItem.get(itemId) ?? "", params.item.text);
+        await emitAssistant(itemId, remainder);
       } else if (method === "thread/tokenUsage/updated" && isRecord(params.tokenUsage) && isRecord(params.tokenUsage.last)) {
         const last = params.tokenUsage.last;
         usage = { providerId: input.provider.id, model: input.model, inputTokens: number(last.inputTokens), outputTokens: number(last.outputTokens), totalTokens: number(last.totalTokens), cachedInputTokens: number(last.cachedInputTokens), cacheWriteTokens: number(last.cacheWriteInputTokens), reasoningTokens: number(last.reasoningOutputTokens), contextTokens: number(last.inputTokens) };
@@ -413,8 +417,10 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
 
     const prompt = codexPrompt(input.modelInput.messages, hasNativeThread, input.prompt);
     turnRequestSent = true;
-    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...codexTurnPermissions(input, hostedToolsOnly) });
+    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "auto", ...codexTurnPermissions(input, hostedToolsOnly) });
     await rpc.waitUntil(() => completed, signal);
+    await assistantPublished;
+    await progressPublished;
     reusable = true;
     const text = textParts.join("").trim();
     if (turnError || !text) return failure(input, turnError ?? "Codex app-server returned no assistant output", stderrForTurn(), usage);
@@ -455,12 +461,15 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
 }
 
 function threadParams(input: ProviderRunInput, extra: RpcRecord = {}, hostedToolsOnly = false): RpcRecord {
-  const tools = input.modelInput?.availableTools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, inputSchema: tool.parameters ?? { type: "object", properties: {} } })) ?? [];
-  return { ...extra, model: input.model, cwd: input.cwd, developerInstructions: input.modelInput?.systemPrompt, dynamicTools: tools, ...(hostedToolsOnly ? { approvalPolicy: "never", sandbox: "read-only" } : threadPermissions(input)) };
+  const tools = input.modelInput?.availableTools.map((tool) => ({ type: "function", name: tool.name, description: tool.name === "read" ? `${tool.description}\n${CODEX_IMAGE_READ_GUIDANCE}` : tool.description, inputSchema: tool.parameters ?? { type: "object", properties: {} } })) ?? [];
+  const developerInstructions = hostedToolsOnly
+    ? [input.modelInput?.systemPrompt, CREWCODER_TOOL_GUIDANCE].filter(Boolean).join("\n\n")
+    : input.modelInput?.systemPrompt;
+  return { ...extra, model: input.model, cwd: input.cwd, developerInstructions, dynamicTools: tools, ...(hostedToolsOnly ? { approvalPolicy: "never", sandbox: "read-only" } : threadPermissions(input)) };
 }
 
 function contractJson(input: ProviderRunInput): string {
-  return JSON.stringify({ model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), toolMode: input.modelInput?.toolMode, approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools });
+  return JSON.stringify({ model: input.model, systemPrompt: input.modelInput?.systemPrompt, cwd: path.resolve(input.cwd), externalDirectories: input.modelInput?.externalDirectories?.map((item) => path.resolve(item)), toolMode: input.modelInput?.toolMode, approvalMode: input.modelInput?.approvalMode, tools: input.modelInput?.availableTools, toolExecutionGuidance: input.modelInput?.useProviderNativeFileTools === false || input.modelInput?.toolMode === "crewcoder" ? CREWCODER_TOOL_GUIDANCE : undefined, imageReadGuidance: input.modelInput?.availableTools.some(tool => tool.name === "read") ? CODEX_IMAGE_READ_GUIDANCE : undefined });
 }
 const hashContract = (json: string): string => createHash("sha256").update(json).digest("hex").slice(0, 24);
 /**
@@ -543,9 +552,6 @@ function nestedString(value: RpcRecord, parent: string, key: string): string | u
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
-}
-function reasoningContent(value: unknown): string {
-  return Array.isArray(value) ? value.filter((part): part is string => typeof part === "string").join("") : "";
 }
 export function formatCodexFileChangeResult(item: RpcRecord): string {
   const changes = JSON.stringify(item.changes ?? []);

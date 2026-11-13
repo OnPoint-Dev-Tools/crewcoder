@@ -8,6 +8,14 @@ type CodexToolResult = { contentItems: ContentItem[]; success: boolean };
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 
+export const CODEX_IMAGE_READ_GUIDANCE = [
+  'For image files in Codex code mode, emit pixels explicitly:',
+  'const result = await tools.read({ path: "path/to/image.png" });',
+  'for (const line of result.split("\\n")) { if (line.startsWith("data:image/")) image(line); }',
+  'Printing the result with text(...) sends only text/data URLs, not visible pixels.',
+  'Do not pass the entire mixed text/image result to image(...). If no data:image/ line is returned, stop and report image delivery unavailable.'
+].join('\n');
+
 /** Encode only at the provider boundary so session/event records keep paths, not screen bytes. */
 export async function codexToolResult(result: ToolResultMessage, cwd: string, externalDirectories: readonly string[] = []): Promise<CodexToolResult> {
   const text: ContentItem = { type: "inputText", text: getText(result) };
@@ -42,6 +50,14 @@ export async function codexToolResult(result: ToolResultMessage, cwd: string, ex
         contentItems.push({ type: "inputImage", imageUrl: `data:${mime};base64,${bytes.toString("base64")}` });
         total += length;
       } finally { await handle.close(); }
+    }
+    if (attachments.length) {
+      // Code mode converts dynamic images into data-URL lines; the caller must emit
+      // those lines with image() before the model can inspect their pixels.
+      text.text = text.text.replace(
+        'This file is binary image data and is not readable as text. It is displayed to the user inline.',
+        'Image data is attached to this result.'
+      ) + '\n' + CODEX_IMAGE_READ_GUIDANCE;
     }
     return { contentItems, success: true };
   } catch (error) {

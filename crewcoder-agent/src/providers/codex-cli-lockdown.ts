@@ -20,13 +20,21 @@ const MCP_LIST_OUTPUT_LIMIT = 256_000;
 const MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,128}$/;
 
 export function codexHostedToolsOnlyArgs(mcpServerNames: readonly string[]): string[] {
+  for (const name of mcpServerNames) {
+    if (!MCP_SERVER_NAME.test(name)) throw new Error(`Codex MCP server name ${JSON.stringify(name)} cannot be disabled safely`);
+  }
+  // Plugin-discovered entries may have no transport in user config. Overriding
+  // only enabled can create incomplete entries and break app-server config
+  // decoding. Supply complete, inert entries in one process-only table instead.
+  // The command is never launched because every entry is explicitly disabled.
+  const disabledServers = mcpServerNames.map(name => `${name}={command=${JSON.stringify(process.execPath)},enabled=false}`).join(",");
   return [
     ...CODEX_NATIVE_TOOL_FEATURES.flatMap((feature) => ["--disable", feature]),
     "-c", "web_search=disabled",
     // Code mode still exposes multi_agent_v1 spawn tools after `--disable multi_agent`.
     "-c", "agents.max_depth=0",
-    // `-c mcp_servers={}` merges instead of replacing, so each server is switched off by name.
-    ...mcpServerNames.flatMap((name) => ["-c", `mcp_servers.${name}.enabled=false`])
+    // An empty table does not clear inherited servers: enumerate every discovered name.
+    ...(mcpServerNames.length ? ["-c", `mcp_servers={${disabledServers}}`] : [])
   ];
 }
 

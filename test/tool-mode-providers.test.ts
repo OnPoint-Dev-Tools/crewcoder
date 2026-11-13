@@ -27,7 +27,7 @@ describe("Codex tool-mode launch boundary", () => {
     { toolMode: "crewcoder" as const, virtual: false, locked: true },
     { toolMode: "native" as const, virtual: false, locked: false },
     { toolMode: "native" as const, virtual: true, locked: true }
-  ])("launches with the selected policy: %j", async ({toolMode, virtual, locked}) => {
+  ].flatMap(policy => (["never", "review", "always", "full-access", "sandboxed"] as const).map(approvalMode => ({ ...policy, approvalMode }))))("launches with the selected policy: %j", async ({toolMode, virtual, locked, approvalMode}) => {
     fs.mkdirSync(process.env.CREWCODER_HOME!, { recursive: true });
     const root = fs.mkdtempSync(path.join(process.env.CREWCODER_HOME!, "wire-"));
     const fixture = path.join(root, "codex.cjs");
@@ -54,16 +54,23 @@ readline.createInterface({input: process.stdin}).on("line", line => {
     const requestQuestion = vi.fn(async () => "accept");
     const result = await runCodexCliProvider({
       provider: codex, cwd: root, prompt: "hi",
-      modelInput: { systemPrompt: "", messages: [], availableTools: [], toolMode, useProviderNativeFileTools: !virtual, approvalMode: "review" },
+      modelInput: { systemPrompt: "", messages: [], availableTools: [], toolMode, useProviderNativeFileTools: !virtual, approvalMode },
       stream: { requestQuestion }
     });
     expect(result.exitCode).toBe(0);
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line));
-    expect(records.find(r => r.method === "thread/start").params.sandbox).toBe(locked ? "read-only" : "workspace-write");
+    const thread = records.find(r => r.method === "thread/start").params;
+    expect(thread.sandbox).toBe(locked ? "read-only" : approvalMode === "full-access" ? "danger-full-access" : "workspace-write");
+    if (locked) {
+      expect(thread.developerInstructions).toContain("describe Codex native tools only");
+      expect(thread.developerInstructions).toContain("Workspace editing is available under every CrewCoder approval policy");
+      expect(thread.developerInstructions).toContain("await tools.edit(...)");
+      expect(thread.developerInstructions).toContain("Respect actual tool denials");
+    } else expect(thread.developerInstructions).toBe("");
     expect(records.find(r => r.id === 900).result.decision).toBe(locked ? "decline" : "accept");
-    expect(requestQuestion).toHaveBeenCalledTimes(locked ? 0 : 1);
+    expect(requestQuestion).toHaveBeenCalledTimes(locked || approvalMode === "full-access" ? 0 : 1);
     expect(launches.flat().includes("--disable")).toBe(locked);
-    expect(launches.flat().includes("mcp_servers.configured.enabled=false")).toBe(locked);
+    expect(launches.flat().includes(`mcp_servers={configured={command=${JSON.stringify(process.execPath)},enabled=false}}`)).toBe(locked);
   });
 });
 

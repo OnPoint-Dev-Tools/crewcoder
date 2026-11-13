@@ -21,9 +21,10 @@ export type ModelQuestion = {
   signal?: AbortSignal;
 };
 export type ProviderCompactionUpdate = { status: "started" | "completed" | "failed"; message?: string; percent?: number };
+import type { ProviderProgressUpdate } from "../providers/codex-progress.js";
 export type ModelStreamCallbacks = {
-  onAssistantDelta?(text: string): Promise<void> | void;
-  onThinkingDelta?(text: string): Promise<void> | void;
+  onAssistantDelta?(text: string, phase?: string): Promise<void> | void;
+  onThinkingDelta?(text: string, progress?: ProviderProgressUpdate): Promise<void> | void;
   onUsage?(usage: ModelUsage): Promise<void> | void;
   onProviderSessionId?(sessionId: string): Promise<void> | void;
   onProviderCompaction?(update: ProviderCompactionUpdate): Promise<void> | void;

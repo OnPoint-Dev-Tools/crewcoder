@@ -1,12 +1,24 @@
+import * as childProcess from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { textMessage, type ToolCallPart } from "../core/messages.js";
 import { builtinProviders } from "../providers/builtins.js";
 import { enableCodexAppServerPooling, isCodexCliProvider, runCodexCliProvider } from "../providers/codex-app-server-provider.js";
 import { CODEX_NATIVE_TOOL_FEATURES, codexHostedToolsOnlyArgs, parseCodexMcpServerNames } from "../providers/codex-cli-lockdown.js";
 import type { ProviderDefinition } from "../providers/types.js";
+
+vi.mock("node:child_process", async importOriginal => {
+  const original = await importOriginal<typeof childProcess>();
+  return { ...original, spawn: vi.fn(original.spawn) };
+});
+beforeEach(async () => {
+  const { spawn } = await vi.importActual<typeof childProcess>("node:child_process");
+  // Windows cannot launch fixture shebangs directly; production executables stay unchanged.
+  vi.mocked(childProcess.spawn).mockImplementation(((command: string, args: readonly string[] = [], options: childProcess.SpawnOptions = {}) =>
+    command.endsWith(".cjs") ? spawn(process.execPath, [command, ...args], options) : spawn(command, args, options)) as typeof childProcess.spawn);
+});
 
 const originalHome = process.env.CREWCODER_HOME;
 const originalCodexPath = process.env.CREWCODER_CODEX_PATH;
@@ -14,6 +26,7 @@ const originalCodexHome = process.env.CODEX_HOME;
 const provider = builtinProviders.find((item) => item.id === "codex-cli") as ProviderDefinition;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   enableCodexAppServerPooling(false);
   restore("CREWCODER_HOME", originalHome);
   restore("CREWCODER_CODEX_PATH", originalCodexPath);
@@ -82,8 +95,7 @@ describe("bring-your-own Codex CLI provider", () => {
     expect(argv).toContain("web_search=disabled");
     expect(argv).toContain("agents.max_depth=0");
     expect(argv).not.toContain("code_mode_host");
-    expect(argv).toContain("mcp_servers.node_repl.enabled=false");
-    expect(argv).toContain("mcp_servers.computer-use.enabled=false");
+    expect(argv).toContain(`mcp_servers={node_repl={command=${JSON.stringify(process.execPath)},enabled=false},computer-use={command=${JSON.stringify(process.execPath)},enabled=false}}`);
     // MCP servers are listed from the session folder so trusted project configs are covered.
     expect(JSON.parse(fs.readFileSync(`${log}.mcp`, "utf8").trim())).toMatchObject({ argv: ["mcp", "list", "--json"], cwd: fs.realpathSync(dir) });
     expect(argv.indexOf("app-server")).toBeGreaterThan(argv.lastIndexOf("--disable"));

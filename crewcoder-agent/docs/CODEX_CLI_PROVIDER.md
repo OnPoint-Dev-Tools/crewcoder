@@ -18,6 +18,26 @@ The binary is `codex` on `PATH`, or `CREWCODER_CODEX_PATH`. On Windows, npm inst
 
 Over ACP, select it with a `codex-cli:<model>` model id.
 
+## Assistant dialogue and reasoning
+
+Codex `agentMessage` items, including `phase: commentary`, stream as assistant
+dialogue (`assistant_delta`, or ACP `agent_message_chunk`). Commentary is a public
+reply, so host acknowledgement gates can observe it before a following tool call.
+Dynamic-tool dispatch waits for prior assistant stream callbacks to finish, even
+when RPC notifications arrive together. This waits for delivery, not a user reply
+or speech playback. Actual `reasoning` items retain the separate thinking channel.
+
+Completion-only replies and unstreamed suffixes are emitted once per message item.
+Separate replies use paragraph breaks; the saved assistant response includes both
+commentary and final text. A final reply is retained even when only commentary
+had live deltas. This does not let thinking satisfy a host acknowledgement gate.
+
+Regression command from the repository root:
+
+```sh
+node node_modules/vitest/vitest.mjs run --config test/codex-commentary.config.ts
+```
+
 ## Approval questions
 
 Native approval dialogs display the provider's reason as the wrapped question,
@@ -68,6 +88,23 @@ pixels as dynamic-tool inputImage content items alongside the text description.
 Native view_image remains disabled in hosted-tools-only sessions. ACP client text
 I/O and hosted-text-only tools do not gain a binary filesystem fallback.
 
+Code mode converts dynamic-tool image items into data-URL lines in the returned
+string. Sending that string through `text(result)` delivers base64 text, not
+visible pixels; `image(result)` also fails when a description precedes the URL.
+The read-tool description and successful image response include this recipe:
+
+```js
+const result = await tools.read({ path: "path/to/image.png" });
+for (const line of result.split("\n")) {
+  if (line.startsWith("data:image/")) image(line);
+}
+```
+
+The adapter removes the legacy claim that an attached image is only displayed
+to the user. Guidance changes invalidate read-enabled native thread contracts,
+so resumed sessions get the updated tool description. The existing workspace,
+image-size and native-tool restrictions remain in force.
+
 The adapter rechecks workspace and session external-directory scope, sniffs PNG,
 JPEG, GIF or WebP bytes, and limits a response to four images, 8 MiB per image and
 16 MiB total. Missing, changed, unsupported or oversized images produce a failed
@@ -101,11 +138,15 @@ When `toolMode: crewcoder` is selected, or `useProviderNativeFileTools: false` e
 | `--disable` for `shell_tool`, `unified_exec`, `view_image`, `browser_use`, `computer_use`, `apps`, `plugins`, `multi_agent`, `image_generation`, `sleep_tool`, `goals`, `tool_suggest`, `skill_search`, `hooks` | Removes native tools and user hook commands |
 | `-c web_search=disabled` | Removes native web search |
 | `-c agents.max_depth=0` | Code mode still exposes `multi_agent_v1` spawn tools after `--disable multi_agent` |
-| `-c mcp_servers.<name>.enabled=false` per server | `-c mcp_servers={}` merges instead of replacing. Names come from `codex mcp list --json` run in the session folder, so global, plugin, and trusted project servers are covered |
+| `-c mcp_servers={name={command=...,enabled=false},...}` | Complete inert entries disable every name discovered by `codex mcp list --json` in the session folder, covering global, plugin and trusted project servers. The placeholder command is never launched. An empty table does not clear inherited servers |
 | Thread `sandbox: read-only`, turn `sandboxPolicy: readOnly`, `approvalPolicy: never` | Backstop for anything the flags cannot remove, such as `apply_patch` on Codex 0.154 |
 | Approval and permission requests answered with decline | Never asks the user to widen native access |
 
 Fail-closed rules:
+
+- Codex 0.167 can reject partial `enabled=false` overrides with `invalid transport`
+  when plugin-discovered entries are present. Complete disabled transport entries
+  avoid that startup failure without changing the user's config or login.
 
 - Codex refuses to start on an unknown feature name, so a renamed flag stops the launch instead of leaving a tool on.
 - If `codex mcp list --json` fails, times out, or returns a server name outside `[A-Za-z0-9_-]`, the launch is refused.
@@ -123,3 +164,13 @@ Fail-closed rules:
 
 - Feature names are tied to the Codex versions above. A Codex update that adds a new native tool under a new feature name is not removed until it is added here. The read-only sandbox still blocks native writes and command execution.
 - With native Tool mode, Codex keeps its native tools and the user's full Codex config, as when running `codex` directly. New standalone sessions default to CrewCoder tools. See [Tool mode](TOOL_MODE.md).
+
+## Thinking in ACP hosts
+
+Codex turns request public reasoning summaries with `summary: "auto"`. Accumulate summary deltas by item id and summaryIndex, preserving summaryPartAdded section boundaries. Completed reasoning items replace the streamed sections authoritatively, including corrections or empty results. Shared plans come from item/plan/delta, completed plan items and turn/plan/updated. Raw textDelta remains optional; it is not the general progress channel.
+
+ModelStreamCallbacks.onThinkingDelta retains portable text deltas and may also carry a ProviderProgressUpdate snapshot with itemId, kind, text, sections and completed. The thinking_delta event preserves that snapshot. ACP forwards it through optional `_meta["crewcoder/progress"]` on agent_thought_chunk, alongside portable text for older hosts. Empty text with a snapshot can carry an authoritative correction. Wait for progress publication before completing a turn. Final answers remain separate from progress. Public commentary is mirrored into progress with kind `commentary`, preserving streamed text and authoritative completion. ACP still publishes ordinary commentary dialogue before tool dispatch so host acknowledgement gates remain intact. The terminal JSON sink omits commentary-phase assistant deltas because their text already travels through thinking_delta, keeping commentary out of the terminal final-answer block. No transcript of private internal reasoning is guaranteed.
+
+Portable text includes blank lines when switching reasoning items, summary sections, raw-content sections or plans. Completion-only text uses the same boundaries; final suffixes within a section append without repeating its body. The adapter forwards provider text verbatim apart from these separators. A heading-only provider summary remains heading-only; receiving it does not establish that a longer summary was available.
+
+The terminal `--json-events` stream keeps the established nonempty `{ type: "thinking_delta", text, emittedAt }` shape. Do not send ACP snapshot metadata or empty completion-only events into that terminal contract. Structured completion corrections remain available over ACP. When completed text differs from streamed text, text-only consumers still receive the exposed final text rather than having it suppressed.

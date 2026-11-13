@@ -9,6 +9,9 @@ import type { ModelInput, ModelClient } from "../crewcoder-agent/src/core/model-
 import { loadSessionRecord as loadSession, saveSession, type SessionRecord } from "../crewcoder-agent/src/core/session-store.js";
 import { resolveToolMode } from "../crewcoder-agent/src/core/tool-mode.js";
 import { writeTool } from "../crewcoder-agent/src/tools/write.js";
+import { editTool } from "../crewcoder-agent/src/tools/edit.js";
+import type { ApprovalMode } from "../crewcoder-agent/src/core/approval.js";
+import type { ApprovalControlDecision } from "../crewcoder-agent/src/core/stdin-control.js";
 import { ProviderModelClient } from "../crewcoder-agent/src/providers/provider-model-client.js";
 import { enforceProviderFileCustody } from "../crewcoder-agent/src/providers/provider-file-custody.js";
 
@@ -18,6 +21,54 @@ const cwd = () => { fs.mkdirSync(process.env.CREWCODER_HOME!, { recursive: true 
 afterEach(() => { inputs.length = 0; setConfigValue("toolMode", "crewcoder"); vi.restoreAllMocks(); });
 
 describe("tool mode policy and session lifecycle", () => {
+  it.each(["review", "always"] as const)("honors denied hosted edits under %s approval", async approvalMode => {
+    const writeTextFile = vi.fn(async () => {});
+    const approvalSignal: { decisions: ApprovalControlDecision[] } = { decisions: [] };
+    await runAgentLoop({ cwd: cwd(), prompt: "edit marker", requestedMode: "general" }, {
+      approvalMode, approvalSignal, virtualFilesystem: true, tools: [editTool],
+      textFiles: { readTextFile: async () => "before", writeTextFile },
+      emit: event => {
+        if (event.type === "approval_required") approvalSignal.decisions.push({ approvalId: event.approvalId, approved: false });
+      },
+      modelClient: { complete: async (_input, _signal, stream) => {
+        const result = await stream!.executeTool!({ type: "toolCall", id: "denied-edit", name: "edit", arguments: { path: "marker.txt", find: "before", replace: "after" } });
+        expect(result.isError).toBe(true);
+        return assistantText("denied");
+      } }
+    });
+    expect(writeTextFile).not.toHaveBeenCalled();
+  });
+
+  it.each<ApprovalMode>(["never", "review", "always", "full-access", "sandboxed"])("writes and edits through hosted tools under %s approval", async approvalMode => {
+    const root = cwd();
+    const files = new Map<string, string>();
+    const approvalSignal: { decisions: ApprovalControlDecision[] } = { decisions: [] };
+    let approvals = 0;
+    await runAgentLoop({ cwd: root, prompt: "write and edit marker", requestedMode: "general" }, {
+      approvalMode, approvalSignal, virtualFilesystem: true, tools: [writeTool, editTool],
+      textFiles: {
+        readTextFile: async file => files.get(file) ?? "",
+        writeTextFile: async (file, content) => { files.set(file, content); }
+      },
+      emit: event => {
+        if (event.type !== "approval_required") return;
+        expect(files.get(path.join(root, "marker.txt"))).toBe(approvals === 0 ? undefined : "before");
+        approvals++;
+        approvalSignal.decisions.push({ approvalId: event.approvalId, approved: true });
+      },
+      modelClient: { complete: async (_input, _signal, stream) => {
+        const written = await stream!.executeTool!({ type: "toolCall", id: "write-marker", name: "write", arguments: { path: "marker.txt", content: "before" } });
+        expect(written.isError).toBe(false);
+        const edited = await stream!.executeTool!({ type: "toolCall", id: "edit-marker", name: "edit", arguments: { path: "marker.txt", find: "before", replace: "after" } });
+        expect(edited.isError).toBe(false);
+        return assistantText("done");
+      } }
+    });
+    expect(files.get(path.join(root, "marker.txt"))).toBe("after");
+    expect(approvals).toBe(approvalMode === "review" || approvalMode === "always" ? 2 : 0);
+    expect(fs.existsSync(path.join(root, "marker.txt"))).toBe(false);
+  });
+
   it("defaults to CrewCoder and validates saved values", () => {
     expect(readConfig().toolMode).toBe("crewcoder");
     expect(setConfigValue("toolMode", "native").toolMode).toBe("native");

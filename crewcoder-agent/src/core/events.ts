@@ -3,6 +3,8 @@ import type { CrewCoderExtUiAction, CrewCoderExtUiComponent } from "../extension
 import type { BackendDebugEvent } from "./backend-debug-logger.js";
 import type { ModelUsage, UsageSummary } from "./usage.js";
 
+import type { ProviderProgressUpdate } from "../providers/codex-progress.js";
+
 export type ApprovalRisk = "safe" | "review" | "dangerous";
 
 export type AgentEvent =
@@ -23,8 +25,8 @@ export type AgentEvent =
   | { type: "provider_compaction"; providerId: string; status: "started" | "completed" | "failed"; message?: string; percent?: number }
   | { type: "turn_start"; iteration: number }
   | { type: "message_start"; message: AgentMessage }
-  | { type: "assistant_delta"; text: string }
-  | { type: "thinking_delta"; text: string }
+  | { type: "assistant_delta"; text: string; phase?: string }
+  | { type: "thinking_delta"; text: string; progress?: ProviderProgressUpdate }
   | { type: "usage_update"; usage: ModelUsage; summary: UsageSummary }
   | { type: "token_budget_warning"; limit: number; used: number; remaining: number; percent: number }
   | { type: "token_budget_exceeded"; sessionId: string; limit: number; used: number; percent: number; handoffSummary: string }

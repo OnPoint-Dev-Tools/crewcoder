@@ -646,12 +646,12 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         }
         const generationStartedAt = performance.now();
         assistant = await modelClient.complete(modelInput, options.signal, {
-          async onAssistantDelta(text) {
+          async onAssistantDelta(text, phase) {
             streamedAssistantText = true;
-            await emit({ type: "assistant_delta", text });
+            await emit({ type: "assistant_delta", text, ...(phase ? { phase } : {}) });
           },
-          async onThinkingDelta(text) {
-            await emit({ type: "thinking_delta", text });
+          async onThinkingDelta(text, progress) {
+            await emit({ type: "thinking_delta", text, ...(progress ? { progress } : {}) });
           },
           async onProviderSessionId(providerSessionId) {
             if (options.providerId) providerSessionIds[options.providerId] = providerSessionId;

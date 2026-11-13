@@ -52,7 +52,9 @@ crewcoder run --provider deepseek --model deepseek-reasoner "debug this failure"
 No inference prompt is sent. Claude discovery disables tools, MCP servers,
 filesystem settings, hooks, skills, and session persistence. Each native lookup
 has a five-second deadline. Codex pagination and catalog sizes are bounded;
-hidden and malformed entries are excluded.
+hidden and malformed entries are excluded. A successful empty Codex catalog,
+including one containing only hidden entries, clears the advertised choices and
+default. It must not restore bundled models or the previous successful list.
 
 Successful native catalogs are cached for five minutes within the backend
 process; simultaneous requests share one lookup. Failed lookups retain the last

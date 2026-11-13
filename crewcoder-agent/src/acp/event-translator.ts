@@ -36,8 +36,8 @@ export function translateEvent(event: AgentEvent): CrewCoderSessionUpdate | unde
   }
 
   if (event.type === "thinking_delta") {
-    if (!event.text) return undefined;
-    return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: event.text } };
+    if (!event.text && !event.progress) return undefined;
+    return { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: event.text }, ...(event.progress ? { _meta: { "crewcoder/progress": event.progress } } : {}) };
   }
 
   if (event.type === "tool_execution_start") {

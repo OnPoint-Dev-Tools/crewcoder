@@ -1,18 +1,37 @@
+import { createJsonEventSink } from "../core/json-event-stream.js";
+import { CodexProgress } from "../providers/codex-progress.js";
+import { translateEvent } from "../acp/event-translator.js";
+import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { textMessage, type ToolCallPart } from "../core/messages.js";
 import { setAuthCredential } from "../providers/auth-store.js";
 import { codexAppServerContextArgs, codexAppServerPoolSize, codexTurnPermissions, enableCodexAppServerPooling, formatCodexCommandResult, formatCodexFileChangeResult, runCodexAppServerProvider } from "../providers/codex-app-server-provider.js";
 import type { ProviderDefinition } from "../providers/types.js";
+
+vi.mock("node:child_process", async importOriginal => {
+  const original = await importOriginal<typeof childProcess>();
+  return { ...original, spawn: vi.fn(original.spawn) };
+});
+
+beforeEach(async () => {
+  const { spawn } = await vi.importActual<typeof childProcess>("node:child_process");
+  // Windows cannot execute a .cjs shebang; run fake wire servers on Node everywhere.
+  vi.mocked(childProcess.spawn).mockImplementation(((command: string, args: readonly string[] = [], options: childProcess.SpawnOptions = {}) =>
+    command.endsWith(".cjs")
+      ? spawn(process.execPath, [command, ...args], options)
+      : spawn(command, args, options)) as typeof childProcess.spawn);
+});
 
 const originalHome = process.env.CREWCODER_HOME;
 const originalCodexPath = process.env.CREWCODER_CODEX_PATH;
 const provider: ProviderDefinition = { id: "codex", title: "Codex", kind: "builtin", runtime: "openai-codex-responses", command: "http", args: [], endpoint: "https://chatgpt.com/backend-api/codex/responses" };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   enableCodexAppServerPooling(false);
   if (originalHome === undefined) delete process.env.CREWCODER_HOME; else process.env.CREWCODER_HOME = originalHome;
   if (originalCodexPath === undefined) delete process.env.CREWCODER_CODEX_PATH; else process.env.CREWCODER_CODEX_PATH = originalCodexPath;
@@ -119,7 +138,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     const turn = requests.find((request) => request.method === "turn/start") as { params: { input: Array<{ text?: string }>; summary?: string; approvalPolicy?: unknown; sandboxPolicy?: unknown } };
     expect(turn.params.input[0]?.text).toBe("new prompt");
     expect(turn.params.input[0]?.text).not.toContain("old prompt");
-    expect(turn.params.summary).toBe("none");
+    expect(turn.params.summary).toBe("auto");
     expect(turn.params.approvalPolicy).toBe("never");
     expect(turn.params.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: [], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
   });
@@ -203,7 +222,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
     expect(codexAppServerPoolSize()).toBe(0);
   });
 
-  it("routes commentary agent messages through thinking and keeps the final answer separate", async () => {
+  it("routes commentary and the final answer through assistant dialogue, keeping reasoning separate", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
     const server = path.join(home, "fake-codex.cjs");
     fs.writeFileSync(server, `#!/usr/bin/env node
@@ -217,9 +236,13 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
   send({id:901,method:'item/commandExecution/requestApproval',params:{reason:'Inspect the repository',command:'pwd'}});
  }
  else if(m.id===901&&m.result?.decision==='accept'){
-  send({method:'item/reasoning/summaryTextDelta',params:{delta:'**Planning repository inspection**'}});
+  send({method:'item/reasoning/summaryTextDelta',params:{itemId:'reasoning-1',delta:'**Planning repository inspection**'}});
+  send({method:'item/completed',params:{item:{id:'summary-only',type:'reasoning',summary:['Completed summary only.'],content:[]}}});
   send({method:'item/reasoning/textDelta',params:{itemId:'reasoning-1',delta:'Raw reasoning'}});
   send({method:'item/completed',params:{item:{id:'reasoning-1',type:'reasoning',summary:['**Planning repository inspection**'],content:['Raw reasoning from content.']}}});
+  send({method:'item/reasoning/summaryTextDelta',params:{itemId:'summary-partial',delta:'Partial '}});
+  send({method:'item/completed',params:{item:{id:'summary-partial',type:'reasoning',summary:['Partial summary.'],content:[]}}});
+  send({method:'item/completed',params:{item:{id:'summary-partial',type:'reasoning',summary:['Partial summary.'],content:[]}}});
   send({method:'item/started',params:{item:{id:'commentary-1',type:'agentMessage',text:'',phase:'commentary'}}});
   send({method:'item/agentMessage/delta',params:{itemId:'commentary-1',delta:"I'll inspect the repository first."}});
   send({method:'item/completed',params:{item:{id:'commentary-1',type:'agentMessage',text:"I'll inspect the repository first.",phase:'commentary'}}});
@@ -249,10 +272,10 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     });
 
     expect(result?.exitCode).toBe(0);
-    expect(thinking).toEqual(["Raw reasoning", " from content.", "I'll inspect the repository first."]);
-    expect(assistant).toEqual(["Inspection complete."]);
+    expect(thinking.filter(Boolean)).toEqual(["**Planning repository inspection**", "\n\nCompleted summary only.", "\n\nRaw reasoning", " from content.", "\n\nPartial ", "summary.", "\n\nI'll inspect the repository first."]);
+    expect(assistant).toEqual(["I'll inspect the repository first.", "\n\nInspection complete."]);
     expect(questions).toEqual(["Inspect the repository"]);
-    expect(JSON.parse(result?.text ?? "{}").content).toEqual([{ type: "text", text: "Inspection complete." }]);
+    expect(JSON.parse(result?.text ?? "{}").content).toEqual([{ type: "text", text: "I'll inspect the repository first.\n\nInspection complete." }]);
   });
 
   it("preserves a failed file change error instead of reporting only its proposed patch", () => {
@@ -359,5 +382,35 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.pa
     expect(methods().filter((entry) => entry.method === "thread/resume")).toEqual([{ method: "thread/resume", threadId: "thread-old" }]);
     expect(result.saved).toMatch(/^codex-thread-v1:[0-9a-f]{24}:thread-old$/);
     expect(result.saved).not.toContain(legacy);
+  });
+});
+
+it("preserves indexed summaries, authoritative corrections and plan snapshots through ACP", () => {
+  const state = new CodexProgress();
+  state.handle("item/reasoning/summaryTextDelta", { itemId: "a", summaryIndex: 1, delta: "Second" });
+  const update = state.handle("item/reasoning/summaryTextDelta", { itemId: "a", summaryIndex: 0, delta: "First" })[0]!;
+  expect(update.progress.text).toBe("First\n\nSecond");
+  const final = { item: { id: "a", type: "reasoning", summary: ["Corrected", "Second complete"], content: [] } };
+  const completed = state.handle("item/completed", final)[0]!;
+  expect(completed.progress.text).toBe("Corrected\n\nSecond complete");
+  expect(completed.progress.completed).toBe(true);
+  const translated = translateEvent({ type: "thinking_delta", text: completed.delta, progress: completed.progress });
+  expect(translated).toMatchObject({ sessionUpdate: "agent_thought_chunk", _meta: { "crewcoder/progress": completed.progress } });
+  expect(state.handle("item/completed", final)).toEqual([]);
+  expect(state.handle("turn/plan/updated", { plan: [{ step: "Inspect", status: "inProgress" }] })[0]?.progress.text).toBe("inProgress: Inspect");
+  state.handle("item/plan/delta", { itemId: "plan", delta: "Draft" });
+  expect(state.handle("item/completed", { item: { id: "plan", type: "plan", text: "Final plan" } })[0]?.progress.text).toBe("Final plan");
+});
+
+it("keeps terminal thinking events text-only while ACP retains structured completion updates", async () => {
+  const lines: string[] = [];
+  const sink = createJsonEventSink(line => { lines.push(line); });
+  const progress = { itemId: "a", kind: "summary" as const, text: "Summary", completed: false };
+  await sink({ type: "thinking_delta", text: "Summary", progress });
+  await sink({ type: "thinking_delta", text: "", progress: { ...progress, completed: true } });
+  expect(lines).toHaveLength(1);
+  expect(JSON.parse(lines[0]!)).toEqual({ type: "thinking_delta", text: "Summary", emittedAt: expect.any(String) });
+  expect(translateEvent({ type: "thinking_delta", text: "", progress: { ...progress, completed: true } })).toMatchObject({
+    sessionUpdate: "agent_thought_chunk", _meta: { "crewcoder/progress": { completed: true } }
   });
 });
