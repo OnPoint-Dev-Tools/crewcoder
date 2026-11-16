@@ -28,7 +28,7 @@ import type {
   CrewCoderLiveUiProps,
   CrewCoderLiveUiSurface,
   LiveUiFrame
-} from "./live-ui-protocol.js";
+} from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export type LiveUiMountRequest = {
   /** Registry key (typically a transcript block id or surface-scoped id). */

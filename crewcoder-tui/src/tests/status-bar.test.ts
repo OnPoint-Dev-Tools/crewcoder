@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { StatusBar } from "../components/StatusBar.js";
-import { readGitLabel } from "../state/git-status.js";
-import { createInitialState } from "../state/tui-store.js";
+import { readGitLabel } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { stripAnsi } from "../tui/ansi.js";
 import { crewCoderTheme } from "../theme/theme.js";
 

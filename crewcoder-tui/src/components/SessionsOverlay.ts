@@ -1,5 +1,5 @@
 import type { Component, KeyEvent, RenderContext } from "../tui/component.js";
-import { listCrewCoderSessions, type SessionRecord } from "../bridge/crewcoder-process.js";
+import { listCrewCoderSessions, type SessionRecord } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import type { ModalRow } from "./modal-view.js";
 import { modalChromeHeight, modalRowAt, renderModalView } from "./modal-view.js";
 

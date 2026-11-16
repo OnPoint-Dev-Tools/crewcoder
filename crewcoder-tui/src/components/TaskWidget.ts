@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Component, RenderContext } from "../tui/component.js";
-import type { TuiState } from "../state/tui-store.js";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bold, fg, reset, strikethrough } from "../tui/ansi.js";
 import { padRight, truncate, wrapText } from "../tui/layout.js";
 

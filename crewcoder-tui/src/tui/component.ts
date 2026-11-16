@@ -1,5 +1,5 @@
 import type { CrewCoderTheme } from "../theme/theme.js";
-import type { ImageAttachment } from "../state/image-attachment.js";
+import type { ImageAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import type { ImagePlacement, ImageProtocol } from "./image-protocol.js";
 
 export type Size = { width: number; height: number };

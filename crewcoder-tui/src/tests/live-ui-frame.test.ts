@@ -8,7 +8,7 @@ import {
   type LiveUiFrameStyle
 } from "../bridge/live-ui-frame.js";
 import { stripAnsi, visibleLength } from "../tui/ansi.js";
-import type { LiveUiFrame } from "../bridge/live-ui-protocol.js";
+import type { LiveUiFrame } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 const theme = { border: "#18372c", focusBorder: "#285a48", title: "#cccccc", text: "#ffffff" };
 

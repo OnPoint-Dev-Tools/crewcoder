@@ -1,5 +1,5 @@
 import type { Component, KeyEvent, RenderContext } from "../tui/component.js";
-import type { TuiEventBlock } from "../state/tui-store.js";
+import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bg, bold, fg, reset } from "../tui/ansi.js";
 import { emptyLine, padRight, truncate, wrapText } from "../tui/layout.js";
 

@@ -1,10 +1,10 @@
 import type { Component, KeyEvent, RenderContext } from "../tui/component.js";
-import type { TuiState } from "../state/tui-store.js";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bg, bold, fg, reset, visibleLength } from "../tui/ansi.js";
 import { padRight, truncate } from "../tui/layout.js";
-import { formatContextStatus } from "../state/usage.js";
+import { formatContextStatus } from "@onpoint-dev-tools/crewcoder-tui-core/state/usage";
 import { readClipboard, readClipboardImage, writeClipboard } from "../tui/clipboard.js";
-import { describeAttachment, persistImageBuffer, persistImageFile, sniffImage, type ImageAttachment } from "../state/image-attachment.js";
+import { describeAttachment, persistImageBuffer, persistImageFile, sniffImage, type ImageAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import { toolHasExpandableOutput } from "./MainViewport.js";
 
 export type SubmitHandler = (value: string) => void;

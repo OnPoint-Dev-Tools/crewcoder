@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { App, formatBudgetTokens, parseBudgetInput } from "../components/App.js";
 import { commandOptions } from "../components/CommandPalette.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { parseInputEvents } from "../tui/input.js";
 
 type RunOptions = { budget?: number };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ExtensionUiOverlay } from "../components/ExtensionUiOverlay.js";
-import type { TuiEventBlock } from "../state/tui-store.js";
+import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { crewCoderTheme } from "../theme/theme.js";
 import { stripAnsi } from "../tui/ansi.js";
 import type { KeyEvent } from "../tui/component.js";

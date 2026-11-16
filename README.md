@@ -26,7 +26,7 @@ This directory is an npm-workspaces monorepo for the CrewCoder Packages. The roo
 
 ## Install CrewCoder
 
-Requires Node.js 22 or newer. The `crewcoder` umbrella package includes both the CrewCoder agent and terminal UI.
+Requires Node.js 22 or newer for the agent. The terminal UI that bare `crewcoder` opens ([`crewcoder-opentui`](crewcoder-opentui/README.md), a preview built on OpenTUI) needs Node.js 26.4 or newer and is an optional part of the install: on older Node.js, unsupported platforms, or headless machines, `crewcoder` still installs and every agent command works. The original UI stays available as the [legacy `crewcoder-tui`](crewcoder-tui/README.md) package on Node.js 22+.
 
 ### Try it with npx
 
@@ -34,7 +34,7 @@ Requires Node.js 22 or newer. The `crewcoder` umbrella package includes both the
 npx crewcoder
 ```
 
-`npx` downloads CrewCoder into npm's cache and launches the TUI without creating a persistent global installation.
+`npx` downloads CrewCoder into npm's cache and launches the TUI without creating a persistent global installation. Without Node.js 26.4+ or an interactive terminal, it prints how to continue instead.
 
 ### Install globally
 
@@ -73,24 +73,29 @@ The scoped packages remain available separately for development and custom packa
 
 ```sh
 npm install --global @onpoint-dev-tools/crewcoder-agent
-npm install --global @onpoint-dev-tools/crewcoder-tui
+npm install --global @onpoint-dev-tools/crewcoder-tui        # legacy UI, Node.js 22+
+npm install --global @onpoint-dev-tools/crewcoder-opentui    # OpenTUI UI, Node.js 26.4+
 ```
 
-Installing only `@onpoint-dev-tools/crewcoder-agent` does not install the TUI. Most CLI users should install the `crewcoder` umbrella package. See the [installation guide](docs/INSTALLATION.md) for install and update details.
+Installing only `@onpoint-dev-tools/crewcoder-agent` does not install a TUI; its own bare `crewcoder` opens `crewcoder-tui` when that is on `PATH`. Most CLI users should install the `crewcoder` umbrella package. See the [installation guide](docs/INSTALLATION.md) for install and update details.
 
 ## Packages
 
 | Package | npm name | Runs on | What it is | Install command |
 |---|---|---|---|---|
-| CrewCoder umbrella | `crewcoder` | Node.js 22+ terminal | Recommended CLI package containing both the agent and TUI. |
+| CrewCoder umbrella | `crewcoder` | Node.js 22+ (TUI: 26.4+) | Recommended CLI package: the agent plus the optional OpenTUI terminal UI. | `npm install --global crewcoder` |
 | [`crewcoder-agent`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-agent) | [`@onpoint-dev-tools/crewcoder-agent`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-agent) | Node.js 22+ / standalone binary | The agent harness: evented agent loop, providers, local tools, durable sessions, goals, crews, extensions, ACP and fleet servers, and the `crewcoder` / `crew` CLI. | `npm install --global @onpoint-dev-tools/crewcoder-agent` |
-| [`crewcoder-tui`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-tui) | [`@onpoint-dev-tools/crewcoder-tui`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-tui) | Node.js 22+ terminal | Custom terminal UI (no Ink/React/blessed/curses) driven by the agent's JSON event stream, locally or over SSH. | `npm install --global @onpoint-dev-tools/crewcoder-tui` |
+| [`crewcoder-opentui`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-opentui) | [`@onpoint-dev-tools/crewcoder-opentui`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-opentui) | Node.js 26.4+ terminal | Preview terminal UI built on OpenTUI and React; opened by bare `crewcoder`. Not yet at parity with the legacy UI. | `npm install --global @onpoint-dev-tools/crewcoder-opentui` |
+| [`crewcoder-tui`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-tui) | [`@onpoint-dev-tools/crewcoder-tui`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-tui) | Node.js 22+ terminal | Legacy custom terminal UI (no Ink/React/blessed/curses) driven by the agent's JSON event stream, locally or over SSH. | `npm install --global @onpoint-dev-tools/crewcoder-tui` |
+| [`crewcoder-tui-core`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-tui-core) | [`@onpoint-dev-tools/crewcoder-tui-core`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-tui-core) | Node.js 22+ | Shared, UI-independent TUI runtime: agent process bridge, event parser, reducer, and state. | Installed by both TUIs |
 | [`crewcoder-sdk`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-sdk) | [`@onpoint-dev-tools/crewcoder-sdk`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-sdk) | Node.js 22+ host process | Supported TypeScript API for embedding CrewCoder in-process, plus an authenticated fleet client for remote runners. | `npm install --global @onpoint-dev-tools/crewcoder-sdk` |
 | [`crewcoder-client`](https://github.com/OnPoint-Dev-Tools/crewcoder/tree/main/crewcoder-client) | [`@onpoint-dev-tools/crewcoder-client`](https://www.npmjs.com/package/@onpoint-dev-tools/crewcoder-client) | Browsers, Electron renderers, webviews | Browser-safe client for authenticated CrewCoder runners. Web-platform APIs only: no Node.js imports, no local files, no tool execution, no stored provider credentials. | `npm install --global @onpoint-dev-tools/crewcoder-client` |
 
 Package READMEs:
 [agent](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-agent/README.md) ·
-[tui](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-tui/README.md) ·
+[opentui](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-opentui/README.md) ·
+[tui (legacy)](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-tui/README.md) ·
+[tui-core](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-tui-core/README.md) ·
 [sdk](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-sdk/README.md) ·
 [client](https://github.com/OnPoint-Dev-Tools/crewcoder/blob/main/crewcoder-client/README.md)
 
@@ -168,7 +173,8 @@ Run one workspace directly:
 ```sh
 npm run dev -w @onpoint-dev-tools/crewcoder-agent
 npm run typecheck -w @onpoint-dev-tools/crewcoder-sdk
-npm run dev -w @onpoint-dev-tools/crewcoder-tui
+npm run dev -w @onpoint-dev-tools/crewcoder-tui                          # legacy UI
+mise exec node@26 -- npm run dev -w @onpoint-dev-tools/crewcoder-opentui  # OpenTUI UI, Node.js 26.4+
 ```
 
 ## TypeScript SDK and browser client

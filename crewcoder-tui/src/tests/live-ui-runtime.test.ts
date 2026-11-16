@@ -4,7 +4,7 @@ import {
   reduceLiveUiChild,
   type LiveUiComponent
 } from "../bridge/live-ui-runtime.js";
-import type { CrewCoderLiveUiHost, CrewCoderLiveUiProps, LiveUiFrame } from "../bridge/live-ui-protocol.js";
+import type { CrewCoderLiveUiHost, CrewCoderLiveUiProps, LiveUiFrame } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 const props: CrewCoderLiveUiProps = {
   extensionId: "review-pack",

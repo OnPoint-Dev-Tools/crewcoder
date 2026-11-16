@@ -22,7 +22,7 @@ import {
   type CrewCoderLiveUiInstance,
   type CrewCoderLiveUiProps,
   type LiveUiFrame
-} from "./live-ui-protocol.js";
+} from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export type LiveUiComponentSize = {
   width: number;

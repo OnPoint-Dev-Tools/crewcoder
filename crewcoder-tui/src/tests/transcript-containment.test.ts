@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MainViewport } from "../components/MainViewport.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { stripAnsi } from "../tui/ansi.js";
 import { padRight, splitLines } from "../tui/layout.js";
 import { crewCoderTheme } from "../theme/theme.js";

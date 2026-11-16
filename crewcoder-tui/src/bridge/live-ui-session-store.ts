@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { CrewCoderLiveUiJsonValue } from "./live-ui-protocol.js";
+import type { CrewCoderLiveUiJsonValue } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export class LiveUiSessionStore {
   private readonly baseDir: string;

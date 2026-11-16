@@ -4,8 +4,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../components/App.js";
 import { commandOptions } from "../components/CommandPalette.js";
-import { applyCrewCoderEvent } from "../state/event-reducer.js";
-import { createInitialState } from "../state/tui-store.js";
+import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { parseInputEvents } from "../tui/input.js";
 
 const originalCrewCoderBin = process.env.CREWCODER_BIN;

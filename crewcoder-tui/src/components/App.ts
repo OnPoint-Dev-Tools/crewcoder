@@ -14,7 +14,7 @@ import { PickerOverlay, type PickerOption } from "./PickerOverlay.js";
 import { ApprovalOverlay } from "./ApprovalOverlay.js";
 import { ExtensionUiOverlay } from "./ExtensionUiOverlay.js";
 import { CompactionPreviewOverlay, type CompactionPreviewParams } from "./CompactionPreviewOverlay.js";
-import { isTuiMode, normalizeTuiMode, pushSystemLog, TUI_MODES, type TuiDecisionExplanation, type TuiEventBlock, type TuiGoal, type TuiMode, type TuiReviewSummary, type TuiState } from "../state/tui-store.js";
+import { isTuiMode, normalizeTuiMode, pushSystemLog, TUI_MODES, type TuiDecisionExplanation, type TuiEventBlock, type TuiGoal, type TuiMode, type TuiReviewSummary, type TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 const MODE_DESCRIPTIONS: Record<TuiMode, string> = {
   general: "General coding agent mode",
@@ -22,21 +22,21 @@ const MODE_DESCRIPTIONS: Record<TuiMode, string> = {
   plugin: "CrewCode app plugin architect mode",
   extension: "CrewCoder extension architect mode"
 };
-import { branchCrewCoderSession, CrewCoderProcessBridge, execCrewCoderCommand, isCrewCoderRemote, listCrewCoderExtensionRenderers, listCrewCoderLiveUiContributions, listCrewCoderProviders, listCrewCoderSessions, type CrewCoderApprovalMode, type ProviderRecord, type SessionRecord } from "../bridge/crewcoder-process.js";
+import { branchCrewCoderSession, CrewCoderProcessBridge, execCrewCoderCommand, isCrewCoderRemote, listCrewCoderExtensionRenderers, listCrewCoderLiveUiContributions, listCrewCoderProviders, listCrewCoderSessions, type CrewCoderApprovalMode, type ProviderRecord, type SessionRecord } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import { LiveUiTrustGate } from "../bridge/live-ui-trust-gate.js";
 import { LiveUiController, type LiveUiControllerCallbacks } from "../bridge/live-ui-controller.js";
 import { LiveUiInstanceRegistry } from "../bridge/live-ui-registry.js";
 import { LiveUiRepaintScheduler, type LiveUiFrameTheme } from "../bridge/live-ui-frame.js";
 import { LiveUiSessionStore } from "../bridge/live-ui-session-store.js";
 import { matchesTuiLiveUiContribution, prepareLiveUiSpawn, type LiveUiSpawnPlan, type TuiLiveUiContribution, type TuiLiveUiEvent, type TuiLiveUiGateContext } from "../bridge/live-ui-gate.js";
-import type { CrewCoderLiveUiInputEvent, CrewCoderLiveUiKind } from "../bridge/live-ui-protocol.js";
+import type { CrewCoderLiveUiInputEvent, CrewCoderLiveUiKind } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 import { readClipboard } from "../tui/clipboard.js";
-import { applyCrewCoderEvent } from "../state/event-reducer.js";
+import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
 import type { OverlayOptions } from "../tui/overlay.js";
 import { bg, bold, fg, reset, stripAnsi, visibleLength } from "../tui/ansi.js";
-import { DEFAULT_EFFORT, effortLevelsForModel, normalizeEffort } from "../state/effort-levels.js";
+import { DEFAULT_EFFORT, effortLevelsForModel, normalizeEffort } from "@onpoint-dev-tools/crewcoder-tui-core/state/effort-levels";
 import { listPathSuggestions } from "./path-suggestions.js";
-import { bigCrewCodeLogoLines, compactCrewCodeLogoLines } from "../theme/logo.js";
+import { bigCrewCodeLogoLines, compactCrewCodeLogoLines } from "@onpoint-dev-tools/crewcoder-tui-core/theme/logo";
 import { pulseClock, renderBannerPulse } from "./logo-banner.js";
 import { box, emptyLine, padRight } from "../tui/layout.js";
 

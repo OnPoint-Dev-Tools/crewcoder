@@ -1,6 +1,17 @@
-# CrewCoder TUI
+# CrewCoder TUI (legacy)
 
-CrewCoder TUI is a custom terminal UI package for CrewCoder.
+CrewCoder TUI is the original custom terminal UI package for CrewCoder. The `crewcoder`
+umbrella package now opens the [OpenTUI-based UI](../crewcoder-opentui/README.md); this
+package remains published and maintained for users who prefer it, and it runs on
+Node.js 22 or newer:
+
+```bash
+npm install --global @onpoint-dev-tools/crewcoder-tui
+crewcoder-tui
+```
+
+Its agent bridge, event reducer, and state live in the shared
+[`@onpoint-dev-tools/crewcoder-tui-core`](../crewcoder-tui-core/README.md) package.
 
 Custom TUI architecture:
 

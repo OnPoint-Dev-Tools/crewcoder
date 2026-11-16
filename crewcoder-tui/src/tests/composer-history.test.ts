@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Composer } from "../components/Composer.js";
-import { createInitialState } from "../state/tui-store.js";
-import type { TuiState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import type { KeyEvent } from "../tui/component.js";
 
 function key(name: string, overrides: Partial<KeyEvent> = {}): KeyEvent {

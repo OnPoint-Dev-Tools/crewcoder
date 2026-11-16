@@ -6,7 +6,7 @@ import { LiveUiRepaintScheduler } from "../bridge/live-ui-frame.js";
 import { LiveUiHost } from "../bridge/live-ui-host.js";
 import { stripAnsi } from "../tui/ansi.js";
 import type { LiveUiWorkerLike, LiveUiWorkerSpec } from "../bridge/live-ui-host.js";
-import type { CrewCoderLiveUiHost, CrewCoderLiveUiInstance, CrewCoderLiveUiProps, LiveUiFrame } from "../bridge/live-ui-protocol.js";
+import type { CrewCoderLiveUiHost, CrewCoderLiveUiInstance, CrewCoderLiveUiProps, LiveUiFrame } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 const theme = { border: "#18372c", focusBorder: "#285a48", title: "#cccccc", text: "#ffffff" };
 

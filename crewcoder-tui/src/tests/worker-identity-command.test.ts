@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as bridge from "../bridge/crewcoder-process.js";
+import * as bridge from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import { App } from "../components/App.js";
 import { Composer } from "../components/Composer.js";
 import { builtinPaletteItems } from "../components/CommandPalette.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { parseInputEvents } from "../tui/input.js";
 import { stripAnsi } from "../tui/ansi.js";
 import { crewCoderTheme } from "../theme/theme.js";

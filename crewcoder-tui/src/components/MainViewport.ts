@@ -1,14 +1,14 @@
 import { stripVTControlCharacters } from "node:util";
 import type { Component, KeyEvent, RenderContext, RenderedImagePlacement } from "../tui/component.js";
-import type { TuiDeclarativeComponent, TuiEventBlock } from "../state/tui-store.js";
-import type { TuiState } from "../state/tui-store.js";
+import type { TuiDeclarativeComponent, TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bg, bold, fg, italic, reset, stripAnsi, visibleLength } from "../tui/ansi.js";
 import { writeClipboard } from "../tui/clipboard.js";
 import { emptyLine, padRight, splitLines, truncate, wrapText } from "../tui/layout.js";
 import { spinnerFrame, renderSpinner } from "./Spinner.js";
 import { renderMarkdown } from "./markdown-renderer.js";
 import { renderExtensionUiErrorBlock } from "./ExtensionUiErrorBlock.js";
-import { describeAttachment } from "../state/image-attachment.js";
+import { describeAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import { detectImageProtocol, fitPlacement } from "../tui/image-protocol.js";
 
 const TEXT_PADDING = 2;

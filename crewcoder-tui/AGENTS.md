@@ -4,7 +4,18 @@
 
 This package is `@onpoint-dev-tools/crewcoder-tui`.
 
-It is the custom terminal UI for CrewCoder.
+It is the **legacy** custom-renderer terminal UI for CrewCoder. The `crewcoder` umbrella
+now launches `@onpoint-dev-tools/crewcoder-opentui`; this package stays published for
+users who prefer it (`npm i -g @onpoint-dev-tools/crewcoder-tui`, then `crewcoder-tui`).
+Keep it working; do not deprecate or delete it without the owner's decision.
+
+The agent process bridge, event parser, remote-connection quoting, Live UI protocol
+types, reducer, `state/*` modules, and the logo text (`theme/logo`) live in `@onpoint-dev-tools/crewcoder-tui-core`
+and are shared with the OpenTUI UI. Import them by subpath
+(`@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process`,
+`.../state/event-reducer`, ...). Paths below such as `src/bridge/remote-connection.ts`,
+`state/tui-store.ts`, and the event-reducer/image/usage tests now refer to that package.
+Behavior changes there affect both UIs; run both suites.
 
 DISCLAIMER:
 crewcoder and crewcode are 2 different apps, CrewCoder harness has knowledge and plugin logic for crewcode, but everything else is for 'CrewCoder or crewcoder' dont get it confused, if you in doubt double check with me
@@ -32,14 +43,11 @@ crewcoder-tui/
 │   └── LIVE_UI_SANDBOX.md
 ├── src/
 │   ├── cli.ts
-│   ├── bridge/
-│   │   ├── crewcoder-process.ts
-│   │   ├── event-parser.ts
+│   ├── bridge/            # agent bridge, event parser, live-ui-protocol: crewcoder-tui-core
 │   │   ├── live-ui-controller.ts
 │   │   ├── live-ui-frame.ts
 │   │   ├── live-ui-gate.ts
 │   │   ├── live-ui-host.ts
-│   │   ├── live-ui-protocol.ts
 │   │   ├── live-ui-registry.ts
 │   │   ├── live-ui-runtime.ts
 │   │   └── live-ui-trust-gate.ts
@@ -60,11 +68,6 @@ crewcoder-tui/
 │   │   ├── markdown-renderer.ts
 │   │   ├── modal-view.ts
 │   │   └── path-suggestions.ts
-│   ├── state/
-│   │   ├── effort-levels.ts
-│   │   ├── event-reducer.ts
-│   │   ├── tui-store.ts
-│   │   └── usage.ts
 │   ├── tests/
 │   │   ├── app-home.test.ts
 │   │   ├── app-input.test.ts
@@ -90,8 +93,7 @@ crewcoder-tui/
 │   │   ├── spinner.test.ts
 │   │   ├── status-bar.test.ts
 │   │   └── theme.test.ts
-│   ├── theme/
-│   │   ├── logo.ts
+│   ├── theme/             # logo.ts lives in crewcoder-tui-core
 │   │   └── theme.ts
 │   └── tui/
 │       ├── ansi.ts
@@ -121,7 +123,7 @@ For user-facing rendering, prefer `ctx.theme` tokens over hardcoded hex colors s
 
 ## CLI launch
 
-When both workspace packages are installed, bare `crewcoder` launches the `crewcoder-tui` binary. Keep the TUI's backend invocations argument-bearing (`crewcoder run`, `crewcoder session ...`) so they continue to target the agent CLI instead of reopening the TUI.
+The scoped agent package's bare `crewcoder` launches the `crewcoder-tui` binary from `PATH`. The `crewcoder` umbrella's bare invocation launches `crewcoder-opentui` instead (see the root `AGENTS.md`). Keep the TUI's backend invocations argument-bearing (`crewcoder run`, `crewcoder session ...`) so they continue to target the agent CLI instead of reopening the TUI.
 
 ## Remote SSH agents
 

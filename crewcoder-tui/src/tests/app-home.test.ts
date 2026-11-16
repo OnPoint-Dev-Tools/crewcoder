@@ -5,10 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../components/App.js";
 import { RightSidebar } from "../components/RightSidebar.js";
-import { readGitLabel } from "../state/git-status.js";
-import { createInitialState } from "../state/tui-store.js";
+import { readGitLabel } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { crewCoderTheme } from "../theme/theme.js";
-import { bigCrewCodeLogoLines } from "../theme/logo.js";
+import { bigCrewCodeLogoLines } from "@onpoint-dev-tools/crewcoder-tui-core/theme/logo";
 import { bg, fg, reset, stripAnsi } from "../tui/ansi.js";
 
 const SIZE = { width: 100, height: 32 };

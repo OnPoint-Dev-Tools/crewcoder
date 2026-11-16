@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Composer } from "../components/Composer.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { crewCoderTheme } from "../theme/theme.js";
 import { bg, fg, reset, stripAnsi } from "../tui/ansi.js";
 

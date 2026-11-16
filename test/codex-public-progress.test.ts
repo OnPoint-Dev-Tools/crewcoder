@@ -2,8 +2,8 @@ import { expect, it } from "vitest";
 import { CodexProgress } from "../crewcoder-agent/src/providers/codex-progress.js";
 import { createJsonEventSink } from "../crewcoder-agent/src/core/json-event-stream.js";
 import { translateEvent } from "../crewcoder-agent/src/acp/event-translator.js";
-import { applyCrewCoderEvent } from "../crewcoder-tui/src/state/event-reducer.js";
-import { createInitialState } from "../crewcoder-tui/src/state/tui-store.js";
+import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 it("keeps full summary bodies and public commentary in terminal thinking, with final replies separate", async () => {
   const progress = new CodexProgress();

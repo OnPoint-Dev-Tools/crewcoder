@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { builtinProviderDefaults, resolveProviderRecord } from "../components/App.js";
-import { createInitialState } from "../state/tui-store.js";
-import { effortLevelsForModel } from "../state/effort-levels.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import { effortLevelsForModel } from "@onpoint-dev-tools/crewcoder-tui-core/state/effort-levels";
 
 afterEach(() => vi.unstubAllEnvs());
 

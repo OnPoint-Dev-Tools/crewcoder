@@ -10,6 +10,7 @@
       "@onpoint-dev-tools/crewcoder-sdk/*": ["./crewcoder-sdk/src/*"],
       "@onpoint-dev-tools/crewcoder-client": ["./crewcoder-client/src/index.ts"],
       "@onpoint-dev-tools/crewcoder-client/*": ["./crewcoder-client/src/*"],
+      "@onpoint-dev-tools/crewcoder-tui-core/*": ["./crewcoder-tui-core/src/*"],
       "@onpoint-dev-tools/crewcoder-tui": ["./crewcoder-tui/src/cli.ts"],
       "@onpoint-dev-tools/crewcoder-tui/*": ["./crewcoder-tui/src/*"]
     }

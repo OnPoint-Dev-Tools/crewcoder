@@ -13,10 +13,12 @@ afterEach(() => {
 });
 
 describe("release automation", () => {
-  it("commits version API baselines without including the independent TUI manifest", () => {
+  it("commits version API baselines without including the independent TUI manifests", () => {
     expect(releaseFiles).toContain("crewcoder-client/api/version.d.ts");
     expect(releaseFiles).toContain("crewcoder-sdk/api/version.d.ts");
     expect(releaseFiles).not.toContain("crewcoder-tui/package.json");
+    expect(releaseFiles).not.toContain("crewcoder-tui-core/package.json");
+    expect(releaseFiles).not.toContain("crewcoder-opentui/package.json");
   });
 
   it("accepts stable semantic versions and compares them numerically", () => {
@@ -26,16 +28,18 @@ describe("release automation", () => {
     expect(() => stableVersionParts("0.2.3-beta.1")).toThrow(/stable semantic version/);
   });
 
-  it("updates the coordinated release group while preserving the TUI version", () => {
+  it("updates the coordinated release group while preserving the TUI versions", () => {
     const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-release-test-"));
     temporaryDirectories.push(repositoryRoot);
     const manifests = {
-      "package.json": { name: "crewcoder", version: "0.1.0", dependencies: { "@onpoint-dev-tools/crewcoder-agent": "0.1.0", "@onpoint-dev-tools/crewcoder-tui": "0.0.9" } },
+      "package.json": { name: "crewcoder", version: "0.1.0", dependencies: { "@onpoint-dev-tools/crewcoder-agent": "0.1.0" }, optionalDependencies: { "@onpoint-dev-tools/crewcoder-opentui": "0.0.7" } },
       "crewcoder-agent/package.json": { name: "@onpoint-dev-tools/crewcoder-agent", version: "0.1.0", dependencies: {} },
       "crewcoder-client/package.json": { name: "@onpoint-dev-tools/crewcoder-client", version: "0.1.0" },
       "crewcoder-sdk/package.json": { name: "@onpoint-dev-tools/crewcoder-sdk", version: "0.1.0", dependencies: { "@onpoint-dev-tools/crewcoder-agent": "0.1.0", "@onpoint-dev-tools/crewcoder-client": "0.1.0" } },
-      "crewcoder-tui/package.json": { name: "@onpoint-dev-tools/crewcoder-tui", version: "0.0.9" }
+      "crewcoder-tui/package.json": { name: "@onpoint-dev-tools/crewcoder-tui", version: "0.0.9" },
+      "crewcoder-opentui/package.json": { name: "@onpoint-dev-tools/crewcoder-opentui", version: "0.0.7" }
     };
+    const independent = ["crewcoder-tui/package.json", "crewcoder-opentui/package.json"];
     for (const [relativePath, manifest] of Object.entries(manifests)) {
       const filePath = path.join(repositoryRoot, relativePath);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -54,15 +58,14 @@ describe("release automation", () => {
 
     updateReleaseMetadata(repositoryRoot, "0.2.3");
 
-    for (const relativePath of Object.keys(manifests).filter((relativePath) => relativePath !== "crewcoder-tui/package.json")) {
+    for (const relativePath of Object.keys(manifests).filter((relativePath) => !independent.includes(relativePath))) {
       expect(JSON.parse(fs.readFileSync(path.join(repositoryRoot, relativePath), "utf8")).version).toBe("0.2.3");
     }
     expect(JSON.parse(fs.readFileSync(path.join(repositoryRoot, "crewcoder-tui/package.json"), "utf8")).version).toBe("0.0.9");
+    expect(JSON.parse(fs.readFileSync(path.join(repositoryRoot, "crewcoder-opentui/package.json"), "utf8")).version).toBe("0.0.7");
     const rootManifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
-    expect(rootManifest.dependencies).toMatchObject({
-      "@onpoint-dev-tools/crewcoder-agent": "0.2.3",
-      "@onpoint-dev-tools/crewcoder-tui": "0.0.9"
-    });
+    expect(rootManifest.dependencies).toEqual({ "@onpoint-dev-tools/crewcoder-agent": "0.2.3" });
+    expect(rootManifest.optionalDependencies).toEqual({ "@onpoint-dev-tools/crewcoder-opentui": "0.0.7" });
     const sdkManifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "crewcoder-sdk/package.json"), "utf8"));
     expect(sdkManifest.dependencies).toMatchObject({
       "@onpoint-dev-tools/crewcoder-agent": "0.2.3",

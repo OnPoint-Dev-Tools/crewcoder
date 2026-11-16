@@ -1,8 +1,8 @@
 import type { Component, KeyEvent, RenderContext } from "../tui/component.js";
 import { fg, reset } from "../tui/ansi.js";
 import { emptyLine, padRight } from "../tui/layout.js";
-import type { EffortLevel } from "../state/effort-levels.js";
-import { effortLevelsForModel } from "../state/effort-levels.js";
+import type { EffortLevel } from "@onpoint-dev-tools/crewcoder-tui-core/state/effort-levels";
+import { effortLevelsForModel } from "@onpoint-dev-tools/crewcoder-tui-core/state/effort-levels";
 
 export type EffortSelectHandler = (effort: EffortLevel) => void;
 
