@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -796,6 +796,68 @@ describe("agent loop", () => {
     } finally {
       if (originalHome === undefined) delete process.env.CREWCODER_HOME; else process.env.CREWCODER_HOME = originalHome;
     }
+  });
+
+  it("delivers follow-ups at provider tool boundaries without starting another turn", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const followUpSignal = { messages: [] as string[] };
+    const delivered: string[][] = [];
+    let turns = 0;
+    const controller = new AbortController();
+    const modelClient: ModelClient = {
+      async complete(_input, signal, stream) {
+        turns++;
+        expect(stream?.deliverFollowUps).toBeTypeOf("function");
+        const emptyDelivery = vi.fn();
+        await stream!.deliverFollowUps!(emptyDelivery);
+        expect(emptyDelivery).not.toHaveBeenCalled();
+        followUpSignal.messages.push("include edge cases", "keep working");
+        await Promise.all([
+          stream!.deliverFollowUps!(async (texts) => {
+            delivered.push([...texts]);
+            followUpSignal.messages.push("one more detail");
+          }),
+          stream!.deliverFollowUps!(async (texts) => { delivered.push([...texts]); })
+        ]);
+        expect(signal?.aborted).toBe(false);
+        expect(followUpSignal.messages).toEqual([]);
+        return assistantText("completed with edge cases");
+      }
+    };
+    const result = await runAgentLoop({ prompt: "implement feature", requestedMode: "general", cwd }, {
+      modelClient, followUpSignal, signal: controller.signal, maxIterations: 1
+    });
+    expect(turns).toBe(1);
+    expect(delivered).toEqual([["include edge cases", "keep working"], ["one more detail"]]);
+    const expectedUsers = ["implement feature", "include edge cases", "keep working", "one more detail"];
+    expect(result.messages.filter((message) => message.role === "user").map(getText)).toEqual(expectedUsers);
+    const persisted = await loadSession(result.sessionId);
+    expect(persisted.messages.filter((message) => message.role === "user").map(getText)).toEqual(expectedUsers);
+  });
+
+  it("keeps rejected delivery queued and leaves cancelled follow-ups untouched", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const followUpSignal = { messages: [] as string[] };
+    const controller = new AbortController();
+    const modelClient: ModelClient = {
+      async complete(_input, _signal, stream) {
+        followUpSignal.messages.push("first");
+        await expect(stream!.deliverFollowUps!(async () => {
+          followUpSignal.messages.push("second");
+          throw new Error("steer rejected");
+        })).rejects.toThrow("steer rejected");
+        expect(followUpSignal.messages).toEqual(["first", "second"]);
+        controller.abort();
+        const deliver = vi.fn();
+        await stream!.deliverFollowUps!(deliver);
+        expect(deliver).not.toHaveBeenCalled();
+        return assistantText("stopped");
+      }
+    };
+    await runAgentLoop({ prompt: "work", requestedMode: "general", cwd }, {
+      modelClient, followUpSignal, signal: controller.signal, persistSession: false
+    });
+    expect(followUpSignal.messages).toEqual(["first", "second"]);
   });
 
   it("injects queued follow-ups into the active run and continues", async () => {

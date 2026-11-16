@@ -14,6 +14,6 @@ export function resolveToolMode(preference: ToolMode | "legacy", input: {
   mode: string;
 }): ToolMode | undefined {
   // Host custody and the approved-plan workflow cannot be bypassed by user preferences.
-  if (input.hostedToolsOnly || input.virtualFilesystem || input.suppliedTools || input.additionalTools?.length || input.mode !== "general") return "crewcoder";
+  if (input.hostedToolsOnly || input.virtualFilesystem || input.suppliedTools || input.mode !== "general") return "crewcoder";
   return preference === "legacy" ? undefined : preference;
 }

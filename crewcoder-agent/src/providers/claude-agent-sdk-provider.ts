@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type CanUseTool, type HookCallback, type PermissionResult, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { AgentMessage, AssistantMessage } from "../core/messages.js";
 import { getText } from "../core/messages.js";
@@ -89,7 +89,23 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
     return { behavior: "allow", updatedInput: { ...toolInput, answers } } satisfies PermissionResult;
   };
 
+  const deliverFollowUps: HookCallback = async (hook, _toolUseId, options) => {
+    if (hook.hook_event_name !== "PostToolUse" && hook.hook_event_name !== "PostToolUseFailure") return {};
+    if (signal?.aborted || options.signal.aborted) return {};
+    let additionalContext: string | undefined;
+    await input.stream?.deliverFollowUps?.((messages) => {
+      additionalContext = [
+        "User messages queued during the current task. Incorporate these instructions and continue working:",
+        ...messages.map((text) => JSON.stringify({ role: "user", text }))
+      ].join("\n");
+    });
+    return additionalContext ? { hookSpecificOutput: { hookEventName: hook.hook_event_name, additionalContext } } : {};
+  };
+
   const runQuery = async (resume: string | undefined): Promise<void> => {
+    let contextTokens: number | undefined;
+    let contextWindow: number | undefined;
+    let contextModel = model;
     const q = query({
       prompt: claudePrompt(modelInput.messages, Boolean(resume), input.prompt),
       options: {
@@ -118,6 +134,7 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
         tools: nativeMode ? { type: "preset", preset: "claude_code" } : nativeTools,
         allowedTools: [...nativeFileTools, ...mcpNames],
         canUseTool,
+        hooks: { PostToolUse: [{ hooks: [deliverFollowUps] }], PostToolUseFailure: [{ hooks: [deliverFollowUps] }] },
         mcpServers: { crewcoder: server },
         strictMcpConfig: true,
         pathToClaudeCodeExecutable: resolveClaudeExecutable()
@@ -130,7 +147,23 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
         providerSessionId = sid;
         await input.stream?.onProviderSessionId?.(sid);
       }
+      if (message.type === "system" && message.subtype === "init") contextModel = message.model;
+      if (message.type === "assistant" && !message.parent_tool_use_id && !message.error) {
+        const requestUsage = message.message.usage;
+        if (typeof requestUsage?.input_tokens === "number" && Number.isFinite(requestUsage.input_tokens) && requestUsage.input_tokens >= 0) {
+          const tokens = [requestUsage.input_tokens, requestUsage.cache_read_input_tokens ?? 0, requestUsage.cache_creation_input_tokens ?? 0];
+          // Anthropic reports cache tokens alongside fresh input. Use only the latest main-agent
+          // request, matching Claude Code's input-only context percentage, never billing totals.
+          if (tokens.every((value) => Number.isFinite(value) && value >= 0)) contextTokens = tokens.reduce((sum, value) => sum + value, 0);
+          contextModel = message.message.model;
+        }
+      }
+      if (message.type === "result" && contextModel && "modelUsage" in message) {
+        const capacity = message.modelUsage?.[contextModel]?.contextWindow;
+        if (typeof capacity === "number" && Number.isFinite(capacity) && capacity > 0) contextWindow = capacity;
+      }
       if (message.type === "system" && message.subtype === "compact_boundary") {
+        contextTokens = undefined;
         await input.stream?.onProviderCompaction?.({
           status: "completed",
           percent: 100,
@@ -141,9 +174,14 @@ export async function runClaudeAgentSdkProvider(input: ProviderRunInput, signal?
     }
     try {
       const context = await q.getContextUsage();
-      if (Number.isFinite(context.totalTokens)) usage = { ...(usage ?? { providerId: input.provider.id, model: input.model }), contextTokens: context.totalTokens };
+      if (Number.isFinite(context.totalTokens) && context.totalTokens >= 0) contextTokens = context.totalTokens;
+      if (Number.isFinite(context.maxTokens) && context.maxTokens > 0) contextWindow = context.maxTokens;
     } catch {
-      // Older Claude binaries may not implement this control method; result usage remains valid billing data.
+      // Single-turn SDK queries close their transport at the result; older binaries also
+      // lack this method. Per-response usage remains available without another model call.
+    }
+    if (contextTokens !== undefined || contextWindow !== undefined) {
+      usage = { ...(usage ?? { providerId: input.provider.id, model: input.model }), contextTokens, contextWindow };
     }
   };
 

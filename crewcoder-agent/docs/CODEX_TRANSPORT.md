@@ -57,6 +57,10 @@ can fail on restricted hosts with `bwrap: loopback: Failed RTM_NEWADDR`.
 
 Thinking remains visible through raw reasoning deltas, completed reasoning
 content, and commentary-phase messages, with streamed/final content deduplicated.
+Fresh and resumed turns use `summary: "none"` so CrewCoder does not request
+additional generated summary headings. This setting does not turn off model
+reasoning; raw reasoning remains limited to what the provider exposes. Returned
+text is forwarded without filtering headings or applying display formatting.
 Final-answer messages remain assistant output.
 
 ## Failure behavior

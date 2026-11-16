@@ -903,14 +903,14 @@ export class App implements Component {
     }
     if (value === undefined || value === "status") {
       const config = await readCrewCoderConfig();
-      const selected = config?.toolMode ?? "crewcoder";
+      const selected = config?.toolMode ?? "native";
       if (value === "status") {
         this.state.blocks.push({ type: "system", text: `Tool mode for new sessions: ${selected}. Existing sessions keep their saved mode; host policy takes precedence.` });
         return;
       }
       this.openPanelPopover(new PickerOverlay("Tool mode for new sessions", [
         { label: `${selected === "crewcoder" ? "* " : ""}CrewCoder tools`, value: "crewcoder", description: "CrewCoder handles coding tools and approvals across providers" },
-        { label: `${selected === "native" ? "* " : ""}Provider-native tools`, value: "native", description: "Codex CLI or Claude tools and approvals; CrewCoder coding tools disabled" }
+        { label: `${selected === "native" ? "* " : ""}Provider-native tools`, value: "native", description: "Native execution plus CrewCoder specialized tools; other providers use CrewCoder tools" }
       ], (option) => { this.closeActivePopover(); void this.configureToolMode(option.value); }), 7);
       this.repaint?.();
       return;
@@ -3263,7 +3263,7 @@ async function readCrewCoderConfig(): Promise<CrewCoderReloadConfig | undefined>
     const goals = raw.goals && typeof raw.goals === "object" && !Array.isArray(raw.goals) ? raw.goals as Record<string, unknown> : undefined;
     return {
       defaultMode: typeof raw.defaultMode === "string" ? raw.defaultMode : undefined,
-      toolMode: raw.toolMode === "native" ? "native" : "crewcoder",
+      toolMode: raw.toolMode === "crewcoder" ? "crewcoder" : "native",
       defaultProvider: typeof raw.defaultProvider === "string" && raw.defaultProvider.trim() ? raw.defaultProvider.trim() : undefined,
       defaultModel: typeof raw.defaultModel === "string" && raw.defaultModel.trim() ? raw.defaultModel.trim() : undefined,
       allowExtensionLiveUi: raw.allowExtensionLiveUi === true ? true : undefined,

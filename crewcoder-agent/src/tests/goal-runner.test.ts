@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAgentLoop } from "../core/agent-loop.js";
-import { checkGoalCompletion, createGoalTools, decideGoalApproval, type GoalCompletionSignal } from "../core/goal-runner.js";
+import { checkGoalCompletion, createGoalTools, decideGoalApproval, runGoalWorker, type GoalCompletionSignal } from "../core/goal-runner.js";
 import { createGoal, listGoals, loadGoal, saveGoal } from "../core/goal-store.js";
 import { readConfig, setConfigValue } from "../core/config.js";
 import { assistantText } from "../core/messages.js";
 import type { ModelClient } from "../core/model-client.js";
+import { ProviderModelClient } from "../providers/provider-model-client.js";
 
 const originalHome = process.env.CREWCODER_HOME;
 let home: string;
@@ -20,6 +21,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (originalHome === undefined) delete process.env.CREWCODER_HOME;
   else process.env.CREWCODER_HOME = originalHome;
   fs.rmSync(home, { recursive: true, force: true });
@@ -89,6 +91,20 @@ describe("durable goals", () => {
 
     expect(signals).toEqual([{ kind: "completed", summary: "Migration complete", evidence: "npm test passed" }]);
     expect(result.messages.some((message) => message.role === "toolResult" && message.details?.goalStatus === "completed")).toBe(true);
+  });
+
+  it("retains full CrewCoder execution for detached goals despite the native default", async () => {
+    expect(readConfig().toolMode).toBe("native");
+    const goal = await createGoal({ objective: "Finish a detached task", cwd, provider: "codex-cli", model: "gpt-test", mode: "general", approvalMode: "review" });
+    vi.spyOn(ProviderModelClient.prototype, "complete").mockImplementation(async (input, _signal, stream) => {
+      expect(input.toolMode).toBe("crewcoder");
+      expect(input.availableTools.map(tool => tool.name)).toEqual(expect.arrayContaining(["bash", "write", "complete_goal"]));
+      await stream!.executeTool!({ type: "toolCall", id: "complete-detached", name: "complete_goal", arguments: {
+        summary: "Finished", evidence: "Verified fixture"
+      } });
+      return assistantText("done");
+    });
+    expect(await runGoalWorker(goal.id)).toMatchObject({ status: "completed", completionEvidence: "Verified fixture" });
   });
 
   it("uses a strict tool-free independent verifier verdict", async () => {

@@ -12,7 +12,8 @@ import type { ProviderDefinition, ProviderRunInput, ProviderRunResult } from "./
 import { getProviderAuth, setAuthCredential } from "./auth-store.js";
 import type { CodexOAuthCredentials } from "./oauth-codex.js";
 import { CREWCODER_VERSION } from "../core/version.js";
-import { codexHostedToolsOnlyArgs, listCodexMcpServerNames } from "./codex-cli-lockdown.js";
+import { codexHostedToolsOnlyArgs, listCodexMcpServers } from "./codex-cli-lockdown.js";
+import { codexHostedModelCatalog } from "./codex-hosted-model-catalog.js";
 import { answerCodexMcpElicitation } from "./codex-mcp-elicitation.js";
 import { answerCodexUserInput } from "./codex-user-input.js";
 import { CODEX_IMAGE_READ_GUIDANCE, codexToolResult } from "./codex-tool-images.js";
@@ -23,6 +24,7 @@ const require = createRequire(import.meta.url);
 const SESSION_PREFIX = "codex-thread-v1";
 const CREWCODER_TOOL_GUIDANCE = [
   "CrewCoder tool execution and approvals:",
+  "Native apply_patch is omitted from this session's tool registry. Use the supplied CrewCoder edit, write, or edit_transaction tools for changes.",
   "The read-only sandbox and approval_policy: never describe Codex native tools only. CrewCoder dynamic tools execute outside that native sandbox through the CrewCoder harness and its approval policy.",
   "Use the supplied CrewCoder tools for workspace actions, including edits and writes. Workspace editing is available under every CrewCoder approval policy; the harness requests permission when required. Full access allows those edits automatically.",
   "In code mode, call the supplied tools through tools (for example, await tools.edit(...) or await tools.write(...) when offered). Do not use native apply_patch or native shell tools as an alternative.",
@@ -219,10 +221,14 @@ export async function runCodexCliProvider(input: ProviderRunInput, signal?: Abor
   const hostedToolsOnly = input.modelInput.useProviderNativeFileTools === false || input.modelInput.toolMode === "crewcoder";
   let lockdown: string[] = [];
   if (hostedToolsOnly) {
-    try { lockdown = codexHostedToolsOnlyArgs(await listCodexMcpServerNames(command, input.cwd)); }
+    try {
+      lockdown = codexHostedToolsOnlyArgs(await listCodexMcpServers(command, input.cwd));
+      const catalog = await codexHostedModelCatalog(command, input.cwd, lockdown, input.model, signal);
+      lockdown.push("-c", `model_catalog_json=${JSON.stringify(catalog)}`);
+    }
     catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Codex CLI could not be locked to CrewCoder tools (${detail}). Install the Codex CLI and run \`codex login\`, or set CREWCODER_CODEX_PATH.`);
+      throw new Error(`Codex CLI could not be locked to CrewCoder tools (${detail}).`);
     }
   }
   const args = [...lockdown, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)];
@@ -323,6 +329,29 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
     let usage: ModelUsage | undefined;
     let turnError: string | undefined;
     let completed = false;
+    let activeTurnId: string | undefined;
+    let markTurnReady: () => void = () => undefined;
+    const turnReady = new Promise<void>((resolve) => { markTurnReady = resolve; });
+    let followUpsPublished = Promise.resolve();
+    const deliverFollowUps = (): Promise<void> => {
+      const delivery = followUpsPublished.then(async () => {
+        await turnReady;
+        await assistantPublished;
+        if (completed || signal?.aborted || !activeTurnId) return;
+        await input.stream?.deliverFollowUps?.(async (messages) => {
+          await rpc.request("turn/steer", {
+            threadId, expectedTurnId: activeTurnId,
+            input: messages.map((text) => ({ type: "text", text, text_elements: [] }))
+          });
+        });
+      });
+      // A turn can finish before steering is accepted. Keep those messages queued
+      // for the outer loop rather than cancelling or replaying the native turn.
+      followUpsPublished = delivery.catch(async () => {
+        await input.debug?.event({ level: "warn", source: "provider.codex_app_server", message: "Live follow-up delivery was not accepted; messages remain queued." });
+      });
+      return followUpsPublished;
+    };
     rpc.onMessage = async (message) => {
       const method = typeof message.method === "string" ? message.method : "";
       const params = isRecord(message.params) ? message.params : {};
@@ -352,6 +381,7 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
         const name = typeof params.tool === "string" ? params.tool : "";
         const args = isRecord(params.arguments) ? params.arguments : {};
         const result = input.stream?.executeTool ? await input.stream.executeTool({ type: "toolCall", id: String(params.callId ?? message.id), name, arguments: args }) : undefined;
+        await deliverFollowUps();
         rpc.respond(message.id, result
           ? await codexToolResult(result, input.cwd, input.modelInput?.externalDirectories)
           : { contentItems: [{ type: "inputText", text: `Tool ${name} is unavailable.` }], success: false });
@@ -381,6 +411,7 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
         rpc.respondError(message.id, `Unsupported Codex server request: ${method}`);
         return;
       }
+      if (method === "turn/started" && isRecord(params.turn) && typeof params.turn.id === "string") activeTurnId = params.turn.id;
       if (method === "item/started" && isRecord(params.item) && params.item.type === "contextCompaction") {
         await emitNativeCompaction("started");
       } else if (method === "item/completed" && isRecord(params.item) && params.item.type === "contextCompaction") {
@@ -413,12 +444,19 @@ async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | u
           await emitNativeCompaction("failed");
         }
       }
+      if (method === "item/completed" && isRecord(params.item) && [
+        "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageView"
+      ].includes(String(params.item.type))) await deliverFollowUps();
     };
 
     const prompt = codexPrompt(input.modelInput.messages, hasNativeThread, input.prompt);
     turnRequestSent = true;
-    await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "auto", ...codexTurnPermissions(input, hostedToolsOnly) });
+    try {
+      const started = await rpc.request("turn/start", { threadId, input: await turnInputs(input.modelInput.messages, prompt), cwd: input.cwd, model: input.model, effort: codexEffort(input.reasoningEffort), summary: "none", ...codexTurnPermissions(input, hostedToolsOnly) });
+      activeTurnId ??= nestedString(started, "turn", "id");
+    } finally { markTurnReady(); }
     await rpc.waitUntil(() => completed, signal);
+    await followUpsPublished;
     await assistantPublished;
     await progressPublished;
     reusable = true;

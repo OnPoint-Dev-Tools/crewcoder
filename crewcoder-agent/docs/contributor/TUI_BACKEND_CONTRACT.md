@@ -69,7 +69,7 @@ When the backend is launched with `--json-events`, the TUI may write newline-del
 {"type":"control","action":"ui_response","requestId":"ui_...","value":"selected-action"}
 ```
 
-`follow_up` messages are queued by the active loop and injected as user messages at the next safe point between provider/tool steps. The backend never cancels the in-flight provider request. If a follow-up arrives while a final assistant response is being produced, the loop continues for another iteration when `maxIterations` allows it.
+`follow_up` messages are queued by the active loop. Codex CLI and Claude receive them after the next completed tool call inside the active provider request and continue the same turn without cancellation. Delivered instructions emit user `message_start`/`message_end` events and enter the durable transcript. Other model clients consume the queue between provider/tool steps unless they implement live delivery. If no tool follows, or live delivery is rejected, the loop handles the message after the response when `maxIterations` allows it. See [live follow-ups](../FOLLOW_UPS.md).
 
 ## Approval behavior
 

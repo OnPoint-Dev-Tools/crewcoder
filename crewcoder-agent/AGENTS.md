@@ -202,6 +202,16 @@ Do not store CrewCoder extensions under `/.crewcode`.
    - purpose: extend the CrewCode desktop app
 ```
 
+## Live follow-ups
+
+Queued user messages must reach Codex and Claude after a completed tool call
+inside the active provider request, without interrupting or restarting its turn.
+Keep the loop's serialized `deliverFollowUps` callback, Codex `turn/steer` with
+`expectedTurnId`, and Claude PostToolUse/PostToolUseFailure context hooks.
+Only remove a queued batch after delivery succeeds; retain new arrivals and
+failed deliveries, preserve cancellation and ordinary final-response fallback,
+and persist/emit delivered user messages exactly once. See [live follow-ups](docs/FOLLOW_UPS.md).
+
 ## Provider architecture
 
 Codex MCP lockdown must supply complete disabled transport entries for every
@@ -209,12 +219,22 @@ discovered server, including plugin entries absent from user config. Partial
 `enabled=false` overrides can fail startup with `invalid transport` on 0.167.
 Keep overrides process-local and preserve discovery, name validation and native
 tool restrictions; never repair this by editing user MCP config or enabling tools.
+Preserve each observed MCP transport kind in disabled overrides: Codex merges
+them into existing entries, so adding a stdio command to an HTTP URL makes even
+disabled entries invalid. Never put real endpoint credentials into launch args.
+Catalogue failures must retain bounded redacted stderr and observed exit status;
+do not infer that an update or login is required from an arbitrary nonzero exit.
 
 Workspace editing through CrewCoder tools remains available under every approval
 policy; approvals control whether mutations require user permission. Codex's
 native read-only/never backstop must never be presented as a prohibition on
 CrewCoder dynamic-tool edits. Preserve the adapter's explicit tool-execution
 guidance and its continuation-contract invalidation. See `docs/TOOL_MODE.md`.
+Hosted Codex launches must omit native `apply_patch` from the actual tool registry.
+Use the installed CLI's effective catalog with only `apply_patch_tool_type` cleared
+in a process-scoped copy; preserve custom model metadata, user config and native
+mode. Retain the read-only backstop. Verify fresh and resumed tool availability
+with `scripts/verify-codex-hosted-tools.mjs`, not prompt claims alone.
 
 Built-ins are not plugins. They live in `src/providers` and are first-class provider adapters.
 
@@ -242,6 +262,8 @@ Thinking/reasoning stream behavior is part of the provider contract:
 Provider stream callback:
   ModelStreamCallbacks.onThinkingDelta -> AgentEvent thinking_delta -> TUI thinking block
 ```
+
+Codex app-server turns use `summary: "none"` on fresh and resumed turns to preserve the original plain-text progress behavior. Requesting `auto` or `detailed` adds generated summary headings to Thinking; it does not enable raw reasoning. Keep commentary, raw reasoning, and any provider-emitted summary text flowing without filtering or reformatting.
 
 Do not remove this path when refactoring providers. Never suppress reasoning a provider exposes. Forward partial deltas and, when only completed reasoning blocks are available, forward those without duplicating already-streamed text.
 
@@ -290,7 +312,7 @@ Codex / OpenAI Responses:
 Claude Agent SDK:
 - `claude` is the local-login Agent SDK provider; `anthropic` remains the direct API-key Messages provider.
 - Keep `settingSources: ["project"]`, `skills: []`, and `strictMcpConfig: true`: preserve project CLAUDE.md guidance without auto-injecting global skill catalogs or undeclared MCP servers. On-demand skill files under `~/.agents/skills` and the other user catalogs remain readable; do not force Skill-tool activation.
-- New sessions use explicit Tool mode: `crewcoder` disables native Claude coding tools and uses the CrewCoder MCP executor; `native` uses the SDK tool preset and provider permission routing. Pre-setting sessions retain the original hybrid Read/Grep/Glob/AskUserQuestion behavior. Host custody always overrides the preference. See `docs/TOOL_MODE.md`.
+- New sessions default to `native`: use the SDK tool preset with CrewCoder specialized/extension MCP tools and provider permission routing. `crewcoder` disables native coding tools and uses the full CrewCoder executor. API-only runtimes fall back to full CrewCoder tools without overwriting the saved native preference. Additive host tools alone do not force lockdown; replacement registries, virtual filesystems and explicit custody still do. Detached goals explicitly retain CrewCoder execution for durable approvals. The `tool-mode [native|crewcoder|status]` CLI command persists `config.json.toolMode`, reports the config path, and supports `--json`; it must not rewrite saved session preferences. Pre-setting sessions retain their original adapter behavior. See `docs/TOOL_MODE.md`.
 - Disable native Read/Grep/Glob whenever a virtual `TextFileHost` is active (especially ACP SSH/SFTP); route those operations through CrewCoder MCP so the local Claude process cannot cross host boundaries.
 - Persist returned SDK session ids in `providerSessionIds.claude`; never substitute the CrewCoder session id or send Claude ids to another provider.
 - Preserve assistant/thinking deltas, native read/search tool activity, cancellation, and CrewCoder MCP tool lifecycle events.

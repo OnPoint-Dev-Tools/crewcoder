@@ -5,7 +5,8 @@ import type { AgentEvent, AgentEventSink } from "./events.js";
 import type { AgentMessage, AssistantMessage, ToolCallPart, ToolResultMessage } from "./messages.js";
 import { getText, renderMessagesForModel, textMessage, withImageParts } from "./messages.js";
 import type { TextFileHost, ToolContext, ToolDefinition } from "./tool-types.js";
-import { createToolRegistry, findTool } from "../tools/index.js";
+import { createSpecializedToolRegistry, createToolRegistry, findTool } from "../tools/index.js";
+import { listProviders } from "../providers/provider-registry.js";
 import { resolveIntegrationProfile, type IntegrationProfile } from "./integration-profile.js";
 import { crewcodeSkills } from "../skills/crewcode/index.js";
 import { crewcoderExtensionSkills } from "../skills/crewcoder-extension/index.js";
@@ -248,12 +249,20 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   let budgetWarningEmitted = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).warningReached;
   let budgetDownshiftRequested = false;
   let budgetExceeded = typeof tokenBudget === "number" && tokenBudgetStatus(usageSummary, tokenBudget).exceeded;
-  const toolMode = resolveToolMode(options.toolMode ?? runtimeConfig.toolMode, { ...options, virtualFilesystem, suppliedTools: options.tools, mode });
-  const builtInTools = withCrewcoderWorkflowTools(options.tools ?? (toolMode === "native" ? [] : createToolRegistry(integrationProfile, mode)), mode);
+  const selectedToolMode = resolveToolMode(options.toolMode ?? runtimeConfig.toolMode, { ...options, virtualFilesystem, suppliedTools: options.tools, mode });
+  // Inspect runtime metadata without model discovery, credentials or network requests.
+  // A custom model client without a provider id has no declared native executor.
+  const provider = selectedToolMode === "native" && options.providerId
+    ? (await listProviders({ discoverModels: false })).find(candidate => candidate.id === options.providerId)
+    : undefined;
+  const supportsNativeTools = provider?.runtime === "openai-codex-responses"
+    || (provider?.runtime === "claude-agent-sdk" && options.approvalMode !== "sandboxed");
+  const toolMode = selectedToolMode === "native" && !supportsNativeTools ? "crewcoder" : selectedToolMode;
+  const builtInTools = withCrewcoderWorkflowTools(options.tools ?? (toolMode === "native" ? createSpecializedToolRegistry() : createToolRegistry(integrationProfile, mode)), mode);
   // Host-executed tools stay available under the hosted policy: the host, not CrewCoder, authorizes them.
   const tools = options.hostedToolsOnly ? [...builtInTools.filter(tool => tool.name === "read" || tool.name === "write"), ...(options.additionalTools ?? [])] : options.tools
     ? [...builtInTools, ...(options.additionalTools ?? [])]
-    : [...builtInTools, ...(toolMode === "native" ? [] : await loadTrustedExtensionTools()), ...(options.additionalTools ?? [])];
+    : [...builtInTools, ...await loadTrustedExtensionTools(), ...(options.additionalTools ?? [])];
   const crewcoderWorkflow = mode === "crewcoder"
     ? applyIncomingUserMessage(options.initialCrewcoderWorkflow ?? reconstructCrewcoderWorkflow(initialMessages), request.prompt)
     : undefined;
@@ -336,7 +345,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const skills = selectSkills(mode, request.prompt);
   const docs = selectDocs(mode);
   const crewTasksConfig = readCrewTasksConfig();
-  const crewTasksPrompt = crewTasksConfig.enabled && !options.hostedToolsOnly && toolMode !== "native"
+  const crewTasksPrompt = crewTasksConfig.enabled && !options.hostedToolsOnly
     ? [
         "crew-tasks is enabled for this project/session.",
         "For complex multi-step work, use TaskCreate/TaskList/TaskGet/TaskUpdate to maintain persistent project tasks in .crewcoder/tasks.",
@@ -352,7 +361,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const selectedSystemPromptName = options.systemPromptName;
   const selectedSystemPrompt = selectedSystemPromptName ? getSystemPrompt(selectedSystemPromptName) : null;
   const defaultSystemPrompt = [
-    ...(toolMode ? [`Tool mode: ${toolMode}. ${toolMode === "native" ? "Use the provider's native tools. CrewCoder built-in and extension tools are unavailable." : "Use the tools supplied by CrewCoder for actions."}`] : []),
+    ...(toolMode ? [`Tool mode: ${toolMode}. ${toolMode === "native" ? "Use the provider's native tools for ordinary file, shell and browsing operations. CrewCoder specialized tools and trusted extension tools remain available for code intelligence, transactional edits, persistent tasks, memory and worker delegation. Use CrewCoder workers for CrewCoder-managed delegation; use edit_transaction when multiple edits must succeed together." : "Use the tools supplied by CrewCoder for actions."}`] : []),
     options.hostedToolsOnly ? "You operate through host-authorized virtual text records only. Delegate execution through the host management bridge. Local project files, shell commands, native provider tools, and extension execution are unavailable." : buildSystemPrompt({ mode, skills, docs, identityPrompt: workerIdentityEnabled && activeWorker ? buildIdentityPrompt(activeWorker) : null, crewTasksPrompt, extensionContext }),
     formatExternalDirectories(externalDirectories)
   ].filter(Boolean).join("\n\n");
@@ -387,7 +396,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         contextWindow: usageSummary.contextWindow,
         approvalMode,
         modelClient,
-        toolMode: toolMode ?? "legacy",
+        toolMode: selectedToolMode ?? "legacy",
         // Unlimited unless the parent explicitly caps it. Child workers are
         // bounded by stall detection and maxChildWorkerDepth, not a turn count.
         maxIterations: delegation.maxIterations,
@@ -408,8 +417,15 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
     } : undefined
   };
 
-  const drainFollowUps = async (): Promise<number> => {
-    const queued = options.followUpSignal?.messages.splice(0) ?? [];
+  let followUpDelivery = Promise.resolve();
+  const drainFollowUps = async (deliver?: (messages: readonly string[]) => Promise<void> | void): Promise<number> => {
+    if (options.signal?.aborted) return 0;
+    const queued = options.followUpSignal?.messages.slice() ?? [];
+    if (!queued.length) return 0;
+    // Keep ownership until the provider accepts the input. New arrivals remain
+    // behind this snapshot and a rejected steer can fall back to the outer loop.
+    if (deliver) await deliver(queued);
+    options.followUpSignal?.messages.splice(0, queued.length);
     for (const text of queued) {
       const followUp = textMessage("user", text);
       followUp.background = ["Follow-up queued during the active run. Treat this as additional user context for the current task."];
@@ -443,7 +459,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
       provider: options.providerId,
       model: options.model,
       effort: options.effort,
-      toolMode,
+      toolMode: selectedToolMode,
       events,
       messages,
       modelTurns,
@@ -646,6 +662,14 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
         }
         const generationStartedAt = performance.now();
         assistant = await modelClient.complete(modelInput, options.signal, {
+          async deliverFollowUps(deliver) {
+            // Native tools can finish concurrently; only one boundary owns a batch.
+            const delivery = followUpDelivery.then(async () => {
+              if (await drainFollowUps(deliver)) await persistTurn(iteration);
+            });
+            followUpDelivery = delivery.catch(() => undefined);
+            await delivery;
+          },
           async onAssistantDelta(text, phase) {
             streamedAssistantText = true;
             await emit({ type: "assistant_delta", text, ...(phase ? { phase } : {}) });

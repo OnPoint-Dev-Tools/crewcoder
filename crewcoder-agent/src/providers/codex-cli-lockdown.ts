@@ -19,33 +19,48 @@ const MCP_LIST_OUTPUT_LIMIT = 256_000;
 // Bare TOML keys only, so a server name can never inject other `-c` overrides.
 const MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,128}$/;
 
-export function codexHostedToolsOnlyArgs(mcpServerNames: readonly string[]): string[] {
-  for (const name of mcpServerNames) {
+export type CodexMcpServer = { name: string; transport: "stdio" | "http" };
+
+export function codexHostedToolsOnlyArgs(mcpServers: readonly CodexMcpServer[]): string[] {
+  for (const { name, transport } of mcpServers) {
     if (!MCP_SERVER_NAME.test(name)) throw new Error(`Codex MCP server name ${JSON.stringify(name)} cannot be disabled safely`);
+    if (transport !== "stdio" && transport !== "http") throw new Error(`Invalid Codex MCP transport for ${name}`);
   }
   // Plugin-discovered entries may have no transport in user config. Overriding
   // only enabled can create incomplete entries and break app-server config
   // decoding. Supply complete, inert entries in one process-only table instead.
-  // The command is never launched because every entry is explicitly disabled.
-  const disabledServers = mcpServerNames.map(name => `${name}={command=${JSON.stringify(process.execPath)},enabled=false}`).join(",");
+  // Codex merges overrides into existing entries. A stdio command on an HTTP
+  // entry retains its URL and fails config parsing, even when disabled.
+  const disabledServers = mcpServers.map(({ name, transport }) => `${name}={${transport === "http"
+    ? 'url="http://127.0.0.1:9"'
+    : `command=${JSON.stringify(process.execPath)}`},enabled=false}`).join(",");
   return [
     ...CODEX_NATIVE_TOOL_FEATURES.flatMap((feature) => ["--disable", feature]),
     "-c", "web_search=disabled",
     // Code mode still exposes multi_agent_v1 spawn tools after `--disable multi_agent`.
     "-c", "agents.max_depth=0",
     // An empty table does not clear inherited servers: enumerate every discovered name.
-    ...(mcpServerNames.length ? ["-c", `mcp_servers={${disabledServers}}`] : [])
+    ...(mcpServers.length ? ["-c", `mcp_servers={${disabledServers}}`] : [])
   ];
 }
 
-export function parseCodexMcpServerNames(output: string): string[] {
+export function parseCodexMcpServers(output: string): CodexMcpServer[] {
   let parsed: unknown;
   try { parsed = JSON.parse(output); } catch { throw new Error("codex mcp list --json returned invalid JSON"); }
   if (!Array.isArray(parsed)) throw new Error("codex mcp list --json did not return a list");
   return parsed.map((entry) => {
     const name = entry && typeof entry === "object" ? (entry as { name?: unknown }).name : undefined;
     if (typeof name !== "string" || !MCP_SERVER_NAME.test(name)) throw new Error(`Codex MCP server name ${JSON.stringify(name)} cannot be disabled safely`);
-    return name;
+    const row = entry as Record<string, unknown>;
+    const transport = row.transport;
+    // Plugin-discovered names can omit transport fields; the disabled stdio
+    // placeholder supplies the complete entry those configs still require.
+    if (transport == null && row.url == null && row.command == null) return { name, transport: "stdio" };
+    if (!transport || typeof transport !== "object" || Array.isArray(transport)) throw new Error(`Invalid Codex MCP transport for ${name}`);
+    const details = transport as Record<string, unknown>;
+    if (details.type === "stdio" && details.url == null) return { name, transport: "stdio" };
+    if (details.type === "streamable_http" && details.command == null) return { name, transport: "http" };
+    throw new Error(`Invalid or ambiguous Codex MCP transport for ${name}`);
   });
 }
 
@@ -54,7 +69,7 @@ export function parseCodexMcpServerNames(output: string): string[] {
  * plugin, and trusted project configs are all covered. Any failure is fatal: the
  * caller must not start Codex with servers it could not disable.
  */
-export function listCodexMcpServerNames(command: string, cwd: string): Promise<string[]> {
+export function listCodexMcpServers(command: string, cwd: string): Promise<CodexMcpServer[]> {
   return new Promise((resolve, reject) => {
     let stdout = "";
     let settled = false;
@@ -69,7 +84,7 @@ export function listCodexMcpServerNames(command: string, cwd: string): Promise<s
     child.once("close", (code) => {
       if (settled) return;
       if (code !== 0) { fail(`codex mcp list --json exited with ${code}`); return; }
-      try { const names = parseCodexMcpServerNames(stdout); settled = true; clearTimeout(timer); resolve(names); }
+      try { const names = parseCodexMcpServers(stdout); settled = true; clearTimeout(timer); resolve(names); }
       catch (error) { fail(error instanceof Error ? error.message : String(error)); }
     });
   });

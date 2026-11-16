@@ -45,6 +45,12 @@ For an existing backend config naming `codex`, run
 `crewcoder config set defaultProvider codex-cli`, then `/reload`.
 See [provider settings](docs/SETTINGS.md#provider-and-model-discovery).
 
+New backend configurations prefer native Codex/Claude execution with CrewCoder
+specialized tools and trusted extensions. API-only providers automatically use
+full CrewCoder tools. Select `/tool-mode native` and `/new` on an existing install;
+`/tool-mode crewcoder` selects full CrewCoder execution. Host custody and specialized
+agent workflows retain their execution restrictions. See [Tool mode](../crewcoder-agent/docs/TOOL_MODE.md).
+
 The composer now spawns:
 
 ```bash
@@ -119,6 +125,7 @@ Inside the TUI:
 /model
 /model default
 /effort
+/tool-mode native|crewcoder|status # choose execution for new sessions; specialized tools remain available
 /identity on|off|status # persistently include or omit the selected worker persona
 /thinking on|off|status   # persistently request/disable provider-supplied reasoning
 /full-access on|off       # explicit approval bypass; allows dangerous commands while on

@@ -143,6 +143,14 @@ transfer/proxy contract. CLI-backed sessions, providers, workers, goals, extensi
 approvals, follow-ups, and ordinary compaction execute remotely. See
 `docs/REMOTE_AGENTS.md`.
 
+## Tool execution preference
+
+`/tool-mode native` is the backend default preference: Codex/Claude native execution
+plus CrewCoder specialized and trusted extension tools. API-only providers fall back
+to full CrewCoder tools. Keep picker defaults aligned with backend config; never say
+CrewCoder tools are all disabled in native mode. Preserve saved session preferences
+and host custody. See `docs/SETTINGS.md` and `../crewcoder-agent/docs/TOOL_MODE.md`.
+
 ## TUI responsibilities
 
 The TUI should:

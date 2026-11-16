@@ -6,7 +6,7 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 
 | Command | Scope | Behavior |
 | --- | --- | --- |
-| `/tool-mode [crewcoder\|native\|status]` | backend default for new sessions | Open the Tool mode picker or select CrewCoder tools versus provider-native tools. Use `/new` to apply a changed default. |
+| `/tool-mode [crewcoder\|native\|status]` | backend default for new sessions | Select full CrewCoder execution or native execution plus CrewCoder specialized tools (the default preference). Use `/new` to apply a changed default. |
 | `/provider` | session selection | Select the provider used by future prompts. |
 | `/model` | session selection | Select a model for the active provider. |
 | `/effort` | session selection | Select supported reasoning effort. |
@@ -24,9 +24,12 @@ CrewCoder's command palette groups interactive configuration under **Settings**.
 Provider, model, effort, mode, worker, and system prompt affect future backend runs. They do not rewrite historical turns.
 
 Tool mode is saved per session and restored on resume. Codex CLI and Claude support
-native tools; API-only providers require CrewCoder tools. Host custody and specialized
-agent modes take precedence. See [Tool mode](../../crewcoder-agent/docs/TOOL_MODE.md)
-for provider support, approvals, and host restrictions.
+native execution alongside CrewCoder specialized and trusted extension tools;
+API-only providers automatically receive the full CrewCoder toolset. Host custody,
+specialized agent modes, and detached goals retain CrewCoder execution. See [Tool mode](../../crewcoder-agent/docs/TOOL_MODE.md)
+for provider support, approvals, and host restrictions. From a shell,
+`crewcoder tool-mode native`, `crewcoder tool-mode crewcoder`, and
+`crewcoder tool-mode status` access the same `config.json.toolMode` preference.
 
 ## Optional worker identity
 

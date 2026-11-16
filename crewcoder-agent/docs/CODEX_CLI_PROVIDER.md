@@ -138,7 +138,7 @@ When `toolMode: crewcoder` is selected, or `useProviderNativeFileTools: false` e
 | `--disable` for `shell_tool`, `unified_exec`, `view_image`, `browser_use`, `computer_use`, `apps`, `plugins`, `multi_agent`, `image_generation`, `sleep_tool`, `goals`, `tool_suggest`, `skill_search`, `hooks` | Removes native tools and user hook commands |
 | `-c web_search=disabled` | Removes native web search |
 | `-c agents.max_depth=0` | Code mode still exposes `multi_agent_v1` spawn tools after `--disable multi_agent` |
-| `-c mcp_servers={name={command=...,enabled=false},...}` | Complete inert entries disable every name discovered by `codex mcp list --json` in the session folder, covering global, plugin and trusted project servers. The placeholder command is never launched. An empty table does not clear inherited servers |
+| `-c mcp_servers={name={command=... or url=...,enabled=false},...}` | Complete inert entries disable every name discovered by `codex mcp list --json` in the session folder, covering global, plugin and trusted project servers. HTTP entries retain an HTTP transport with an inert URL; stdio/plugin-only entries use a placeholder command. No real endpoint or credentials are copied into arguments. An empty table does not clear inherited servers |
 | Thread `sandbox: read-only`, turn `sandboxPolicy: readOnly`, `approvalPolicy: never` | Backstop for anything the flags cannot remove, such as `apply_patch` on Codex 0.154 |
 | Approval and permission requests answered with decline | Never asks the user to widen native access |
 
@@ -147,6 +147,11 @@ Fail-closed rules:
 - Codex 0.167 can reject partial `enabled=false` overrides with `invalid transport`
   when plugin-discovered entries are present. Complete disabled transport entries
   avoid that startup failure without changing the user's config or login.
+  Overrides merge into existing entries: adding a stdio command to a configured
+  HTTP server retains its URL and produces `url is not supported for stdio`,
+  even with `enabled=false`. The override must preserve the observed transport.
+  Catalogue failures retain bounded, redacted stderr and the observed status;
+  they do not automatically prescribe a CLI update or login.
 
 - Codex refuses to start on an unknown feature name, so a renamed flag stops the launch instead of leaving a tool on.
 - If `codex mcp list --json` fails, times out, or returns a server name outside `[A-Za-z0-9_-]`, the launch is refused.
@@ -163,11 +168,11 @@ Fail-closed rules:
 ## Limits
 
 - Feature names are tied to the Codex versions above. A Codex update that adds a new native tool under a new feature name is not removed until it is added here. The read-only sandbox still blocks native writes and command execution.
-- With native Tool mode, Codex keeps its native tools and the user's full Codex config, as when running `codex` directly. New standalone sessions default to CrewCoder tools. See [Tool mode](TOOL_MODE.md).
+- With native Tool mode, Codex keeps its native tools and the user's Codex tool configuration, alongside CrewCoder specialized and trusted extension tools. New standalone sessions prefer this combination. CrewCoder still supplies its session, context, and approval settings; this is not an identical configuration to running `codex` directly. Host custody and explicit CrewCoder mode retain lockdown. See [Tool mode](TOOL_MODE.md).
 
 ## Thinking in ACP hosts
 
-Codex turns request public reasoning summaries with `summary: "auto"`. Accumulate summary deltas by item id and summaryIndex, preserving summaryPartAdded section boundaries. Completed reasoning items replace the streamed sections authoritatively, including corrections or empty results. Shared plans come from item/plan/delta, completed plan items and turn/plan/updated. Raw textDelta remains optional; it is not the general progress channel.
+Codex turns use `summary: "none"` on fresh and resumed threads. This restores the original request behavior: asking for `auto` or `detailed` summaries introduces generated headings into Thinking rather than enabling a raw reasoning body. Commentary and raw reasoning text still stream normally when the provider exposes them. No display filter strips headings or reformats provider text. If a provider nevertheless emits summary text, preserve it through the same progress path. Accumulate summary deltas by item id and summaryIndex, preserving summaryPartAdded section boundaries. Completed reasoning items replace the streamed sections authoritatively, including corrections or empty results. Shared plans come from item/plan/delta, completed plan items and turn/plan/updated. Raw textDelta remains optional; it is not the general progress channel.
 
 ModelStreamCallbacks.onThinkingDelta retains portable text deltas and may also carry a ProviderProgressUpdate snapshot with itemId, kind, text, sections and completed. The thinking_delta event preserves that snapshot. ACP forwards it through optional `_meta["crewcoder/progress"]` on agent_thought_chunk, alongside portable text for older hosts. Empty text with a snapshot can carry an authoritative correction. Wait for progress publication before completing a turn. Final answers remain separate from progress. Public commentary is mirrored into progress with kind `commentary`, preserving streamed text and authoritative completion. ACP still publishes ordinary commentary dialogue before tool dispatch so host acknowledgement gates remain intact. The terminal JSON sink omits commentary-phase assistant deltas because their text already travels through thinking_delta, keeping commentary out of the terminal final-answer block. No transcript of private internal reasoning is guaranteed.
 

@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readConfig, setConfigValue } from "../crewcoder-agent/src/core/config.js";
+import { readConfig, setConfigValue, writeConfig } from "../crewcoder-agent/src/core/config.js";
 import { runAgentLoop } from "../crewcoder-agent/src/core/agent-loop.js";
 import { runAgentLoopContinue } from "../crewcoder-agent/src/core/agent-loop-continue.js";
 import { assistantText } from "../crewcoder-agent/src/core/messages.js";
 import type { ModelInput, ModelClient } from "../crewcoder-agent/src/core/model-client.js";
 import { loadSessionRecord as loadSession, saveSession, type SessionRecord } from "../crewcoder-agent/src/core/session-store.js";
 import { resolveToolMode } from "../crewcoder-agent/src/core/tool-mode.js";
+import { createWorker } from "../crewcoder-agent/src/core/identity.js";
 import { writeTool } from "../crewcoder-agent/src/tools/write.js";
 import { editTool } from "../crewcoder-agent/src/tools/edit.js";
 import type { ApprovalMode } from "../crewcoder-agent/src/core/approval.js";
@@ -18,7 +19,7 @@ import { enforceProviderFileCustody } from "../crewcoder-agent/src/providers/pro
 const inputs: ModelInput[] = [];
 const modelClient: ModelClient = { complete: async input => { inputs.push(input); return assistantText("done"); } };
 const cwd = () => { fs.mkdirSync(process.env.CREWCODER_HOME!, { recursive: true }); return fs.mkdtempSync(path.join(process.env.CREWCODER_HOME!, "mode-")); };
-afterEach(() => { inputs.length = 0; setConfigValue("toolMode", "crewcoder"); vi.restoreAllMocks(); });
+afterEach(() => { inputs.length = 0; setConfigValue("toolMode", "native"); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe("tool mode policy and session lifecycle", () => {
   it.each(["review", "always"] as const)("honors denied hosted edits under %s approval", async approvalMode => {
@@ -69,8 +70,9 @@ describe("tool mode policy and session lifecycle", () => {
     expect(fs.existsSync(path.join(root, "marker.txt"))).toBe(false);
   });
 
-  it("defaults to CrewCoder and validates saved values", () => {
-    expect(readConfig().toolMode).toBe("crewcoder");
+  it("defaults to native execution and validates saved values", () => {
+    vi.stubEnv("CREWCODER_HOME", cwd());
+    expect(readConfig().toolMode).toBe("native");
     expect(setConfigValue("toolMode", "native").toolMode).toBe("native");
     expect(readConfig().toolMode).toBe("native");
     expect(() => setConfigValue("toolMode", "both")).toThrow("toolMode must be");
@@ -79,26 +81,142 @@ describe("tool mode policy and session lifecycle", () => {
 
   it.each([
     { hostedToolsOnly: true }, { virtualFilesystem: true }, { suppliedTools: [] },
-    { additionalTools: [writeTool] }, { mode: "crewcoder" }, { mode: "plugin" }, { mode: "extension" }
+    { mode: "crewcoder" }, { mode: "plugin" }, { mode: "extension" }
   ])("host and workflow policy override native preference: %j", policy => {
     expect(resolveToolMode("native", { mode: "general", ...policy })).toBe("crewcoder");
   });
 
   it("offers CrewCoder tools with local file custody kept separate", async () => {
-    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient });
+    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient, providerId: "codex-cli", toolMode: "crewcoder" });
     expect(inputs[0]?.toolMode).toBe("crewcoder");
     expect(inputs[0]?.useProviderNativeFileTools).toBe(true);
     expect(inputs[0]?.availableTools.map(t => t.name)).toContain("bash");
   });
 
-  it("offers no CrewCoder coding tools in native mode", async () => {
-    setConfigValue("toolMode", "native");
-    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient });
-    expect(inputs[0]?.toolMode).toBe("native");
-    expect(inputs[0]?.availableTools).toEqual([]);
+  it.each(["codex-cli", "claude"])("combines %s native execution with specialized tools by default", async providerId => {
+    vi.stubEnv("CREWCODER_TASKS_ENABLED", "true");
+    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { providerId, modelClient });
+    const input = inputs[0]!;
+    expect(input.toolMode).toBe("native");
+    expect(input.useProviderNativeFileTools).toBe(true);
+    const names = input.availableTools.map(t => t.name);
+    expect(names).toEqual(expect.arrayContaining(["lsp_definition", "lsp_hover", "lsp_diagnostics", "edit_symbol", "edit_transaction", "TaskCreate", "TaskUpdate", "remember", "delegateWorker", "git_log"]));
+    for (const name of ["read", "write", "edit", "grep", "listFiles", "bash", "background_job"]) expect(names).not.toContain(name);
+    expect(input.systemPrompt).toContain("crew-tasks is enabled");
+    expect(input.systemPrompt).toContain("specialized tools and trusted extension tools remain available");
   });
 
-  it("writes locally through CrewCoder tools in the default mode", async () => {
+  it("keeps specialized tools in native delegated workers", async () => {
+    createWorker("native-researcher", { description: "Research" });
+    let calls = 0;
+    await runAgentLoop({ cwd: cwd(), prompt: "delegate research", requestedMode: "general" }, {
+      providerId: "codex-cli", maxIterations: 2,
+      modelClient: { complete: async input => {
+        calls++;
+        expect(input.toolMode).toBe("native");
+        expect(input.availableTools.map(t => t.name)).toContain("remember");
+        expect(input.availableTools.map(t => t.name)).not.toContain("bash");
+        if (calls === 1) return { role: "assistant", content: [{ type: "toolCall", id: "native-delegate", name: "delegateWorker", arguments: {
+          worker: "native-researcher", task: "Research the fixture", maxIterations: 1
+        } }], stopReason: "tool_calls", timestamp: Date.now() };
+        return assistantText(calls === 2 ? "child summary" : "parent done");
+      } }
+    });
+    expect(calls).toBe(3);
+  });
+
+  it("keeps additive host tools alongside native execution", async () => {
+    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { providerId: "codex-cli", modelClient, additionalTools: [writeTool] });
+    expect(inputs[0]?.toolMode).toBe("native");
+    expect(inputs[0]?.availableTools.map(t => t.name)).toContain("write");
+    expect(resolveToolMode("native", { mode: "general", additionalTools: [writeTool] })).toBe("native");
+  });
+
+  it.each(["opencode", "openai"])("falls back to full CrewCoder tools for %s", async providerId => {
+    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { providerId, modelClient });
+    expect(inputs[0]?.toolMode).toBe("crewcoder");
+    expect(inputs[0]?.availableTools.map(t => t.name)).toEqual(expect.arrayContaining(["read", "write", "bash", "remember", "edit_transaction"]));
+  });
+
+  it("uses CrewCoder execution for Claude when OS sandboxing is required", async () => {
+    await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, {
+      providerId: "claude", approvalMode: "sandboxed", modelClient
+    });
+    expect(inputs[0]?.toolMode).toBe("crewcoder");
+    expect(inputs[0]?.availableTools.map(t => t.name)).toContain("bash");
+    expect(inputs[0]?.approvalMode).toBe("sandboxed");
+  });
+
+  it("executes transactional edits through the CrewCoder executor in native mode", async () => {
+    const root = cwd();
+    fs.writeFileSync(path.join(root, "marker.txt"), "before");
+    await runAgentLoop({ cwd: root, prompt: "edit marker", requestedMode: "general" }, {
+      providerId: "codex-cli", approvalMode: "full-access",
+      modelClient: { complete: async (input, _signal, stream) => {
+        expect(input.toolMode).toBe("native");
+        const result = await stream!.executeTool!({ type: "toolCall", id: "transaction", name: "edit_transaction", arguments: {
+          edits: [{ path: "marker.txt", find: "before", replace: "after" }]
+        } });
+        expect(result.isError).toBe(false);
+        return assistantText("done");
+      } }
+    });
+    expect(fs.readFileSync(path.join(root, "marker.txt"), "utf8")).toBe("after");
+  });
+
+  it("keeps specialized mutation approval enforceable with native execution", async () => {
+    const root = cwd();
+    fs.writeFileSync(path.join(root, "marker.txt"), "before");
+    const approvalSignal: { decisions: ApprovalControlDecision[] } = { decisions: [] };
+    await runAgentLoop({ cwd: root, prompt: "edit", requestedMode: "general" }, {
+      providerId: "claude", approvalMode: "review", approvalSignal,
+      emit: event => {
+        if (event.type === "approval_required") approvalSignal.decisions.push({ approvalId: event.approvalId, approved: false });
+      },
+      modelClient: { complete: async (input, _signal, stream) => {
+        expect(input.toolMode).toBe("native");
+        const result = await stream!.executeTool!({ type: "toolCall", id: "denied-transaction", name: "edit_transaction", arguments: {
+          edits: [{ path: "marker.txt", find: "before", replace: "after" }]
+        } });
+        expect(result.isError).toBe(true);
+        return assistantText("denied");
+      } }
+    });
+    expect(fs.readFileSync(path.join(root, "marker.txt"), "utf8")).toBe("before");
+  });
+
+  it("preserves a native preference across provider changes and API fallback", async () => {
+    const first = await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient, providerId: "codex-cli" });
+    await runAgentLoopContinue({ sessionId: first.sessionId, prompt: "api" }, { modelClient, providerId: "opencode" });
+    expect(inputs.at(-1)?.toolMode).toBe("crewcoder");
+    expect((await loadSession(first.sessionId)).toolMode).toBe("native");
+    await runAgentLoopContinue({ sessionId: first.sessionId, prompt: "native again" }, { modelClient, providerId: "claude" });
+    expect(inputs.at(-1)?.toolMode).toBe("native");
+    expect(inputs.at(-1)?.availableTools.map(t => t.name)).toContain("remember");
+  });
+
+  it("retains trusted extension tools in native mode without granting trust", async () => {
+    const extensionDir = path.join(process.env.CREWCODER_HOME!, "extensions", "native-pack");
+    fs.mkdirSync(extensionDir, { recursive: true });
+    fs.writeFileSync(path.join(extensionDir, "crewcoder.extension.json"), JSON.stringify({
+      id: "native-pack", name: "Native Pack", version: "0.1.0", crewcoder: { apiVersion: "0.1" },
+      contributes: { tools: [{ id: "hello", title: "Hello", command: process.execPath, args: ["-e", "console.log('hi')"] }] }
+    }));
+    const original = readConfig();
+    try {
+      writeConfig({ ...original, allowExtensionTools: true, trustedExtensions: [] });
+      await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient, providerId: "codex-cli" });
+      expect(inputs.at(-1)?.availableTools.map(t => t.name)).not.toContain("extension_native-pack_hello");
+      writeConfig({ ...original, allowExtensionTools: true, trustedExtensions: ["native-pack"] });
+      await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient, providerId: "codex-cli" });
+      expect(inputs.at(-1)?.toolMode).toBe("native");
+      expect(inputs.at(-1)?.availableTools.map(t => t.name)).toContain("extension_native-pack_hello");
+    } finally {
+      writeConfig(original);
+    }
+  });
+
+  it("writes locally through CrewCoder tools with a custom model client", async () => {
     const root = cwd();
     await runAgentLoop({ cwd: root, prompt: "write marker", requestedMode: "general" }, {
       modelClient: { complete: async (_input, _signal, stream) => {
@@ -119,12 +237,12 @@ describe("tool mode policy and session lifecycle", () => {
 
   it.each(["crewcoder", "native"] as const)("pins %s through save, config change, and resume", async initial => {
     setConfigValue("toolMode", initial);
-    const first = await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient });
+    const first = await runAgentLoop({ cwd: cwd(), prompt: "hi", requestedMode: "general" }, { modelClient, providerId: "codex-cli" });
     expect((await loadSession(first.sessionId)).toolMode).toBe(initial);
     setConfigValue("toolMode", initial === "native" ? "crewcoder" : "native");
-    await runAgentLoopContinue({ sessionId: first.sessionId, prompt: "again" }, { modelClient });
+    await runAgentLoopContinue({ sessionId: first.sessionId, prompt: "again" }, { modelClient, providerId: "codex-cli" });
     expect(inputs.at(-1)?.toolMode).toBe(initial);
-    const fresh = await runAgentLoop({ cwd: cwd(), prompt: "fresh", requestedMode: "general" }, { modelClient });
+    const fresh = await runAgentLoop({ cwd: cwd(), prompt: "fresh", requestedMode: "general" }, { modelClient, providerId: "codex-cli" });
     expect((await loadSession(fresh.sessionId)).toolMode).not.toBe(initial);
   });
 
@@ -133,7 +251,7 @@ describe("tool mode policy and session lifecycle", () => {
       requestedMode: "general", resolvedMode: "general", prompt: "old", events: [], messages: [], mutationLog: [] };
     await saveSession(record);
     setConfigValue("toolMode", "native");
-    await runAgentLoopContinue({ sessionId: record.id, prompt: "again" }, { modelClient });
+    await runAgentLoopContinue({ sessionId: record.id, prompt: "again" }, { modelClient, providerId: "codex-cli" });
     expect(inputs.at(-1)?.toolMode).toBeUndefined();
     expect(inputs.at(-1)?.availableTools.map(t => t.name)).toContain("bash");
   });

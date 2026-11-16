@@ -28,6 +28,8 @@ export type ModelStreamCallbacks = {
   onUsage?(usage: ModelUsage): Promise<void> | void;
   onProviderSessionId?(sessionId: string): Promise<void> | void;
   onProviderCompaction?(update: ProviderCompactionUpdate): Promise<void> | void;
+  /** Deliver queued user context at a provider-owned tool boundary. A rejected delivery stays queued. */
+  deliverFollowUps?(deliver: (messages: readonly string[]) => Promise<void> | void): Promise<void>;
   executeTool?(call: ToolCallPart): Promise<ToolResultMessage>;
   onProviderToolStart?(call: ToolCallPart): Promise<void> | void;
   onProviderToolEnd?(result: { toolCallId: string; toolName: string; text: string; isError: boolean }): Promise<void> | void;

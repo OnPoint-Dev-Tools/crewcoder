@@ -89,7 +89,7 @@ const MIN_STALL_THRESHOLD = 2;
 const MAX_STALL_THRESHOLD = 100;
 
 const defaultConfig: CrewCoderConfig = {
-  toolMode: "crewcoder",
+  toolMode: "native",
   integrationProfile: DEFAULT_INTEGRATION_PROFILE,
   defaultMode: DEFAULT_AGENT_MODE,
   defaultProvider: "codex-cli",

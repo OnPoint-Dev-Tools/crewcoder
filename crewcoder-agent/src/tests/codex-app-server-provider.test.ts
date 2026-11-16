@@ -1,4 +1,6 @@
 import { createJsonEventSink } from "../core/json-event-stream.js";
+import { runAgentLoop } from "../core/agent-loop.js";
+import type { AssistantMessage } from "../core/messages.js";
 import { CodexProgress } from "../providers/codex-progress.js";
 import { translateEvent } from "../acp/event-translator.js";
 import * as childProcess from "node:child_process";
@@ -38,6 +40,71 @@ afterEach(() => {
 });
 
 describe("Codex app-server provider", () => {
+  it.each(["commandExecution", "fileChange", "mcpToolCall", "dynamic", "rejected"])("steers queued user messages after %s without interrupting the turn", async (kind) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-steer-"));
+    const server = path.join(home, "fake-codex.cjs");
+    const log = path.join(home, "requests.jsonl");
+    fs.writeFileSync(server, `#!/usr/bin/env node
+const fs=require('node:fs'),readline=require('node:readline');
+const kind=${JSON.stringify(kind)},log=${JSON.stringify(log)};
+function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify(m)+'\\n');
+ if(m.method==='initialize')send({id:m.id,result:{}});
+ else if(m.method==='thread/start')send({id:m.id,result:{thread:{id:'thread-live'}}});
+ else if(m.method==='turn/start'){
+  send({method:'turn/started',params:{turn:{id:'turn-live'}}});
+  send({method:'item/agentMessage/delta',params:{delta:'Working'}});
+  if(kind==='dynamic')send({id:900,method:'item/tool/call',params:{callId:'call-live',tool:'noop',arguments:{}}});
+  else {
+   send({method:'item/started',params:{item:{id:'call-live',type:kind==='rejected'?'commandExecution':kind,command:'pwd'}}});
+   send({method:'item/completed',params:{item:{id:'call-live',type:kind==='rejected'?'commandExecution':kind,status:'completed',aggregatedOutput:'ok'}}});
+  }
+  send({id:m.id,result:{turn:{id:'turn-live'}}});
+ } else if(m.method==='turn/steer'){
+  if(kind==='rejected')send({id:m.id,error:{code:-32600,message:'Turn already finished'}});
+  else send({id:m.id,result:{turnId:'turn-live'}});
+  if(kind!=='dynamic')finish();
+ } else if(m.id===900&&m.result)finish();
+ function finish(){send({method:'item/agentMessage/delta',params:{delta:' incorporated edge cases'}});send({method:'turn/completed',params:{turn:{id:'turn-live',status:'completed'}}});}
+});
+`, { mode: 0o755 });
+    process.env.CREWCODER_HOME = home;
+    process.env.CREWCODER_CODEX_PATH = server;
+    setAuthCredential("codex", { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 3_600_000, accountId: "account", idToken: "id-token" });
+    const followUpSignal = { messages: [] as string[] };
+    let calls = 0;
+    const result = await runAgentLoop({ prompt: "implement", requestedMode: "general", cwd: home }, {
+      maxIterations: 1, followUpSignal,
+      tools: [{ name: "noop", description: "Probe", parse: (args) => args, execute: async () => ({ content: [{ type: "text", text: "ok" }] }) }],
+      modelClient: {
+        async complete(modelInput, signal, stream) {
+          calls++;
+          const response = await runCodexAppServerProvider({ provider, prompt: "implement", cwd: home, modelInput: { ...modelInput, toolMode: "native" }, stream }, signal);
+          expect(response?.exitCode).toBe(0);
+          expect(followUpSignal.messages).toEqual(kind === "rejected" ? ["include edge cases", "continue the task"] : []);
+          return JSON.parse(response!.text) as AssistantMessage;
+        }
+      },
+      emit(event) {
+        if (event.type === "assistant_delta" && event.text === "Working") followUpSignal.messages.push("include edge cases", "continue the task");
+      }
+    });
+    const requests = fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { method?: string; params?: unknown });
+    expect(calls).toBe(1);
+    expect(requests.filter((request) => request.method === "turn/start")).toHaveLength(1);
+    expect(requests.filter((request) => request.method === "turn/steer")).toEqual([expect.objectContaining({
+      params: { threadId: "thread-live", expectedTurnId: "turn-live", input: [
+        { type: "text", text: "include edge cases", text_elements: [] },
+        { type: "text", text: "continue the task", text_elements: [] }
+      ] }
+    })]);
+    expect(requests.some((request) => request.method === "turn/interrupt")).toBe(false);
+    expect(followUpSignal.messages).toEqual([]);
+    expect(result.messages.filter((message) => message.role === "user")).toHaveLength(3);
+    expect(result.summary).toContain("incorporated edge cases");
+  });
+
   it("pins native Codex compaction to CrewCoder's resolved model policy", () => {
     expect(codexAppServerContextArgs({
       systemPrompt: "system",
@@ -73,7 +140,7 @@ describe("Codex app-server provider", () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
-  it("persists a durable thread id and resumes it with only the latest prompt", async () => {
+  it("preserves plain-text progress by disabling generated summaries on fresh and resumed threads", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-codex-home-"));
     const log = path.join(home, "requests.jsonl");
     const server = path.join(home, "fake-codex.cjs");
@@ -127,6 +194,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     expect(threadStart.params.approvalPolicy).toBe("never");
     expect(threadStart.params.sandbox).toBe("workspace-write");
     expect(threadStart.params.developerInstructions).toContain("system");
+    expect(initialRequests.find(request => request.method === "turn/start")).toMatchObject({ params: { summary: "none" } });
 
     fs.writeFileSync(log, "");
     const second = await runCodexAppServerProvider({ ...baseInput, modelInput: { ...baseInput.modelInput, session: { ...baseInput.modelInput.session, providerSessionId: sessionId } } });
@@ -138,7 +206,7 @@ const rl=readline.createInterface({input:process.stdin});rl.on('line',line=>{con
     const turn = requests.find((request) => request.method === "turn/start") as { params: { input: Array<{ text?: string }>; summary?: string; approvalPolicy?: unknown; sandboxPolicy?: unknown } };
     expect(turn.params.input[0]?.text).toBe("new prompt");
     expect(turn.params.input[0]?.text).not.toContain("old prompt");
-    expect(turn.params.summary).toBe("auto");
+    expect(turn.params.summary).toBe("none");
     expect(turn.params.approvalPolicy).toBe("never");
     expect(turn.params.sandboxPolicy).toEqual({ type: "workspaceWrite", writableRoots: [], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
   });

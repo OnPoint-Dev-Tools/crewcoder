@@ -91,8 +91,23 @@ retried, so a real error is not hidden or a tool run twice. See `docs/SESSION_BU
 Assistant and thinking deltas stream through normal CrewCoder events. Native read/search tool
 activity is projected into tool start/end events with fully assembled arguments; MCP-backed tools
 already emit CrewCoder's complete tool lifecycle. Aborting the CrewCoder turn aborts the SDK query.
-After a turn, SDK context usage supplies live context occupancy separately from aggregate billing
-usage so CrewCoder's context meter and compaction threshold remain accurate.
+After a turn, context occupancy is kept separate from aggregate billing usage. When available,
+SDK `getContextUsage()` supplies `totalTokens` and the effective `maxTokens` capacity. Single-turn
+SDK queries close their transport at the result, so that lookup can fail even on a current binary.
+The fallback uses the latest main-agent assistant response's `input_tokens + cache_read_input_tokens
++ cache_creation_input_tokens`, matching [Claude Code's input-only context percentage](https://code.claude.com/docs/en/statusline#context-window-fields).
+It replaces the previous request's count, excludes subagent responses and output tokens, and resets
+at a native compaction boundary. It never sums request counts or uses aggregate result usage as
+occupancy. The result's `modelUsage` entry for the responding model supplies runtime capacity when
+the native query is unavailable; an unrelated model's entry is never substituted. These values
+flow through `UsageSummary.lastInputTokens` and `contextWindow` to the TUI and ACP hosts such as
+CrewMate, without changing billing/cache counters. Missing runtime capacity retains the usual
+catalog fallback.
+
+Regression coverage lives in `test/claude-context-usage.test.ts` and runs with the agent test
+suite. After building the agent, `CREWCODER_LIVE_CONTEXT=1 node test/claude-context-live.mjs`
+from the repository root performs one real request with the local Claude login and checks the
+snapshot and runtime capacity. It does not invoke tools.
 
 Claude SDK auto-compaction is disabled. CrewCoder keeps explicit `/compact` and its own persisted
 compaction policy authoritative. Applying compaction clears provider-native session IDs before the

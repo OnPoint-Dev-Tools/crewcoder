@@ -29,6 +29,17 @@ it("offers Tool mode in Settings and renders its selected mode in the picker", a
   });
 });
 
+it("defaults missing preferences to native execution and explains the combined tools", async () => {
+  fs.writeFileSync(path.join(process.env.CREWCODER_HOME!, "config.json"), "{}");
+  const app = new App(createInitialState());
+  submit(app, "/tool-mode");
+  await vi.waitFor(() => {
+    const rendered = app.render({theme:crewCoderTheme,size:{width:180,height:35}}).map(stripAnsi).join("\n");
+    expect(rendered).toContain("* Provider-native tools");
+    expect(rendered).toContain("Native execution plus CrewCoder specialized tools");
+  });
+});
+
 it("persists a default while keeping the active session intact", async () => {
   const state = createInitialState();
   state.sessionId = "existing";

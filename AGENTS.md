@@ -24,6 +24,11 @@
 
 ## Project identity
 
+In CrewCoder-tool Codex sessions, omit native `apply_patch` through a process-local
+effective model catalog; edits must reach CrewCoder's supplied tools and executor.
+Preserve all other model metadata, native mode and the read-only safety backstop.
+See `crewcoder-agent/docs/TOOL_MODE.md` for verification, including native resume.
+
 GOAL: We need to build crewcoder-agent, crewcoder-tui, in a way that we can easily create an sdk for the coding agent. My end goal is make CrewCoder self deployable with an sdk and cli so it can run agents in vps's and sandboxes.
 
 I work on code along with you so there is going to be modified/untracked files unrelated to your changes. IGNORE IT, and continue your job.
@@ -254,7 +259,7 @@ crewcoder/
 
 ## Current hard-won notes
 
-- Tool mode defaults to `crewcoder` for new sessions; `native` uses Codex CLI or Claude SDK tools without CrewCoder built-in/extension tools. Preserve saved mode on resume and host custody precedence. Host-supplied tools, virtual filesystems and specialized agent modes force CrewCoder tools. Never apply the standalone preference around host approvals. See `crewcoder-agent/docs/TOOL_MODE.md`.
+- Tool mode defaults to `native`: standalone Codex/Claude execution plus CrewCoder specialized and trusted extension tools. API-only providers and custom clients without a declared provider use the full CrewCoder toolset. Preserve saved preference across API fallback/resume. Virtual filesystems, replacement tool registries, explicit host custody and specialized agent modes force CrewCoder tools; additive host tools alone do not. Detached goals retain CrewCoder execution for durable approvals. `crewcoder tool-mode [native|crewcoder|status]` reads/writes the same `config.json` field as `/tool-mode` and `config set toolMode`; preserve saved session preferences. Never apply the standalone preference around host approvals. See `crewcoder-agent/docs/TOOL_MODE.md`.
 
 - ACP hosts advertise `_meta["crewcoder/questions"].version: 1` to receive `_crewcoder/request_question` with original option values, free-text/Other, secret flags, and exact provider permission details. Questions must never become automatic permission approvals. Cancel pending cards on session/provider cancellation. Explicit Never remains non-interactive; use Review when escalation should ask. See `crewcoder-agent/docs/ACP_ADAPTER.md`.
 

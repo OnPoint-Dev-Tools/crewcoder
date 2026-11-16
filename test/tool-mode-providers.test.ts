@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCodexCliProvider } from "../crewcoder-agent/src/providers/codex-app-server-provider.js";
 import { runClaudeAgentSdkProvider } from "../crewcoder-agent/src/providers/claude-agent-sdk-provider.js";
+import type { ToolCallPart } from "../crewcoder-agent/src/core/messages.js";
 import type { ProviderDefinition, ProviderRunInput } from "../crewcoder-agent/src/providers/types.js";
 
 vi.mock("node:child_process", async importOriginal => {
@@ -12,7 +13,9 @@ vi.mock("node:child_process", async importOriginal => {
 });
 const queryMock = vi.hoisted(() => vi.fn());
 vi.mock("../crewcoder-agent/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs", () => ({
-  query: queryMock, tool: vi.fn(), createSdkMcpServer: vi.fn()
+  query: queryMock,
+  tool: (name: string, description: string, inputSchema: unknown, handler: unknown) => ({ name, description, inputSchema, handler }),
+  createSdkMcpServer: (options: unknown) => ({ options })
 }));
 const codex: ProviderDefinition = { id: "codex-cli", title: "Codex", kind: "builtin", runtime: "openai-codex-responses", command: "codex", args: [] };
 const claude: ProviderDefinition = { ...codex, id: "claude", runtime: "claude-agent-sdk" };
@@ -36,12 +39,14 @@ describe("Codex tool-mode launch boundary", () => {
 const fs = require("node:fs"), readline = require("node:readline");
 const log = ${JSON.stringify(log)};
 if (process.argv.includes("mcp")) { process.stdout.write('[{"name":"configured"}]'); process.exit(0); }
+if (process.argv.includes("debug")) { process.stdout.write('{"models":[{"slug":"gpt-test","apply_patch_tool_type":"freeform"}]}'); process.exit(0); }
 const send = m => process.stdout.write(JSON.stringify(m) + "\\n");
 readline.createInterface({input: process.stdin}).on("line", line => {
  const m = JSON.parse(line); fs.appendFileSync(log, line + "\\n");
  if (m.method === "initialize") send({ id: m.id, result: {} });
  if (m.method === "thread/start") send({ id: m.id, result: { thread: { id: "test-thread" } } });
- if (m.method === "turn/start") { send({id:m.id,result:{}}); send({id:900,method:"item/fileChange/requestApproval",params:{reason:"native write"}}); }
+ if (m.method === "turn/start") { send({id:m.id,result:{}}); send({id:901,method:"item/tool/call",params:{callId:"specialized-call",tool:"remember",arguments:{fact:"fixture"}}}); }
+ if (m.id === 901) send({id:900,method:"item/fileChange/requestApproval",params:{reason:"native write"}});
  if (m.id === 900) { send({method:"item/agentMessage/delta",params:{delta:"done"}});send({method:"turn/completed",params:{turn:{status:"completed"}}}); }
 });
 `);
@@ -52,14 +57,21 @@ readline.createInterface({input: process.stdin}).on("line", line => {
       return spawn(process.execPath, [fixture, ...args], options);
     }) as typeof childProcess.spawn);
     const requestQuestion = vi.fn(async () => "accept");
+    const executeTool = vi.fn(async (call: ToolCallPart) => ({
+      role: "toolResult" as const, toolCallId: call.id, toolName: call.name,
+      content: [{ type: "text" as const, text: "remembered" }], isError: false, timestamp: Date.now()
+    }));
     const result = await runCodexCliProvider({
       provider: codex, cwd: root, prompt: "hi",
-      modelInput: { systemPrompt: "", messages: [], availableTools: [], toolMode, useProviderNativeFileTools: !virtual, approvalMode },
-      stream: { requestQuestion }
+      modelInput: { systemPrompt: "", messages: [], availableTools: [{ name: "remember", description: "Save memory", parameters: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"] } }], toolMode, useProviderNativeFileTools: !virtual, approvalMode },
+      stream: { requestQuestion, executeTool }
     });
     expect(result.exitCode).toBe(0);
     const records = fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line));
     const thread = records.find(r => r.method === "thread/start").params;
+    expect(thread.dynamicTools.map((tool: { name: string }) => tool.name)).toContain("remember");
+    expect(executeTool).toHaveBeenCalledWith(expect.objectContaining({ name: "remember", arguments: { fact: "fixture" } }));
+    expect(records.find(r => r.id === 901).result.success).toBe(true);
     expect(thread.sandbox).toBe(locked ? "read-only" : approvalMode === "full-access" ? "danger-full-access" : "workspace-write");
     if (locked) {
       expect(thread.developerInstructions).toContain("describe Codex native tools only");
@@ -97,6 +109,23 @@ describe("Claude tool mode", () => {
     expect(input.stream!.requestQuestion).toHaveBeenCalledWith(expect.objectContaining({kind:"permission"}));
     vi.mocked(input.stream!.requestQuestion!).mockResolvedValue(undefined);
     expect(await options.canUseTool("Bash", {command:"echo marker"})).toMatchObject({behavior:"deny"});
+  });
+
+  it("exposes CrewCoder specialized MCP tools alongside the native preset", async () => {
+    const input = request("native");
+    input.modelInput!.availableTools = [{ name: "remember", description: "Memory", parameters: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"] } }];
+    vi.mocked(input.stream!.executeTool!).mockResolvedValue({
+      role: "toolResult", toolCallId: "memory", toolName: "remember",
+      content: [{ type: "text", text: "saved" }], isError: false, timestamp: 1
+    });
+    await runClaudeAgentSdkProvider(input);
+    const options = queryMock.mock.calls[0][0].options;
+    expect(options.tools).toEqual({ type: "preset", preset: "claude_code" });
+    expect(options.allowedTools).toContain("mcp__crewcoder__remember");
+    expect(options.strictMcpConfig).toBe(true);
+    await options.mcpServers.crewcoder.options.tools[0].handler({ fact: "fixture" });
+    expect(input.stream!.executeTool).toHaveBeenCalledWith(expect.objectContaining({ name: "remember", arguments: { fact: "fixture" } }));
+    expect(input.stream!.requestQuestion).not.toHaveBeenCalled();
   });
 
   it("never prompts in Never mode and preserves Full access", async () => {

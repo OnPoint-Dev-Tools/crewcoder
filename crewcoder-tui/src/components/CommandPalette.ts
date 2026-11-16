@@ -37,7 +37,7 @@ export const commandCategories: CommandCategory[] = [
     ["/goal", "Open goal editor; inline: /goal --max-turns N --check-model MODEL --timeout-minutes N <objective>"]
   ] },
   { title: "Settings", commands: [
-    ["/tool-mode", "Tool mode for new sessions: CrewCoder tools or provider-native tools"],
+    ["/tool-mode", "Tool mode for new sessions: native execution with CrewCoder tools, or CrewCoder execution"],
     ["/profile", "Pick standalone or CrewCode-integrated behavior for this project"],
     ["/provider", "Pick any configured built-in or extension provider"], ["/model", "Pick model for the active provider"],
     ["/effort", "Pick reasoning effort for this model"], ["/thinking", "Enable or disable provider reasoning: /thinking on|off|status"], ["/modes", "Pick mode or worker: general, crewcoder, plugin, extension, or a saved worker"],

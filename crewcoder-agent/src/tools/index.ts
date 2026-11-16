@@ -32,4 +32,8 @@ export function createToolRegistry(
   if (mode === "plugin" && profile === "crewcode") return [...core, createDocsTool(profile, mode), createPluginTool, validatePluginTool, listTemplatesTool];
   return withWorkflow;
 }
+/** Tools that complement a provider's native coding runtime. */
+export function createSpecializedToolRegistry(): ToolDefinition[] {
+  return [editSymbolTool, editTransactionTool, gitBlameTool, gitLogTool, gitDiffRangeTool, gitCherryPickTool, lspDefinitionTool, lspHoverTool, lspDiagnosticsTool, delegateWorkerTool, rememberTool, ...createCrewTaskTools()];
+}
 export function findTool(name: string, tools: ToolDefinition[]): ToolDefinition | undefined { return tools.find((tool) => tool.name === name); }

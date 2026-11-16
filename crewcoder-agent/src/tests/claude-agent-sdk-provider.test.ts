@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
+import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
 import * as claudeExecutable from "../providers/claude-executable.js";
 
 const queryMock = vi.hoisted(() => vi.fn());
@@ -18,6 +19,37 @@ beforeEach(() => queryMock.mockReset());
 afterEach(() => vi.restoreAllMocks());
 
 describe("Claude Agent SDK provider", () => {
+  it.each(["PostToolUse", "PostToolUseFailure"] as const)("delivers user context through %s without interrupting the query", async (hookEventName) => {
+    const controller = new AbortController();
+    const delivered: string[] = [];
+    const deliverFollowUps = vi.fn(async (deliver: (messages: readonly string[]) => Promise<void> | void) => {
+      await deliver(["also test edge cases", "continue working"]);
+    });
+    queryMock.mockImplementation((request: { options: { hooks: Record<string, Array<{ hooks: HookCallback[] }>>; abortController: AbortController } }) => ({
+      async *[Symbol.asyncIterator]() {
+        const hook = request.options.hooks[hookEventName][0].hooks[0];
+        const response = await hook({ hook_event_name: hookEventName } as HookInput, "tool-1", { signal: controller.signal });
+        expect(response).toMatchObject({ hookSpecificOutput: { hookEventName, additionalContext: expect.stringContaining(JSON.stringify({ role: "user", text: "also test edge cases" })) } });
+        delivered.push("context delivered");
+        expect(request.options.abortController.signal.aborted).toBe(false);
+        yield { type: "result", subtype: "success", result: "continued with edge cases" };
+      }
+    }));
+    const result = await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [], availableTools: [] },
+      stream: { executeTool: vi.fn(), deliverFollowUps }
+    });
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(deliverFollowUps).toHaveBeenCalledOnce();
+    expect(delivered).toEqual(["context delivered"]);
+    expect(result.stdout).toBe("continued with edge cases");
+    controller.abort();
+    const hook = queryMock.mock.calls[0][0].options.hooks[hookEventName][0].hooks[0] as HookCallback;
+    expect(await hook({ hook_event_name: hookEventName } as HookInput, "tool-2", { signal: controller.signal })).toEqual({});
+    expect(deliverFollowUps).toHaveBeenCalledOnce();
+  });
+
   it("uses the same installed executable resolver as model discovery", async () => {
     vi.spyOn(claudeExecutable, "resolveClaudeExecutable").mockReturnValue("/installed/claude");
     queryMock.mockReturnValue({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } });

@@ -1634,6 +1634,21 @@ promptCommand.command("run").argument("<name>").argument("[args...]", "Raw comma
 program.command("task").description("Manage tasks persistent project tasks.").argument("[action]").argument("[args...]", "Task command arguments").action((action: string | undefined, args: string[]) => {
   console.log(runCrewTaskCommand(action, args));
 });
+program.command("tool-mode")
+  .argument("[mode]", "native, crewcoder, or status", "status")
+  .option("--json", "Output the tool mode and config path as JSON")
+  .description("Show or change the default tool execution mode for new sessions.")
+  .action((mode: string, options: { json?: boolean }) => {
+    const config = mode === "status" ? readConfig() : setConfigValue("toolMode", mode);
+    const configPath = ensureCrewCoderHome().configPath;
+    if (options.json) {
+      console.log(JSON.stringify({ toolMode: config.toolMode, configPath }, null, 2));
+      return;
+    }
+    console.log(`Tool mode for new sessions: ${config.toolMode}`);
+    console.log(`Config: ${configPath}`);
+    if (mode !== "status") console.log("Existing sessions keep their saved preference. Start a new session to apply this setting.");
+  });
 program.command("config").argument("<action>", "show or set").argument("[key]").argument("[value]").action((action: string, key: string | undefined, value: string | undefined) => {
   if (action === "show") {
     console.log(JSON.stringify(readConfig(), null, 2));

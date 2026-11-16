@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { textMessage, type ToolCallPart } from "../core/messages.js";
 import { builtinProviders } from "../providers/builtins.js";
 import { enableCodexAppServerPooling, isCodexCliProvider, runCodexCliProvider } from "../providers/codex-app-server-provider.js";
-import { CODEX_NATIVE_TOOL_FEATURES, codexHostedToolsOnlyArgs, parseCodexMcpServerNames } from "../providers/codex-cli-lockdown.js";
+import { CODEX_NATIVE_TOOL_FEATURES, codexHostedToolsOnlyArgs, parseCodexMcpServers } from "../providers/codex-cli-lockdown.js";
 import type { ProviderDefinition } from "../providers/types.js";
 
 vi.mock("node:child_process", async importOriginal => {
@@ -37,12 +37,13 @@ function restore(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name]; else process.env[name] = value;
 }
 
-function writeFakeCodex(dir: string, log: string, mcpList = '[{"name":"node_repl","enabled":true},{"name":"computer-use","enabled":true}]'): string {
+function writeFakeCodex(dir: string, log: string, mcpList = '[{"name":"node_repl","enabled":true,"transport":{"type":"stdio","command":"node"}},{"name":"computer-use","enabled":true,"transport":{"type":"stdio","command":"node"}}]'): string {
   const server = path.join(dir, "fake-codex.cjs");
   fs.writeFileSync(server, `#!/usr/bin/env node
 const fs=require('node:fs'),readline=require('node:readline');
 const log=${JSON.stringify(log)};
 if(process.argv[2]==='mcp'){fs.appendFileSync(log+'.mcp',JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()})+'\\n');process.stdout.write(${JSON.stringify(mcpList)});process.exit(0);}
+if(process.argv.includes('debug')){process.stdout.write(JSON.stringify({models:[{slug:'gpt-test',apply_patch_tool_type:'freeform',context_window:1050000}]}));process.exit(0);}
 fs.appendFileSync(log,JSON.stringify({argv:process.argv.slice(2),codexHome:process.env.CODEX_HOME??null})+'\\n');
 function send(x){process.stdout.write(JSON.stringify(x)+'\\n')}
 readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify(m)+'\\n');
@@ -94,6 +95,10 @@ describe("bring-your-own Codex CLI provider", () => {
     for (const feature of CODEX_NATIVE_TOOL_FEATURES) expect(argv).toContain(feature);
     expect(argv).toContain("web_search=disabled");
     expect(argv).toContain("agents.max_depth=0");
+    const catalogArgument = argv.find(arg => arg.startsWith("model_catalog_json="));
+    expect(catalogArgument).toBeDefined();
+    const catalog = JSON.parse(fs.readFileSync(JSON.parse(catalogArgument!.slice("model_catalog_json=".length)), "utf8"));
+    expect(catalog.models).toEqual([{ slug: "gpt-test", apply_patch_tool_type: null, context_window: 1050000 }]);
     expect(argv).not.toContain("code_mode_host");
     expect(argv).toContain(`mcp_servers={node_repl={command=${JSON.stringify(process.execPath)},enabled=false},computer-use={command=${JSON.stringify(process.execPath)},enabled=false}}`);
     // MCP servers are listed from the session folder so trusted project configs are covered.
@@ -160,11 +165,15 @@ describe("bring-your-own Codex CLI provider", () => {
   });
 
   it("parses codex mcp list output strictly", () => {
-    expect(parseCodexMcpServerNames('[{"name":"a_b-1"}]')).toEqual(["a_b-1"]);
-    expect(parseCodexMcpServerNames("[]")).toEqual([]);
-    expect(() => parseCodexMcpServerNames("{}")).toThrow();
-    expect(() => parseCodexMcpServerNames("nope")).toThrow();
-    expect(() => parseCodexMcpServerNames('[{"name":"a b"}]')).toThrow();
+    expect(parseCodexMcpServers('[{"name":"a_b-1"}]')).toEqual([{ name: "a_b-1", transport: "stdio" }]);
+    expect(parseCodexMcpServers('[{"name":"docs","transport":{"type":"streamable_http","url":"https://example.com/mcp"}}]')).toEqual([{ name: "docs", transport: "http" }]);
+    expect(parseCodexMcpServers('[{"name":"local","transport":{"type":"stdio","command":"node"}}]')).toEqual([{ name: "local", transport: "stdio" }]);
+    expect(() => parseCodexMcpServers('[{"name":"docs","transport":{"type":"streamable_http","command":"node"}}]')).toThrow("ambiguous");
+    expect(() => parseCodexMcpServers('[{"name":"docs","transport":{"type":"unexpected"}}]')).toThrow("Invalid");
+    expect(parseCodexMcpServers("[]")).toEqual([]);
+    expect(() => parseCodexMcpServers("{}")).toThrow();
+    expect(() => parseCodexMcpServers("nope")).toThrow();
+    expect(() => parseCodexMcpServers('[{"name":"a b"}]')).toThrow();
     expect(codexHostedToolsOnlyArgs([])).not.toContain("mcp_servers");
   });
 });

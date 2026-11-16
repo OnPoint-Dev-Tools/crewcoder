@@ -121,9 +121,34 @@ Codex CLI and Claude model pickers automatically discover models from their nati
 
 CrewCoder resolves model context windows from provider metadata first, then from a strict-match, 24-hour disk cache of OpenRouter's public model catalog. Unknown or offline models remain token-only. See `docs/MODEL_CONTEXT_WINDOWS.md`.
 
-`codex-cli` is the sole Codex provider and fresh-install default. It uses official app-server threads in the user's Codex home, so resumed turns send only new input across process and machine restarts. Existing configurations with `defaultProvider: codex` must run `crewcoder config set defaultProvider codex-cli`. See `docs/CODEX_TRANSPORT.md`.
+`codex-cli` is the sole Codex provider and fresh-install default. It uses official app-server threads in the user's Codex home, so resumed turns send only new input across process and machine restarts. Existing configurations with `defaultProvider: codex` must run `crewcoder config set defaultProvider codex-cli`. See `docs/CODEX_TRANSPORT.md`. Codex thinking forwards provider text without formatting it and disables additional generated summaries to preserve plain-text progress. See [reasoning streams](docs/CODEX_CLI_PROVIDER.md#thinking-in-acp-hosts).
 
 Provider adapters use checked process, HTTP/SSE, WebSocket, continuation, fallback, and replay profiles. Built-ins include Claude Code Agent SDK, Grok CLI (ACP stdio), OpenAI, Anthropic, OpenRouter, xAI, DeepSeek, Mistral, Codex, and OpenCode; extensions may select vetted generic transports without receiving CrewCoder-owned OAuth credentials. Models/providers can advertise parallel tool-call support, while only tools explicitly marked parallel-safe execute concurrently; sequential tools remain ordering barriers. See `docs/PROVIDERS.md`, `docs/PARALLEL_TOOL_CALLS.md`, `docs/contributor/PROVIDER_TRANSPORTS.md`, and `docs/ACP_CLIENT_PROVIDER.md`.
+
+## Tool execution
+
+New sessions prefer provider-native execution with CrewCoder specialized tools.
+Codex CLI and Claude keep their native coding tools alongside CrewCoder LSP,
+transactional and symbol edits, Git primitives, persistent tasks, memory, worker
+delegation, and trusted extension tools. API-only providers use the full CrewCoder
+toolset. Task, memory, extension-trust, and language-server prerequisites still apply.
+
+Use `crewcoder tool-mode native` (or TUI `/tool-mode native`) to select
+this preference on an existing installation, then start a new session.
+`crewcoder tool-mode crewcoder` keeps full CrewCoder execution.
+`crewcoder tool-mode status` shows the preference and `config.json` path;
+`--json` returns `{ "toolMode": "...", "configPath": "..." }`.
+The saved config field is `"toolMode": "native"` or `"toolMode": "crewcoder"`. Host custody, specialized
+agent modes, and detached goals retain CrewCoder execution and approval gates.
+See [Tool mode](docs/TOOL_MODE.md) for limits, persistence, and verification.
+
+## Messages during a run
+
+Hosts can queue additional user instructions while the agent works. Codex CLI and
+Claude receive them after the next completed tool call and continue the current
+turn without cancellation. Fleet controls, ACP `session/follow_up`, and SDK
+`followUp()` share this behavior. See [live follow-ups](docs/FOLLOW_UPS.md) for
+delivery, fallback, and custom model-client details.
 
 ## Durable goals
 

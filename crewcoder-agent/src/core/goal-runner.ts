@@ -185,6 +185,8 @@ export async function runGoalWorker(goalId: string): Promise<GoalRecord> {
       workerName: goal.workerName,
       tokenBudget: goal.tokenBudget,
       additionalTools: goalTools,
+      // Detached approvals use the durable tool gate, not interactive native dialogs.
+      toolMode: "crewcoder",
       approvalSignal,
       signal: abort.signal,
       emit
