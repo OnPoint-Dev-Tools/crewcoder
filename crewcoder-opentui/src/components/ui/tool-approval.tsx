@@ -2,9 +2,8 @@
 // Vendored from termcn (opentui/tool-approval). CrewCoder changes:
 // - Inline rows set flexDirection="row": OpenTUI (Yoga) defaults to column,
 //   unlike Ink, so upstream rows stacked and collapsed inside height-1 boxes.
-// - No global useKeyboard. Upstream approved on any bare `y` keypress, which
-//   would approve a tool call while the user typed a prompt. The caller routes
-//   configured key chords and passes their labels as hints.
+// - No global useKeyboard. Approval is resolved by the caller's configured
+//   chords or by selecting the visible mouse controls.
 // - No auto-deny timer; approvals wait for an explicit decision.
 // - `risk` has no default: an unknown risk shows no badge instead of claiming
 //   LOW RISK.
@@ -19,8 +18,8 @@ export interface ToolApprovalProps {
   description?: string;
   args?: Record<string, unknown>;
   risk?: RiskLevel;
-  approveHint: string;
-  denyHint: string;
+  onApprove: () => void;
+  onDeny: () => void;
   maxArgs?: number;
 }
 
@@ -38,8 +37,8 @@ export const ToolApproval = ({
   description,
   args,
   risk,
-  approveHint,
-  denyHint,
+  onApprove,
+  onDeny,
   maxArgs = DEFAULT_MAX_ARGS,
 }: ToolApprovalProps) => {
   const theme = useTheme();
@@ -98,13 +97,13 @@ export const ToolApproval = ({
         </box>
       ) : null}
 
-      <box flexDirection="row" gap={2} height={1}>
-        <text fg={theme.colors.success} wrapMode="none">
-          <b>{`[${approveHint}] Approve`}</b>
-        </text>
-        <text fg={theme.colors.error} wrapMode="none">
-          <b>{`[${denyHint}] Deny`}</b>
-        </text>
+      <box flexDirection="row" gap={1} height={1}>
+        <box height={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.colors.secondary} onMouseUp={onApprove}>
+          <text fg={theme.colors.success} wrapMode="none"><b>Approve</b></text>
+        </box>
+        <box height={1} paddingLeft={1} paddingRight={1} backgroundColor={theme.colors.secondary} onMouseUp={onDeny}>
+          <text fg={theme.colors.error} wrapMode="none"><b>Deny</b></text>
+        </box>
       </box>
     </box>
   );

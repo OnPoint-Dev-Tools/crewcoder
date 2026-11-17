@@ -4,13 +4,13 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { App } from "./App.js";
 import { parseArgs, USAGE } from "./args.js";
-import { footerModel } from "./footer-layout.js";
+import { footerModel, HOME_LOGO_MIN_WIDTH } from "./footer-layout.js";
 import { applyFooterHeight, footerSettled, prepareFooterForWrites } from "./footer-sizer.js";
 import { ThemeProvider } from "./providers/theme-provider.js";
 import { attachScrollback, ScrollbackWriter } from "./scrollback-writer.js";
 import { SessionController } from "./session-controller.js";
 import { applyTerminalBackground } from "./terminal-background.js";
-import { gothamTheme } from "./theme.js";
+import { slateTheme } from "./theme.js";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
   const controller = new SessionController(new CrewCoderProcessBridge());
   // Before the renderer starts capturing stdout; restored on every exit path.
-  const resetBackground = applyTerminalBackground(process.stdout, gothamTheme.colors.background);
+  const resetBackground = applyTerminalBackground(process.stdout, slateTheme.colors.background);
   process.once("exit", resetBackground);
   // Split footer: settled transcript goes to the terminal's native scrollback,
   // and only the live region, composer, and status stay in the footer.
@@ -33,16 +33,28 @@ async function main(): Promise<void> {
     exitOnCtrlC: false,
     screenMode: "split-footer",
     externalOutputMode: "capture-stdout",
-    backgroundColor: gothamTheme.colors.background,
+    backgroundColor: slateTheme.colors.background,
     // Open at full height: a fresh session starts on the welcome screen.
     footerHeight: Math.max(footerModel([], false).rows, process.stdout.rows || 0),
     onDestroy: () => controller.dispose()
   });
-  // Pad a fresh screen so the conversation footer starts at the bottom (see ScrollbackWriter).
-  const scrollback = new ScrollbackWriter(renderer, gothamTheme, () => renderer.terminalHeight - footerModel([], true).rows);
-  const sizeFooter = (): void => applyFooterHeight(renderer, controller.state, scrollback);
+  // Wide terminals start the transcript at the top of the viewport. Narrow
+  // terminals pad the fresh screen so the latest messages stay near the composer.
+  const scrollback = new ScrollbackWriter(renderer, slateTheme, () =>
+    renderer.terminalWidth < HOME_LOGO_MIN_WIDTH
+      ? renderer.terminalHeight - footerModel([], true).rows
+      : 0
+  );
+  const footerState = () => ({
+    ...controller.state,
+    extras: controller.footerExtras(renderer.terminalHeight)
+  });
+  // /clear: wipe the screen and the terminal's scrollback through the renderer
+  // (stdout is captured in split-footer mode, so raw escapes would be transcript).
+  controller.onClearScreen = () => renderer.resetSplitFooterForReplay({ clearSavedLines: true });
+  const sizeFooter = (): void => applyFooterHeight(renderer, footerState(), scrollback);
   attachScrollback(controller, scrollback, {
-    prepare: () => prepareFooterForWrites(renderer, controller.state),
+    prepare: () => prepareFooterForWrites(renderer, footerState()),
     size: sizeFooter,
     settled: () => footerSettled(renderer)
   });
@@ -54,7 +66,7 @@ async function main(): Promise<void> {
     process.exit(0);
   };
   createRoot(renderer).render(
-    <ThemeProvider theme={gothamTheme}>
+    <ThemeProvider theme={slateTheme}>
       <App controller={controller} scrollback={scrollback} onQuit={quit} />
     </ThemeProvider>
   );

@@ -8,10 +8,12 @@ export type HomeProps = {
   height: number;
   /** Muted identity line under the tip, e.g. `provider · model · cwd`. */
   info: string;
-  /** Right-aligned key hint under the composer, e.g. `^C quit`. */
-  hint: string;
   /** The composer, rendered centered at the home width. */
   composer: ReactNode;
+  /** A status alert, shown above the composer. */
+  alert?: ReactNode;
+  /** Rows the alert and extra composer lines add, so the logo only shows when everything fits. */
+  extraRows?: number;
 };
 
 /**
@@ -20,9 +22,9 @@ export type HomeProps = {
  * landing page. It disappears as soon as the session has any block. On windows
  * too small for the wordmark only the composer is shown.
  */
-export function Home({ width, height, info, hint, composer }: HomeProps): ReactNode {
+export function Home({ width, height, info, composer, alert, extraRows = 0 }: HomeProps): ReactNode {
   const theme = useTheme();
-  const logo = homeLogo(width, height, bigCrewCodeLogoLines);
+  const logo = homeLogo(width, height, bigCrewCodeLogoLines, extraRows);
   const composerWidth = homeComposerWidth(width);
 
   return (
@@ -38,10 +40,10 @@ export function Home({ width, height, info, hint, composer }: HomeProps): ReactN
         </>
       ) : null}
       <box width={composerWidth} flexDirection="column" flexShrink={0}>
+        {alert}
         {composer}
-        <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" alignSelf="flex-end">{hint}</text>
       </box>
-      <box height={1} flexShrink={0} />
+      <box height={2} flexShrink={0} />
       <text height={1} wrapMode="none" flexShrink={0}>
         <span fg={theme.colors.accent}>Tip</span>
         <span fg={theme.colors.mutedForeground}> Type your first request below and press Enter</span>

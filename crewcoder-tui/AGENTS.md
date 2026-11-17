@@ -206,7 +206,7 @@ When resuming from `/sessions` or its `/resume` alias, apply the selected sessio
 
 `Renderer.start()` sets the terminal background color with OSC 11 so terminal padding matches the active theme, and `Renderer.stop()` resets it with OSC 111. Conversation view commits settled transcript lines into the terminal scrollback and only rewrites the live tail (streaming block, working indicator, composer). Mouse reporting is off in that mode so Ghostty/Kitty/xterm own wheel and selection; it turns back on for home, modal overlays, the sidebar, and Live UI. `CREWCODER_TUI_MOUSE=0` still forces mouse reporting off everywhere. See `docs/TRANSCRIPT.md`.
 
-The `/checkpoints on|off|status` command persists the backend `checkpointsEnabled` setting. Automatic checkpoints default on; turning them off affects future runs and never deletes existing rewind points. `checkpoint_created` events must still populate `state.checkpoints` for `/rewind`, but must not add checkpoint-save blocks to the main viewport.
+The `/checkpoints on|off|status` command persists the backend `checkpointsEnabled` setting. Automatic checkpoints are off by default until the user runs `/checkpoints on`; turning them off affects future runs and never deletes existing rewind points. `checkpoint_created` events must still populate `state.checkpoints` for `/rewind`, but must not add checkpoint-save blocks to the main viewport.
 
 The `/file-changes on|off|status` setting controls the file-changes section in the right sidebar. Hiding the display must not discard `file_changed` events or clear `state.changedFiles`; turning it back on restores the tracked list. The preference remains across `/new` because it is TUI display state, not session state. It is process-local and must never affect another TUI instance. See `docs/SETTINGS.md` for Settings command scope and persistence.
 
@@ -362,7 +362,14 @@ not silently re-enable identity. See [identity settings](docs/SETTINGS.md#option
 `codex-cli` is the sole Codex provider and the fresh-state/offline-picker default.
 Keep its GPT-6 reasoning efforts, including `xhigh`, available. Never restore a
 managed `codex` fallback entry. Model pickers must use the backend's discovered
-catalogs, including models from the user's installed Claude Code. See
+catalogs, including models from the user's installed Claude Code. The offline fallback
+catalog (`builtinProviderDefaults`, `resolveProviderRecord`) lives in
+`@onpoint-dev-tools/crewcoder-tui-core/state/provider-defaults`, shared with the OpenTUI
+pickers; `components/App.ts` re-exports it. The pure CLI result and input parsers
+(`parseGoalRecord`, `parseDecisionExplanation`, `parseReviewSummary`,
+`parseCompactionResult`, `parseGoalStartInput`, `tokenizeGoalCommand`, `parseBudgetInput`,
+`formatBudgetTokens`) live in `@onpoint-dev-tools/crewcoder-tui-core/state/command-results`
+for the same reason; `App.ts` re-exports the ones its tests import. See
 [provider settings](docs/SETTINGS.md#provider-and-model-discovery).
 
 Run from the monorepo root:

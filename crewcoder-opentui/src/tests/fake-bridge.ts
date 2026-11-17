@@ -9,6 +9,8 @@ export class FakeBridge implements SessionBridge {
   resumes: CrewCoderResumeOptions[] = [];
   followUps: string[] = [];
   approvals: Array<{ id: string; approved: boolean }> = [];
+  previewRequests = 0;
+  previewResolutions: Array<{ previewId: string; approved: boolean; summary?: string }> = [];
   stops = 0;
   private handler: CrewCoderEventHandler | undefined;
 
@@ -29,6 +31,16 @@ export class FakeBridge implements SessionBridge {
 
   resolveApproval(approvalId: string, approved: boolean): boolean {
     this.approvals.push({ id: approvalId, approved });
+    return this.running;
+  }
+
+  requestCompactionPreview(): boolean {
+    this.previewRequests += 1;
+    return this.running;
+  }
+
+  resolveCompactionPreview(previewId: string, approved: boolean, summary?: string): boolean {
+    this.previewResolutions.push({ previewId, approved, summary });
     return this.running;
   }
 

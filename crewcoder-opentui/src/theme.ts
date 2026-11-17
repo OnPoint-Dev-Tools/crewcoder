@@ -2,43 +2,39 @@ import type { Theme } from "./components/ui/types.js";
 import { defaultTheme } from "./lib/terminal-themes/default.js";
 import type { TranscriptTone } from "./transcript.js";
 
-/**
- * Gotham, CrewCoder's base identity (shared with the legacy TUI's default
- * `dark` theme), expressed as termcn theme tokens. The background, border, and
- * primary colors are fixed by the project; the rest are Gotham palette colors.
- */
-export const gothamTheme: Theme = {
+/** Minimal slate palette for the OpenTUI footer and native transcript. */
+export const slateTheme: Theme = {
   ...defaultTheme,
-  name: "gotham",
-  border: { color: "#195466", focusColor: "#33859e", style: "rounded" },
+  name: "slate",
+  border: { color: "#3b414b", focusColor: "#a7adb7", style: "rounded" },
   colors: {
-    background: "#0c1014",
-    foreground: "#99d1ce",
-    primary: "#33859e",
-    primaryForeground: "#0c1014",
-    secondary: "#245361",
-    secondaryForeground: "#99d1ce",
-    accent: "#d26937",
-    accentForeground: "#0c1014",
-    success: "#2aa889",
-    successForeground: "#0c1014",
-    warning: "#edb443",
-    warningForeground: "#0c1014",
-    error: "#c23127",
-    errorForeground: "#99d1ce",
-    info: "#599cab",
-    infoForeground: "#0c1014",
-    muted: "#11151c",
-    mutedForeground: "#599cab",
-    border: "#195466",
-    focusRing: "#33859e",
-    selection: "#245361",
-    selectionForeground: "#99d1ce"
+    background: "#101216",
+    foreground: "#d3d6dc",
+    primary: "#a7adb7",
+    primaryForeground: "#101216",
+    secondary: "#292d34",
+    secondaryForeground: "#d3d6dc",
+    accent: "#c0c5ce",
+    accentForeground: "#101216",
+    success: "#aab8ad",
+    successForeground: "#101216",
+    warning: "#c4b99f",
+    warningForeground: "#101216",
+    error: "#c28f91",
+    errorForeground: "#101216",
+    info: "#a7adb7",
+    infoForeground: "#101216",
+    muted: "#181b20",
+    mutedForeground: "#858c97",
+    border: "#3b414b",
+    focusRing: "#a7adb7",
+    selection: "#343942",
+    selectionForeground: "#e0e3e8"
   }
 };
 
-/** Gotham violet for reasoning text; termcn has no dedicated token for it. */
-export const THINKING_COLOR = "#888ca6";
+/** Muted slate for reasoning text; termcn has no dedicated token for it. */
+export const THINKING_COLOR = "#858c97";
 
 export function toneColor(theme: Theme, tone: TranscriptTone): string {
   switch (tone) {

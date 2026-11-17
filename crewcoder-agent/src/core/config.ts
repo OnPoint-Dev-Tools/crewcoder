@@ -296,7 +296,8 @@ function normalizeConfig(input: Partial<CrewCoderConfig>): CrewCoderConfig {
     sandboxNetworkIsolation: input.sandboxNetworkIsolation === "strict" ? "strict" : "proxy",
     activeWorker: typeof input.activeWorker === "string" && input.activeWorker.trim() ? input.activeWorker.trim() : defaultConfig.activeWorker,
     workerIdentityEnabled: input.workerIdentityEnabled === true,
-    checkpointsEnabled: input.checkpointsEnabled !== false,
+    // Opt-in: automatic checkpoints stay off until the user turns them on.
+    checkpointsEnabled: input.checkpointsEnabled === true,
     autoCompact: input.autoCompact !== false,
     ...(typeof input.autoCompactThresholdTokens === "number" && Number.isInteger(input.autoCompactThresholdTokens)
       ? { autoCompactThresholdTokens: Math.min(Math.max(input.autoCompactThresholdTokens, MIN_COMPACT_THRESHOLD), MAX_COMPACT_THRESHOLD) }

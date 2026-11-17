@@ -87,19 +87,12 @@ const MAX_COMMIT_CELLS = 200_000;
 export class ScrollbackWriter {
   private readonly host: ScrollbackHost;
   private readonly theme: Theme;
+  private readonly leadingRows: () => number;
   private readonly committed = new WeakSet<TuiEventBlock>();
   private active: ActiveBlock | undefined;
   private wroteBlock = false;
-  private readonly leadingRows: () => number;
   private pendingBlocks: readonly TuiEventBlock[] = [];
 
-  /**
-   * `leadingRows` is the number of blank rows to write before the first block on
-   * a fresh screen. OpenTUI's inline split footer sits directly under the last
-   * committed row and only reaches the bottom of the terminal once rows push it
-   * there; padding the screen first pins the composer to the bottom from the
-   * first message, with the transcript growing upward above it (a chat layout).
-   */
   constructor(host: ScrollbackHost, theme: Theme, leadingRows: () => number = () => 0) {
     this.host = host;
     this.theme = theme;
@@ -113,10 +106,7 @@ export class ScrollbackWriter {
 
   sync(blocks: readonly TuiEventBlock[], running: boolean): readonly TuiEventBlock[] {
     if (this.active && !blocks.includes(this.active.block)) this.dropActive();
-    if (blocks.length === 0) {
-      // An empty session shows the welcome screen; the next block starts a fresh screen.
-      this.wroteBlock = false;
-    }
+    if (blocks.length === 0) this.wroteBlock = false;
     const pending: TuiEventBlock[] = [];
     let held = false;
     blocks.forEach((block, index) => {

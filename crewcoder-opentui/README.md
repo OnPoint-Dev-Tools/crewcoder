@@ -48,19 +48,22 @@ Implemented now:
   composer. The logo text is shared with the legacy UI through
   `@onpoint-dev-tools/crewcoder-tui-core/theme/logo` and drawn with OpenTUI renderables in
   static bold primary (the legacy color pulse is not ported).
-- **Chat layout**: after the first message the composer is pinned to the bottom of the
-  terminal with the transcript growing upward above it, and the whole window, scrollback
-  included, uses the Gotham background (OSC 11, restored on exit). Idle, the row above the
-  composer shows the key hints.
+- **Chat layout**: on terminals 70 columns and wider, the first submitted message starts at
+  the top of the viewport, with later transcript blocks written below it in order. Narrower
+  terminals keep recent messages near the composer. The window uses a minimal slate
+  background (OSC 11, restored on exit).
+  Approval cards include selectable Approve and Deny controls; the configured Ctrl+Y and
+  Ctrl+N shortcuts remain available.
 - **Native scrollback transcript** (OpenTUI `split-footer`): settled blocks are written to
   the terminal's own scrollback, in order and exactly once, and streaming replies commit
   each finished row as it arrives. Terminal scrolling, search, and copy work on it, and it
   stays visible after quitting. A footer below holds only what is still changing. See
   [`docs/SCROLLBACK.md`](docs/SCROLLBACK.md).
 - Footer components from [termcn](https://www.termcn.dev): running tools (`ToolCall`), the
-  pending approval card with risk level and arguments (`ToolApproval`), and the working
-  spinner (`Spinner`), themed in Gotham. Several upstream issues are fixed in our copies,
-  including a global `y` key that approved tool calls while typing. See
+  pending approval card with risk level, arguments, and selectable decision controls
+  (`ToolApproval`), and the working spinner (`Spinner`), themed in slate. Several upstream
+  issues are fixed in our copies, including a global `y` key that approved tool calls while
+  typing. See
   [`docs/TERMCN.md`](docs/TERMCN.md).
 - Transcript blocks for user (with muted `background` context), assistant, thinking, tool,
   approval, compaction, image, error, and system. Tool output is clamped to 12 lines. Text
@@ -69,26 +72,44 @@ Implemented now:
   labeled placeholder instead of being dropped.
 - New runs, automatic resume of the current session, live follow-ups, approval
   decisions, and abort, all through the shared `crewcoder-tui-core` bridge.
-- `/new` and `/stop`.
+- Multi-line composer: Enter sends, Shift+Enter or Ctrl+J adds a line; it grows to 8 lines.
+- Slash command palette (`/`) with the legacy commands: every picker (`/sessions`,
+  `/provider`, `/model`, `/effort`, `/modes`, `/prompts`, `/tool-mode`, `/profile`,
+  `/rewind`, `/handoff`, ...), settings switches (`/thinking`, `/identity`, `/checkpoints`,
+  `/full-access`, `/memory`, `/task`, `/compact auto`), session tools (`/branch`,
+  `/compact`, `/compact preview` with a summary editor, `/export`, `/goal`, `/reload`,
+  `/clear`), and review tools (`/why`, `/review-summary`, `/extensions`, `/teams`, `/team`).
+  Results show in a status alert above the composer. See
+  [`docs/COMMAND_PALETTE.md`](docs/COMMAND_PALETTE.md).
 - Remote SSH mode, using the same bridge as the legacy UI.
-- Gotham colors (`#0c1014` background, `#195466` border, `#33859e` primary) as termcn
-  theme tokens in `src/theme.ts`.
+- Minimal slate colors (`#101216` background, `#3b414b` border, `#a7adb7` primary) as
+  termcn theme tokens in `src/theme.ts`.
 
 ## Not yet ported
 
-Every other slash command (they report that they are unavailable instead of being sent
-as prompts), the command palette, provider/model/effort/mode pickers, `/sessions`
-resume, themes, the right sidebar, markdown and syntax highlighting in the transcript,
-image attachments and terminal graphics, extension UI questions, compaction preview,
-Live UI, assistant throughput metadata, and the crew/goal views (these show as one-line
+`/crew` (skipped), `/sidebar` and `/file-changes` (wait for the right sidebar); unported
+commands report that they are unavailable instead of being sent as prompts. Also: branching from
+`/sessions`, themes, the right sidebar, markdown and syntax highlighting in the transcript,
+image attachments and terminal graphics, extension UI questions, Live UI, assistant throughput metadata, and the crew/goal views (these show as one-line
 placeholders while live and as labeled rows in scrollback).
 
 ## Architecture
 
 ```txt
 src/cli.tsx                 argument parsing, split-footer renderer, React root
-src/App.tsx                 the footer: welcome screen, or live blocks, approval card, spinner, composer, status
+src/App.tsx                 welcome screen, slash palette, live blocks, approval card, spinner, composer, status
 src/components/Home.tsx     the centered welcome screen
+src/components/ui/command-palette.tsx  termcn command picker presentation
+src/palette-model.ts        pure picker matching, grouped order, windowing, height
+src/pickers.ts              palette catalog, picker kinds, item builders
+src/picker-flows.ts         per-picker loading and selection (PickerHost)
+src/crewcoder-cli.ts        injectable one-shot CrewCoder CLI client
+src/commands.ts             palette catalog, menus, config-backed switches
+src/command-runner.ts       every non-picker slash command (CommandHost)
+src/command-format.ts       goal / why / review-summary / CLI output as alert text
+src/alert-model.ts          footer alert type, clamping, and height
+src/components/Composer.tsx multi-line composer (textarea)
+src/components/SummaryEditor.tsx  /compact preview summary editor
 src/footer-sizer.ts         footer height and the welcome-screen transition, in step with commits
 src/terminal-background.ts  OSC 11 / OSC 111 theme background
 src/scrollback-writer.ts    commits settled blocks to native scrollback (OpenTUI surfaces)
@@ -96,7 +117,7 @@ src/footer-layout.ts        pure footer model and row count for renderer.footerH
 src/session-controller.ts   owns TuiState + bridge; subscribe/getVersion for useSyncExternalStore
 src/transcript.ts           pure block -> display row, and block lifecycle phase
 src/keybindings.ts          DEFAULT_APP_KEYBINDINGS and chord matching
-src/theme.ts                Gotham as termcn theme tokens
+src/theme.ts                slate palette as termcn theme tokens
 src/components/ui/, src/hooks/, src/providers/, src/lib/   vendored termcn (see docs/TERMCN.md)
 @onpoint-dev-tools/crewcoder-tui-core   bridge, event parser, reducer, state (shared with legacy)
 ```

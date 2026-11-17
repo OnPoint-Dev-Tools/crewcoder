@@ -19,8 +19,10 @@ here**; there is no runtime termcn dependency. Attribution is in
 | `src/hooks/use-animation.ts` | `ink/use-animation` | Ink import and screen-reader check removed (see below) |
 | `src/components/ui/tool-call.tsx` | `opentui/tool-call` | see file header |
 | `src/components/ui/tool-approval.tsx` | `opentui/tool-approval` | see file header |
+| `src/components/ui/alert.tsx` | `opentui/alert` | inline row `flexDirection="row"`; bordered variant sets `border`; fixed one-row body `lines`; trimmed props |
+| `src/components/ui/command-palette.tsx` | `opentui/command-palette` | renders a precomputed `PickerView` (filtering/grouping/windowing in `src/palette-model.ts`); keyboard routed by `App`; border title; current-value marker; theme tokens |
 
-Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The Gotham theme
+Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
 (`src/theme.ts`) is CrewCoder's own, expressed as termcn `Theme` tokens.
 
 ## Upstream problems found and fixed in our copies
@@ -28,7 +30,7 @@ Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The Gotham theme
 - **`tool-approval` approved on a bare `y`.** It registered a global `useKeyboard` for
   `y`/`n`/`a`, so typing a prompt containing "y" while an approval was pending would approve
   the tool call. Our copy has no key handling; `App` routes the configured `approve`/`deny`
-  chords (`DEFAULT_APP_KEYBINDINGS`) and passes their labels as hints. It also had an
+  chords (`DEFAULT_APP_KEYBINDINGS`) and passes decision callbacks. It also had an
   auto-deny timer (removed) and defaulted unknown risk to LOW (removed).
 - **`tool-call` and `thinking-block` toggle on every Enter/Space** through global
   `useKeyboard`, which fires while typing in the composer. Our `tool-call` takes a controlled
@@ -38,9 +40,22 @@ Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The Gotham theme
   text stacked and vanished inside one-row boxes. Our copies set `flexDirection="row"`.
 - **`opentui/spinner` depends on `ink/use-animation`**, which imports `ink`. Our
   `use-animation` is the same hook without the Ink import.
+- **`command-palette` owns global keyboard input upstream.** Our copy keeps the
+  presentation, but `SessionController` owns query/navigation state and `App` routes palette
+  keys through `DEFAULT_APP_KEYBINDINGS`. This avoids competing with the composer and other
+  global actions.
+- **`command-palette` selected the wrong item with groups.** Upstream draws items grouped
+  but indexes the selection in fuzzy-sorted order, so with interleaved groups the
+  highlighted row and the selected command differed. It also capped results at 8 with no
+  scrolling. `src/palette-model.ts` produces one grouped order for both, and windows long
+  lists around the cursor.
+- **`alert` draws no border and stacks its title.** Upstream passes `borderColor` and
+  `borderStyle` without `border`, and its icon/title row is a `<box gap={1}>` with no
+  `flexDirection`. Its body was wrapping `children`, so its height was unknown to the footer
+  sizer; ours renders fixed one-row `lines` (`alertRows()` in `src/alert-model.ts`).
 - `text-input` was evaluated and **not** adopted: it hand-parses keys (no paste, single
   characters only) through a global `useKeyboard`. The composer uses OpenTUI's native
-  `<input>`.
+  `<textarea>`.
 
 ## Adding another component
 

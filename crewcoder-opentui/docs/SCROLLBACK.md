@@ -15,7 +15,7 @@ alternate screen.
 │ Line 1 of the reply …                   │  finished rows of a streaming reply
 ├─────────────────────────────────────────┤  ← footer (React, resized per frame)
 │ Line 12 of a                            │  streaming tail: the row still changing
-│ ⠧ Working · escape to abort             │  termcn Spinner
+│ ⠧ Working                               │  termcn Spinner
 │ ╭─────────────────────────────────────╮ │
 │ │ Send a follow-up to the running turn│ │  composer
 │ ╰─────────────────────────────────────╯ │
@@ -48,15 +48,15 @@ Rules the writer depends on:
   blocks must become `live`.
 - **Bounded commits.** Each commit stays under about 200,000 cells (OpenTUI rejects commits
   above about 349,000), so very long replies are committed in chunks.
-- A blank spacer row separates blocks. A streaming block that disappears (for example after
-  `/new`) is dropped; rows already written stay in the terminal.
+- A blank spacer row separates blocks after the first. A streaming block that disappears
+  (for example after `/new`) is dropped; rows already written stay in the terminal.
 
 ## Theme background
 
 OpenTUI paints only the footer; the transcript above it is the terminal's own scrollback.
 Like the legacy UI, `src/terminal-background.ts` sets the terminal's default background to
-Gotham with OSC 11 at startup and restores it with OSC 111 on quit and on process exit, so
-the whole window, scrollback included, carries the theme. These are written outside the
+the slate theme with OSC 11 at startup and restores it with OSC 111 on quit and on process
+exit, so the whole window, scrollback included, carries the theme. These are written outside the
 renderer's lifetime because `capture-stdout` turns stdout writes made while it runs into
 plain scrollback text. Only a `#rrggbb` value may reach the escape sequence.
 
@@ -82,12 +82,11 @@ How the UI works with them:
   is written, and `attachScrollback` writes nothing until `footerSettled` reports the
   resize applied. Writing earlier committed the first message with no room above the
   footer, so it scrolled straight into history.
-- **Bottom-pinned composer.** On a fresh screen the writer first commits
-  `terminalHeight - footerRows` blank rows (`leadingRows`), pushing the footer to the bottom.
-  New rows then land just above the composer and older ones scroll up, a chat layout. The
-  cost is one screen of blank lines in history before the first message.
+- **First message position.** At 70 columns and wider, the writer starts with the first
+  submitted block at the top of the viewport and adds later blocks directly below it. Below
+  70 columns, it prepends blank rows to keep recent output near the composer.
 - **Stable height.** `footerModel()` always reserves the streaming-tail row and the
-  working/hints row (`RESERVED_ROWS`), so a turn finishing never shrinks the footer.
+  working/empty row (`RESERVED_ROWS`), so a turn finishing never shrinks the footer.
   Otherwise the footer is the approval card (`toolApprovalHeight`), up to three running
   tools plus a "more" row, up to two other live blocks, the composer (3), and the status
   line (1). After a temporary growth (approval card, tools) the shrink can leave a gap under
@@ -104,8 +103,8 @@ line, truncated from the left; it always contains the row still being held back.
 ## Verification
 
 - `src/tests/scrollback-writer.test.ts`: ordering, single commit, streaming row hold-back,
-  live blocks holding later ones, trimmed arrays, dropped streaming blocks, fresh-screen
-  padding.
+  live blocks holding later ones, trimmed arrays, dropped streaming blocks, first-block
+  placement.
 - `src/tests/footer-layout.test.ts`, `src/tests/footer-sizer.test.ts`: footer row math,
   reserved rows, the welcome transition, settled detection, the streaming tail.
 - `src/tests/terminal-background.test.ts`: OSC 11/111 and color validation.

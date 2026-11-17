@@ -1,12 +1,14 @@
 import { testRender } from "@opentui/react/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, riskLevel } from "../App.js";
+import { footerModel } from "../footer-layout.js";
 import { applyFooterHeight, footerSettled, prepareFooterForWrites } from "../footer-sizer.js";
 import { ThemeProvider } from "../providers/theme-provider.js";
 import { attachScrollback, ScrollbackWriter } from "../scrollback-writer.js";
 import { SessionController } from "../session-controller.js";
-import { gothamTheme } from "../theme.js";
+import { slateTheme } from "../theme.js";
 import { FakeBridge } from "./fake-bridge.js";
+import { FakeCli, flush } from "./fake-cli.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 let active: Setup | undefined;
@@ -16,27 +18,29 @@ afterEach(async () => {
   active = undefined;
 });
 
-async function renderApp(): Promise<{ setup: Setup; bridge: FakeBridge; onQuit: ReturnType<typeof vi.fn>; scrollbackText: () => Promise<string> }> {
+async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn>; scrollbackText: () => Promise<string> }> {
   const bridge = new FakeBridge();
-  const controller = new SessionController(bridge);
+  const controller = new SessionController(bridge, undefined, cli);
   const onQuit = vi.fn();
   // The writer needs the renderer, which testRender creates; give it a late-bound host.
   let setup: Setup | undefined;
-  const writer = new ScrollbackWriter({ createScrollbackSurface: (options) => setup!.renderer.createScrollbackSurface(options) }, gothamTheme);
+  const writer = new ScrollbackWriter({ createScrollbackSurface: (options) => setup!.renderer.createScrollbackSurface(options) }, slateTheme);
   setup = await testRender(
-    <ThemeProvider theme={gothamTheme}>
+    <ThemeProvider theme={slateTheme}>
       <App controller={controller} scrollback={writer} onQuit={onQuit} />
     </ThemeProvider>,
-    { width: 80, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4 }
+    { width: 80, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4, ...options }
   );
-  attachScrollback(controller, writer, { prepare: () => prepareFooterForWrites(setup!.renderer, controller.state), size: () => applyFooterHeight(setup!.renderer, controller.state, writer), settled: () => footerSettled(setup!.renderer) });
+  // Mirrors cli.tsx, including picker rows, so palette sizing is exercised end to end.
+  const footerState = () => ({ ...controller.state, extras: controller.footerExtras(setup!.renderer.terminalHeight) });
+  attachScrollback(controller, writer, { prepare: () => prepareFooterForWrites(setup!.renderer, footerState()), size: () => applyFooterHeight(setup!.renderer, footerState(), writer), settled: () => footerSettled(setup!.renderer) });
   active = setup;
   await setup.renderOnce();
   const scrollbackText = async (): Promise<string> => {
     await setup!.renderOnce();
     return setup!.externalOutput.takeText();
   };
-  return { setup, bridge, onQuit, scrollbackText };
+  return { setup, bridge, controller, onQuit, scrollbackText };
 }
 
 describe("OpenTUI split-footer App", () => {
@@ -75,8 +79,10 @@ describe("OpenTUI split-footer App", () => {
     const frame = await setup.waitForFrame((text) => text.includes("Tool Approval Required"));
     expect(frame).toContain("[HIGH RISK]");
     expect(frame).toContain("bash");
-    expect(frame).toContain("[^Y] Approve");
-    expect(frame).toContain("[^N] Deny");
+    expect(frame).toContain("Approve");
+    expect(frame).toContain("Deny");
+    expect(frame).not.toContain("^Y");
+    expect(frame).not.toContain("^N");
 
     // Upstream termcn approved on a bare "y"; typing it in the composer must not approve.
     await setup.mockInput.typeText("yes y");
@@ -134,7 +140,7 @@ describe("welcome screen", () => {
     // Centered vertically: blank rows above the logo.
     expect(lines.slice(0, logoRow).every((line) => line.trim() === "")).toBe(true);
     expect(frame).toContain("Ask CrewCoder");
-    expect(frame).toContain("^C quit");
+    expect(frame).not.toContain("quit");
 
     await setup.mockInput.typeText("hello");
     setup.mockInput.pressEnter();
@@ -147,9 +153,9 @@ describe("welcome screen", () => {
     const bridge = new FakeBridge();
     const controller = new SessionController(bridge);
     let setup: Setup | undefined;
-    const writer = new ScrollbackWriter({ createScrollbackSurface: (options) => setup!.renderer.createScrollbackSurface(options) }, gothamTheme);
+    const writer = new ScrollbackWriter({ createScrollbackSurface: (options) => setup!.renderer.createScrollbackSurface(options) }, slateTheme);
     setup = await testRender(
-      <ThemeProvider theme={gothamTheme}>
+      <ThemeProvider theme={slateTheme}>
         <App controller={controller} scrollback={writer} onQuit={() => {}} />
       </ThemeProvider>,
       { width: 60, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4 }
@@ -189,6 +195,124 @@ describe("welcome screen", () => {
     await setup.mockInput.typeText("/new");
     setup.mockInput.pressEnter();
     await setup.waitForFrame((text) => text.includes("Type your first request"));
+  });
+});
+
+describe("pickers", () => {
+  it("sizes the footer to the whole palette in a conversation", async () => {
+    const { setup, bridge, controller } = await renderApp();
+    await setup.mockInput.typeText("hi");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request"));
+
+    await setup.mockInput.typeText("/");
+    const frame = await setup.waitForFrame((text) => text.includes("Esc close") && text.includes("╰"));
+    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(setup.renderer.terminalHeight).overlayRows);
+    expect(frame).toContain("/sessions");
+    expect(frame).toMatch(/1\/\d+/);
+
+    setup.mockInput.pressEscape();
+    // A lone ESC is delivered after the parser's escape-sequence timeout.
+    await vi.waitFor(() => expect(controller.picker).toBeUndefined(), { timeout: 2_000 });
+    await setup.waitForFrame((text) => text.includes("Ask CrewCoder"));
+    expect(bridge.stops).toBe(0);
+  });
+
+  it("puts a chosen prompt command into the composer", async () => {
+    const cli = new FakeCli()
+      .json("command list --json", [{ name: "review", path: "/x/review.md" }])
+      .json("command show review --json", { content: "Review the diff" });
+    const { setup, bridge } = await renderApp(cli);
+
+    await setup.mockInput.typeText("/commands");
+    setup.mockInput.pressEnter();
+    await flush();
+    await setup.waitForFrame((text) => text.includes("review") && text.includes("Insert prompt command"));
+    setup.mockInput.pressEnter();
+    await flush();
+    await setup.waitForFrame((text) => text.includes("Review the diff"));
+
+    setup.mockInput.pressEnter();
+    expect(bridge.runs).toEqual([expect.objectContaining({ prompt: "Review the diff" })]);
+  });
+});
+
+describe("multi-line composer", () => {
+  async function inConversation(options: { kittyKeyboard?: boolean } = {}) {
+    const rendered = await renderApp(new FakeCli(), options);
+    await rendered.setup.mockInput.typeText("hi");
+    rendered.setup.mockInput.pressEnter();
+    rendered.bridge.emit({ type: "agent_end" });
+    await rendered.setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request"));
+    return rendered;
+  }
+
+  it("Shift+Enter adds a line, grows the footer, and Enter sends every line", async () => {
+    const { setup, bridge, controller } = await inConversation({ kittyKeyboard: true });
+    const before = setup.renderer.footerHeight;
+    await setup.mockInput.typeText("first line");
+    setup.mockInput.pressEnter({ shift: true });
+    await setup.mockInput.typeText("second line");
+    await vi.waitFor(() => expect(controller.composerLines).toBe(2));
+    await setup.waitForFrame((text) => text.includes("second line"));
+    expect(setup.renderer.footerHeight).toBe(before + 1);
+
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "first line\nsecond line" });
+    await vi.waitFor(() => expect(setup.renderer.footerHeight).toBe(before));
+  });
+
+  it("Ctrl+J adds a line without the kitty keyboard protocol", async () => {
+    const { setup, bridge } = await inConversation();
+    await setup.mockInput.typeText("a");
+    setup.mockInput.pressKey("j", { ctrl: true });
+    await setup.mockInput.typeText("b");
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "a\nb" });
+  });
+});
+
+describe("alerts", () => {
+  it("shows a command result above the composer until the next key", async () => {
+    const cli = new FakeCli();
+    cli.json("config show", { thinkingEnabled: true });
+    const { setup, bridge, controller } = await renderApp(cli);
+    await setup.mockInput.typeText("hi");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request"));
+
+    controller.submit("/thinking status");
+    await flush();
+    const frame = await setup.waitForFrame((text) => text.includes("Provider thinking: on"));
+    const lines = frame.split("\n");
+    expect(lines.findIndex((line) => line.includes("Provider thinking: on"))).toBeLessThan(lines.findIndex((line) => line.includes("CrewCoder") && line.includes("│")));
+    expect(controller.footerExtras(24).alertRows).toBe(3);
+    expect(setup.renderer.footerHeight).toBe(footerModel([], false, controller.footerExtras(24)).rows);
+
+    await setup.mockInput.typeText("x");
+    await setup.waitForFrame((text) => !text.includes("Provider thinking: on"));
+    expect(controller.currentAlert).toBeUndefined();
+  });
+});
+
+describe("compaction summary editor", () => {
+  it("edits the summary in the footer and applies it with Ctrl+S", async () => {
+    const { setup, bridge, controller } = await renderApp();
+    await setup.mockInput.typeText("long task");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "session_compaction_preview", previewId: "p-1", summary: "proposed summary" });
+    await setup.waitForFrame((text) => text.includes("Edit compaction summary") && text.includes("proposed summary"));
+    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(24).overlayRows);
+
+    await setup.mockInput.typeText(" plus");
+    setup.mockInput.pressKey("s", { ctrl: true });
+    await vi.waitFor(() => expect(bridge.previewResolutions).toHaveLength(1));
+    expect(bridge.previewResolutions[0]).toMatchObject({ previewId: "p-1", approved: true });
+    // The cursor opens after the summary, so typing appends.
+    expect(bridge.previewResolutions[0]?.summary).toBe("proposed summary plus");
+    expect(controller.editor).toBeUndefined();
   });
 });
 

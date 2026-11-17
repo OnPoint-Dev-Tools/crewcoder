@@ -1,16 +1,21 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
-import { footerHeight, footerModel, isHome } from "./footer-layout.js";
+import { footerHeight, footerModel, isHome, type FooterExtras } from "./footer-layout.js";
 
 export type FooterHost = { footerHeight: number; readonly terminalHeight: number; readonly height: number };
 
-type FooterState = { readonly blocks: readonly TuiEventBlock[]; readonly running: boolean };
+type FooterState = {
+  readonly blocks: readonly TuiEventBlock[];
+  readonly running: boolean;
+  /** Picker/editor, alert, and composer rows (`SessionController.footerExtras`). */
+  readonly extras?: FooterExtras;
+};
 type FooterScrollback = { readonly pending: readonly TuiEventBlock[] };
 
 /** Set the split-footer height for the current state; see attachScrollback for ordering. */
 export function applyFooterHeight(host: FooterHost, state: FooterState, scrollback: FooterScrollback): void {
   const rows = footerHeight({
     home: isHome(state.blocks, state.running),
-    contentRows: footerModel(scrollback.pending, state.running).rows,
+    contentRows: footerModel(scrollback.pending, state.running, state.extras).rows,
     terminalHeight: host.terminalHeight
   });
   if (host.footerHeight !== rows) host.footerHeight = rows;
@@ -26,7 +31,7 @@ export function applyFooterHeight(host: FooterHost, state: FooterState, scrollba
  */
 export function prepareFooterForWrites(host: FooterHost, state: FooterState): void {
   if (isHome(state.blocks, state.running) || host.footerHeight < host.terminalHeight) return;
-  const rows = footerModel([], state.running).rows;
+  const rows = footerModel([], state.running, state.extras).rows;
   if (host.footerHeight !== rows) host.footerHeight = rows;
 }
 

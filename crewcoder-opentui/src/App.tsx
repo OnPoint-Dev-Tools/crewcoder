@@ -1,16 +1,21 @@
 import os from "node:os";
-import type { InputRenderable } from "@opentui/core";
+import type { TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { alertLines } from "./alert-model.js";
+import { Alert } from "./components/ui/alert.js";
 import { Spinner } from "./components/ui/spinner.js";
 import { ToolApproval, type RiskLevel } from "./components/ui/tool-approval.js";
 import { ToolCall } from "./components/ui/tool-call.js";
+import { CommandPalette } from "./components/ui/command-palette.js";
+import { Composer } from "./components/Composer.js";
 import { Home } from "./components/Home.js";
-import { footerModel, isHome, shortenPath, streamingTail } from "./footer-layout.js";
+import { SummaryEditor } from "./components/SummaryEditor.js";
+import { COMPOSER_ROWS, footerModel, isHome, shortenPath, streamingTail } from "./footer-layout.js";
 import { useTheme } from "./hooks/use-theme.js";
-import { actionLabel, matchesAction, type KeyLike } from "./keybindings.js";
+import { matchesAction, type KeyLike } from "./keybindings.js";
 import type { ScrollbackWriter } from "./scrollback-writer.js";
-import type { SessionController } from "./session-controller.js";
+import { summaryEditorTextRows, type SessionController } from "./session-controller.js";
 import { toneColor } from "./theme.js";
 import { blockToRow } from "./transcript.js";
 
@@ -33,42 +38,126 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
   // re-renders on resize, so renderer.terminalHeight below stays current.
   const { width } = useTerminalDimensions();
   const theme = useTheme();
-  const inputRef = useRef<InputRenderable>(null);
+  const inputRef = useRef<TextareaRenderable>(null);
+  const editorRef = useRef<TextareaRenderable>(null);
   const state = controller.state;
-  const model = footerModel(scrollback.pending, state.running);
+  const picker = controller.picker;
+  const editor = controller.editor;
+  const overlayOpen = picker !== undefined || editor !== undefined;
+  const extras = controller.footerExtras(renderer.terminalHeight);
+  const model = footerModel(scrollback.pending, state.running, extras);
   const home = isHome(state.blocks, state.running);
 
+  useEffect(() => {
+    if (overlayOpen) inputRef.current?.blur();
+    else inputRef.current?.focus();
+  }, [overlayOpen]);
+
+  // Pickers such as /commands hand text to the uncontrolled composer. The
+  // composer unmounts while a picker is open, so apply each draft once, after
+  // it remounts.
+  const appliedDraft = useRef(0);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (controller.composerDraftVersion === appliedDraft.current || !input) return;
+    appliedDraft.current = controller.composerDraftVersion;
+    input.setText(controller.composerDraft);
+    input.gotoBufferEnd();
+  }, [controller.composerDraftVersion, controller.composerDraft, overlayOpen]);
+
   useKeyboard((key: KeyLike) => {
-    if (matchesAction(key, "quit")) onQuit();
-    else if (model.approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
+    if (matchesAction(key, "quit")) {
+      onQuit();
+      return;
+    }
+    // An alert lasts until the next key; the key itself still does its job.
+    controller.dismissAlert();
+    // Read overlays live, not from this render: keys typed right after "/"
+    // can arrive before React re-renders. Global handlers run before the
+    // focused textarea, so preventDefault keeps it from also taking the key
+    // (the composer would otherwise submit its leftover text on Enter).
+    if (controller.picker) {
+      key.preventDefault?.();
+      if (matchesAction(key, "paletteClose")) controller.closePicker();
+      else if (matchesAction(key, "paletteUp")) controller.movePickerCursor(-1);
+      else if (matchesAction(key, "paletteDown")) controller.movePickerCursor(1);
+      else if (matchesAction(key, "paletteSelect")) controller.selectPickerItem();
+      else if (matchesAction(key, "paletteBackspace")) controller.setPickerQuery(controller.pickerQuery.slice(0, -1));
+      else if (!key.ctrl && !key.meta && key.name.length === 1) controller.setPickerQuery(controller.pickerQuery + key.name);
+      return;
+    }
+    if (controller.editor) {
+      // Other keys edit the summary in the focused textarea.
+      if (matchesAction(key, "summaryApply")) {
+        key.preventDefault?.();
+        controller.resolveSummary(true, editorRef.current?.plainText ?? controller.editor.summary);
+      } else if (matchesAction(key, "summaryReset")) {
+        key.preventDefault?.();
+        editorRef.current?.setText(controller.editor.summary);
+      } else if (matchesAction(key, "summaryCancel")) {
+        key.preventDefault?.();
+        controller.resolveSummary(false, "");
+      }
+      return;
+    }
+    if (model.approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
     else if (model.approval && matchesAction(key, "deny")) controller.resolvePendingApproval(false);
     else if (matchesAction(key, "abort")) controller.abort();
   });
 
-  const submit = (value: string): void => {
-    controller.submit(value);
-    // The input is uncontrolled; clear the native buffer after each submission.
-    if (inputRef.current) inputRef.current.value = "";
+  const submit = (text: string): void => {
+    // The composer is uncontrolled; clear its buffer after each submission.
+    inputRef.current?.setText("");
+    controller.setComposerLines(1);
+    controller.submit(text);
   };
 
   const status = [
     state.provider,
-    state.model,
-    state.mode,
+    `${state.model} (${state.effort})`,
+    state.worker ? `worker ${state.worker}` : state.mode,
     state.sessionId === "new" ? "new session" : state.sessionId
   ].join(" · ");
 
   const composer = (
-    <box border borderStyle="rounded" borderColor={theme.border.color} height={3} flexShrink={0} paddingLeft={1} paddingRight={1}>
-      <input
-        ref={inputRef}
-        focused
-        placeholder={state.running ? "Send a follow-up to the running turn" : "Ask CrewCoder"}
-        textColor={theme.colors.foreground}
-        onSubmit={submit}
-      />
-    </box>
+    <Composer
+      inputRef={inputRef}
+      lines={controller.composerLines}
+      placeholder={state.running ? "Send a follow-up to the running turn" : "Ask CrewCoder"}
+      onLines={(lines) => controller.setComposerLines(lines)}
+      onSlash={() => controller.openCommandPalette()}
+      onSubmit={submit}
+    />
   );
+
+  const alert = controller.currentAlert
+    ? <Alert variant={controller.currentAlert.variant} title={controller.currentAlert.title} lines={alertLines(controller.currentAlert)} />
+    : null;
+
+  const view = controller.pickerView(renderer.terminalHeight);
+  if (picker && view) {
+    return (
+      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent={home ? "center" : "flex-start"} alignItems="center">
+        <box width={Math.max(1, Math.min(width - 2, 80))} flexShrink={0}>
+          <CommandPalette
+            view={view}
+            query={controller.pickerQuery}
+            title={picker.title}
+            placeholder={picker.placeholder}
+            emptyText={picker.loading ? "Loading…" : picker.emptyText}
+          />
+        </box>
+      </box>
+    );
+  }
+
+  if (editor) {
+    return (
+      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent={home ? "center" : "flex-start"}>
+        <SummaryEditor editor={editor} editorRef={editorRef} textRows={summaryEditorTextRows(renderer.terminalHeight)} />
+      </box>
+    );
+  }
 
   if (home) {
     return (
@@ -77,8 +166,9 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
           width={width}
           height={renderer.terminalHeight}
           info={homeInfo(state.provider, state.model, state.cwd, state.remoteTarget, width)}
-          hint={`${actionLabel("quit")} quit`}
           composer={composer}
+          alert={alert}
+          extraRows={(extras.alertRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
         />
       </box>
     );
@@ -114,20 +204,19 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
           description={model.approval.text}
           args={model.approval.args}
           risk={riskLevel(model.approval.risk)}
-          approveHint={actionLabel("approve")}
-          denyHint={actionLabel("deny")}
+          onApprove={() => controller.resolvePendingApproval(true)}
+          onDeny={() => controller.resolvePendingApproval(false)}
         />
       ) : null}
-      {/* Reserved row (RESERVED_ROWS): the working spinner, or key hints when idle. */}
+      {/* Reserved row (RESERVED_ROWS): the working spinner, or empty when idle. */}
       {model.working ? (
         <box height={1} flexShrink={0}>
-          <Spinner label={`Working · ${actionLabel("abort")} to abort`} />
+          <Spinner label="Working" />
         </box>
       ) : (
-        <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0} paddingLeft={1}>
-          {`${actionLabel("abort")} abort · ${actionLabel("approve")} approve · ${actionLabel("deny")} deny · ${actionLabel("quit")} quit`}
-        </text>
+        <text height={1} wrapMode="none" flexShrink={0} />
       )}
+      {alert}
       {composer}
       <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0} paddingLeft={1}>{status}</text>
     </box>

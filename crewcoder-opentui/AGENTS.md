@@ -48,16 +48,21 @@ scrollback, written by `ScrollbackWriter`; the React tree renders only the foote
   footer's own size in split-footer mode). Keep the big logo centered; it is the owner's
   landing identity. Below 70 columns or when too short, show only the composer; do not
   bring back the compact or mini logo (owner rejected them).
-- After the first message the composer must stay pinned to the bottom with the Gotham
-  background across the whole window. Preserve the mechanisms in `docs/SCROLLBACK.md`
-  "Footer geometry": OSC 11/111 written outside the renderer lifetime, the welcome
-  transition sized before writing and writes deferred until `footerSettled`, fresh-screen
-  `leadingRows` padding, `RESERVED_ROWS`, `trailingNewline` on final commits, and all
-  other sizing after `writer.sync`. Footer sizing never lives in a React effect.
+- On terminals 70 columns and wider, the first submitted user message starts at the top
+  of the viewport; later transcript blocks follow below it in order. On narrower terminals,
+  use fresh-screen padding so the latest messages stay near the composer. Preserve the
+  mechanisms in `docs/SCROLLBACK.md` "Footer geometry": OSC 11/111 written outside the
+  renderer lifetime, the welcome transition sized before writing and writes deferred until
+  `footerSettled`, `RESERVED_ROWS`, `trailingNewline` on final commits, and all other sizing
+  after `writer.sync`. Footer sizing never lives in a React effect. The default theme is
+  minimal slate; keep transcript and footer colors synchronized.
 - Verify layout changes in a real terminal (detached `tmux` on its own socket with a fake
   agent via `CREWCODER_BIN`); the test renderer does not model split-footer scrolling.
 - Footer rows are fixed height (`height={1}`, `wrapMode="none"`, `flexShrink={0}`) and
-  `footerModel().rows` must equal what `App` renders; update both together.
+  `footerModel().rows` must equal what `App` renders; update both together. Variable parts
+  (open picker or summary editor, alert, composer lines) come only from
+  `controller.footerExtras(terminalHeight)`, passed to `footerModel` by both `App` and
+  `cli.tsx`.
 
 ## termcn components
 
@@ -68,6 +73,8 @@ break the tsc/NodeNext build. When vendoring or updating a component:
 - Remove global `useKeyboard` handlers. Upstream `tool-approval` approved on a bare `y`
   while the user typed; keys go through `DEFAULT_APP_KEYBINDINGS` in `App`.
 - Set `flexDirection="row"` on inline rows (OpenTUI defaults to column, unlike Ink).
+- Bordered boxes need `border`; upstream components that pass only `borderColor`/`borderStyle`
+  draw no border in OpenTUI (`alert`).
 - Replace hardcoded colors with theme tokens and stop timers when idle.
 - Never default an unknown approval risk to a level; map the agent's
   `safe | review | dangerous` explicitly (`riskLevel`).
@@ -78,12 +85,35 @@ break the tsc/NodeNext build. When vendoring or updating a component:
 - `App.tsx` stays presentational. Session behavior belongs in `SessionController`;
   display conversion and block phases belong in the pure `transcript.ts`.
 - Route every key check through `DEFAULT_APP_KEYBINDINGS` / `matchesAction`; never compare
-  key names inline.
+  key names inline. The slash palette and every picker are controlled by `SessionController`
+  (`picker`, `pickerQuery`, `pickerCursor`); flows live in `picker-flows.ts` behind
+  `PickerHost`. The cursor indexes `pickerEntries()` order, which is also the drawn order.
+  While a picker is open, `App` reads `controller.picker` live (not the render value) and
+  calls `key.preventDefault()` so keys typed right after `/` never reach the composer.
+- Picker CLI calls go through the injectable `CrewCoderCli` (`crewcoder-cli.ts`); tests use
+  `FakeCli` and must never spawn the real agent. Destructive picks (rewind that deletes
+  files) need a confirm picker that opens on Cancel. See `docs/COMMAND_PALETTE.md`.
 - Agent text must pass through `normalize()` before rendering.
+- Non-picker slash commands live in `command-runner.ts` behind `CommandHost`; the palette
+  catalog and menus are in `commands.ts`. Status, on/off, and text-output results are
+  footer alerts (`controller.alert`, vendored termcn `alert`) that last until the next key;
+  they never go into the transcript. Only `/approve-plan` sends a prompt. `/why` is a
+  one-shot `session why` call and must never push a turn. `/crew` is skipped by owner
+  decision; `/sidebar` and `/file-changes` wait for the sidebar port. Picker commands
+  take their value directly (`/effort high`) through `PickerFlows.applyArgument`, which
+  must reuse the same selection path as the picker. `/plugins` is listed only under the
+  `crewcode` profile (`paletteCommands`).
 - Unported slash commands must report that they are unavailable; never send them to the
   agent as prompts.
-- The composer `<input>` is uncontrolled; clear it through the ref after submit. A
-  controlled `value=""` does not reset it because the prop never changes.
+- The composer is a multi-line `<textarea>` (`components/Composer.tsx`), uncontrolled:
+  read and clear it through the ref (`plainText`, `setText`). Enter submits;
+  Shift+Enter, Ctrl+J (`ctrl+j` under kitty, `linefeed` otherwise) insert a newline, all
+  from `DEFAULT_APP_KEYBINDINGS` via `textareaBindings`. Its height comes from
+  `wrappedLineCount`, not the textarea's `virtualLineCount` (that only covers the current
+  viewport, so the composer could never grow).
+- `/clear` wipes the screen and scrollback with `renderer.resetSplitFooterForReplay({
+  clearSavedLines: true })` (wired in `cli.tsx`); never write raw escapes to stdout, which is
+  captured as transcript in split-footer mode.
 
 ## Verification
 
@@ -97,11 +127,17 @@ Tests that protect current behavior:
 ```txt
 src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, unported commands
 src/tests/transcript.test.ts          row mapping, block phases, control stripping
-src/tests/scrollback-writer.test.ts   order, single commit, streaming hold-back, live blocking, trimmed arrays
+src/tests/scrollback-writer.test.ts   first block placement, order, single commit, streaming hold-back, live blocking, trimmed arrays
 src/tests/footer-layout.test.ts       footer row math, reserved rows, approval height, streaming tail, home logo rule
 src/tests/footer-sizer.test.ts        welcome transition, after-write sizing, settled detection
 src/tests/terminal-background.test.ts OSC 11/111 and color validation
-src/tests/app.test.tsx                scrollback + footer end to end; bare "y" never approves; abort, quit;
+src/tests/command-palette.test.tsx    pickerHeight equals the rendered palette; grouped order matches cursor; long lists scroll
+src/tests/picker-flows.test.ts        every picker against FakeCli: chains, resume, skills, rewind confirm, busy guards
+src/tests/app.test.tsx (pickers)      footer sized to the palette; fast "/commands" typing reaches the palette, not the composer
+src/tests/app.test.tsx (composer)     Shift+Enter / Ctrl+J newline, footer grows, Enter sends every line; alert until next key;
+                                      summary editor opens at the end and applies with Ctrl+S
+src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts, compaction preview
+src/tests/app.test.tsx                scrollback + footer end to end; bare "y" never approves; abort, quit; approval buttons;
                                       welcome screen centered, left on first prompt, restored by /new
 src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags
 ```

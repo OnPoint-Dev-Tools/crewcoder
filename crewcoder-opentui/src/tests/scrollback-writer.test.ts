@@ -2,7 +2,7 @@ import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScrollbackWriter } from "../scrollback-writer.js";
-import { gothamTheme } from "../theme.js";
+import { slateTheme } from "../theme.js";
 
 let active: TestRendererSetup | undefined;
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 async function setup(width = 40): Promise<{ term: TestRendererSetup; writer: ScrollbackWriter; flush: () => Promise<string[]> }> {
   const term = await createTestRenderer({ width, height: 20, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4 });
   active = term;
-  const writer = new ScrollbackWriter(term.renderer, gothamTheme);
+  const writer = new ScrollbackWriter(term.renderer, slateTheme);
   const flush = async (): Promise<string[]> => {
     await term.renderOnce();
     return term.externalOutput.take().flatMap((commit) => commit.rows.map((row) => row.trimEnd()));
@@ -85,15 +85,15 @@ describe("ScrollbackWriter", () => {
     expect(await flush()).toEqual(["", "SYSTEM", "c"]);
   });
 
-  it("pads a fresh screen once so the footer starts at the bottom, and again after /new", async () => {
+  it("starts at the top on wide screens and pins a fresh narrow screen to the bottom", async () => {
     const { term, flush } = await setup();
-    const writer = new ScrollbackWriter(term.renderer, gothamTheme, () => 3);
+    const writer = new ScrollbackWriter(term.renderer, slateTheme, () => term.renderer.terminalWidth < 70 ? 3 : 0);
     writer.sync([{ type: "user", text: "one" }, { type: "assistant", text: "two" }], false);
     expect(await flush()).toEqual(["", "", "", "YOU", "one", "", "CREW CODER", "two"]);
 
     writer.sync([], false);
     writer.sync([{ type: "user", text: "fresh" }], false);
-    expect(await flush()).toEqual(["", "", "", "YOU", "fresh"]);
+    expect((await flush()).filter(Boolean)).toEqual(["YOU", "fresh"]);
   });
 
   it("drops a streaming block that disappears, such as after /new", async () => {

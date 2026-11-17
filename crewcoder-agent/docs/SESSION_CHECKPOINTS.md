@@ -39,7 +39,7 @@ The session record also stores checkpoint metadata in `SessionRecord.checkpoints
 
 ## Enable or disable automatic checkpoints
 
-Automatic checkpoints are enabled by default, including for existing config files that do not yet contain the setting. Persist the preference with:
+Automatic checkpoints are off by default, including for existing config files that do not yet contain the setting; only an explicit `true` turns them on (and `/rewind` has nothing to restore until then). Persist the preference with:
 
 ```bash
 crewcoder config set checkpointsEnabled true

@@ -81,7 +81,7 @@ describe("SessionController", () => {
     expect(controller.state.running).toBe(false);
 
     controller.submit("/stop");
-    expect(controller.state.blocks.at(-1)).toMatchObject({ type: "system", text: "Nothing is running." });
+    expect(controller.currentAlert).toMatchObject({ variant: "info", title: "Nothing is running" });
   });
 
   it("/new clears session-scoped state and starts a fresh run next", () => {
@@ -103,12 +103,12 @@ describe("SessionController", () => {
 
   it("reports unported slash commands instead of sending them as prompts", () => {
     const { bridge, controller } = setup();
-    controller.submit("/goal ship it");
+
+    controller.submit("/sidebar");
 
     expect(bridge.runs).toHaveLength(0);
-    expect(controller.state.blocks).toEqual([
-      { type: "error", text: expect.stringContaining("/goal is not available in the OpenTUI preview") }
-    ]);
+    expect(controller.state.blocks).toEqual([]);
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "/sidebar is not available in OpenTUI yet" });
   });
 
   it("ignores blank input", () => {

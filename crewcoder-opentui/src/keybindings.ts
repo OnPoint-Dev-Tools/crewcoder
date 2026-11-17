@@ -1,10 +1,16 @@
-export type AppAction = "abort" | "quit" | "approve" | "deny";
+export type AppAction =
+  | "abort" | "quit" | "approve" | "deny"
+  | "paletteClose" | "paletteUp" | "paletteDown" | "paletteSelect" | "paletteBackspace"
+  | "composerSubmit" | "composerNewline"
+  | "summaryApply" | "summaryReset" | "summaryCancel";
 
 export type KeyLike = {
   name: string;
   ctrl: boolean;
   meta: boolean;
   shift: boolean;
+  /** OpenTUI KeyEvent: stops the focused renderable (the composer) from also handling the key. */
+  preventDefault?: () => void;
 };
 
 /**
@@ -15,8 +21,36 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   abort: ["escape"],
   quit: ["ctrl+c"],
   approve: ["ctrl+y"],
-  deny: ["ctrl+n"]
+  deny: ["ctrl+n"],
+  paletteClose: ["escape"],
+  paletteUp: ["up"],
+  paletteDown: ["down"],
+  paletteSelect: ["return"],
+  paletteBackspace: ["backspace", "delete"],
+  // Shift+Enter needs the kitty keyboard protocol (on by default). Ctrl+J works
+  // everywhere: kitty reports it as ctrl+j, legacy terminals as "linefeed".
+  composerSubmit: ["return", "kpenter"],
+  composerNewline: ["shift+return", "ctrl+j", "linefeed", "meta+return"],
+  summaryApply: ["ctrl+s"],
+  summaryReset: ["ctrl+r"],
+  summaryCancel: ["escape"]
 };
+
+/** An OpenTUI textarea key binding (`@opentui/core` `KeyBinding`). */
+export type TextareaBinding<Action extends string> = { name: string; ctrl?: boolean; meta?: boolean; shift?: boolean; action: Action };
+
+/** Textarea bindings for app actions, so composer keys stay configurable. */
+export function textareaBindings<Action extends string>(
+  actions: Readonly<Partial<Record<AppAction, Action>>>,
+  bindings: Readonly<Record<AppAction, readonly string[]>> = DEFAULT_APP_KEYBINDINGS
+): TextareaBinding<Action>[] {
+  return (Object.entries(actions) as Array<[AppAction, Action]>).flatMap(([appAction, action]) =>
+    bindings[appAction].map((chord) => {
+      const parts = chord.toLowerCase().split("+");
+      const name = parts.pop() ?? "";
+      return { name, ctrl: parts.includes("ctrl"), meta: parts.includes("meta"), shift: parts.includes("shift"), action };
+    }));
+}
 
 export function matchesAction(
   key: KeyLike,

@@ -845,7 +845,7 @@ Guarded by `src/tests/stall-detector.test.ts` and `src/tests/agent-loop.test.ts`
 
 ## Runtime guardrails
 
-Filesystem checkpoints are default-on full bounded snapshots (up to 2,000 files/25 MB) and retain only the 10 newest per session; creating another checkpoint removes the oldest snapshot and its session metadata. `config.checkpointsEnabled=false` disables automatic pre-mutation snapshots for future runs without deleting existing checkpoints.
+Filesystem checkpoints are opt-in (default off; `crewcoder config set checkpointsEnabled true` or `/checkpoints on`) full bounded snapshots (up to 2,000 files/25 MB) and retain only the 10 newest per session; creating another checkpoint removes the oldest snapshot and its session metadata. A missing or non-`true` `config.checkpointsEnabled` means off; turning it off again stops pre-mutation snapshots for future runs without deleting existing checkpoints.
 
 Per-session token budgets are cumulative provider-reported totals, distinct from `currentContextTokens()` live context occupancy. `--budget`/`--max-tokens` persist through `UsageSummary.tokenBudget`; emit warning at 80%, compact before continued tool-driven work when possible, and stop before pending tools or another model turn after the limit. Budget-exhaustion handoff creates a fresh parent-linked session whose only conversation input is the bounded compact summary; never copy the original transcript or exhausted usage into that child. Never change auto-compaction to use cumulative budget totals. `--verify` runs package typecheck/test scripts plus executable trusted extension `validators` and emits `verification_start`/`verification_end`. See `docs/RUNTIME_GUARDRAILS.md`.
 

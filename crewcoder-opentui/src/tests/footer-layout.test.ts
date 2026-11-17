@@ -1,7 +1,7 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { describe, expect, it } from "vitest";
 import { toolApprovalHeight } from "../components/ui/tool-approval.js";
-import { COMPOSER_ROWS, footerModel, footerHeight, HOME_BODY_ROWS, homeComposerWidth, homeLogo, isHome, shortenPath, MAX_FOOTER_TOOLS, RESERVED_ROWS, STATUS_ROWS, streamingTail } from "../footer-layout.js";
+import { COMPOSER_ROWS, composerRows, MAX_COMPOSER_LINES, wrappedLineCount, footerModel, footerHeight, HOME_BODY_ROWS, homeComposerWidth, homeLogo, isHome, shortenPath, MAX_FOOTER_TOOLS, RESERVED_ROWS, STATUS_ROWS, streamingTail } from "../footer-layout.js";
 
 const tool = (id: string): TuiEventBlock => ({ type: "tool", id, name: "bash", status: "running" });
 
@@ -91,5 +91,22 @@ describe("footerHeight", () => {
 
   it("is just its content in a conversation", () => {
     expect(footerHeight({ home: false, contentRows: 6, terminalHeight: 30 })).toBe(6);
+  });
+});
+
+describe("composer sizing", () => {
+  it("counts word-wrapped lines like the textarea", () => {
+    expect(wrappedLineCount("", 10)).toBe(1);
+    expect(wrappedLineCount("a\nb\n", 10)).toBe(3);
+    expect(wrappedLineCount("hello world", 11)).toBe(1);
+    expect(wrappedLineCount("hello world", 8)).toBe(2);
+    expect(wrappedLineCount("x".repeat(25), 10)).toBe(3);
+  });
+
+  it("grows the footer with the composer up to the cap", () => {
+    expect(composerRows(1)).toBe(COMPOSER_ROWS);
+    expect(composerRows(100)).toBe(MAX_COMPOSER_LINES + 2);
+    expect(footerModel([], false, { composerRows: composerRows(3), alertRows: 4 }).rows).toBe(footerModel([], false).rows + 2 + 4);
+    expect(footerModel([], false, { overlayRows: 9, alertRows: 4 }).rows).toBe(9);
   });
 });
