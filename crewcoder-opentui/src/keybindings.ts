@@ -2,7 +2,9 @@ export type AppAction =
   | "abort" | "quit" | "approve" | "deny"
   | "paletteClose" | "paletteUp" | "paletteDown" | "paletteSelect" | "paletteBackspace"
   | "composerSubmit" | "composerNewline"
-  | "summaryApply" | "summaryReset" | "summaryCancel";
+  | "summaryApply" | "summaryReset" | "summaryCancel"
+  | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
+  | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown";
 
 export type KeyLike = {
   name: string;
@@ -33,7 +35,18 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   composerNewline: ["shift+return", "ctrl+j", "linefeed", "meta+return"],
   summaryApply: ["ctrl+s"],
   summaryReset: ["ctrl+r"],
-  summaryCancel: ["escape"]
+  summaryCancel: ["escape"],
+  // Extension questions. Left/right only move between choices for confirm,
+  // select, and component questions; a text question leaves them to its field.
+  questionPrev: ["up", "left"],
+  questionNext: ["down", "right"],
+  questionSubmit: ["return", "kpenter"],
+  questionCancel: ["escape"],
+  // Bare y/n answer only a Yes/No question, which has no text field to type into.
+  questionYes: ["y"],
+  questionNo: ["n"],
+  questionScrollUp: ["pageup"],
+  questionScrollDown: ["pagedown"]
 };
 
 /** An OpenTUI textarea key binding (`@opentui/core` `KeyBinding`). */
@@ -68,10 +81,12 @@ export function actionLabel(
   const parts = (bindings[action][0] ?? "").split("+");
   const key = parts.pop() ?? "";
   const prefix = parts.map((modifier) => MODIFIER_LABELS[modifier] ?? `${modifier}+`).join("");
-  return `${prefix}${key.length === 1 ? key.toUpperCase() : key}`;
+  const name = Object.hasOwn(KEY_LABELS, key) ? KEY_LABELS[key] : key.length === 1 ? key.toUpperCase() : key;
+  return `${prefix}${name}`;
 }
 
 const MODIFIER_LABELS: Readonly<Record<string, string>> = { ctrl: "^", meta: "M-", shift: "S-" };
+const KEY_LABELS: Readonly<Record<string, string>> = { return: "Enter", escape: "Esc", pageup: "PgUp", pagedown: "PgDn" };
 
 function matchesChord(key: KeyLike, chord: string): boolean {
   const parts = chord.toLowerCase().split("+");

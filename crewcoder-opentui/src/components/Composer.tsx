@@ -13,6 +13,8 @@ export type ComposerProps = {
   placeholder: string;
   /** Visual line count changed (the footer is resized from it). */
   onLines: (lines: number) => void;
+  /** The text changed; kept so a draft survives an overlay that unmounts the composer. */
+  onText: (text: string) => void;
   /** "/" typed into an empty composer. */
   onSlash: () => void;
   onSubmit: (text: string) => void;
@@ -23,7 +25,7 @@ export type ComposerProps = {
  * clear it through `inputRef`. It grows with its wrapped content up to
  * MAX_COMPOSER_LINES, then scrolls.
  */
-export function Composer({ inputRef, lines, placeholder, onLines, onSlash, onSubmit }: ComposerProps): ReactNode {
+export function Composer({ inputRef, lines, placeholder, onLines, onText, onSlash, onSubmit }: ComposerProps): ReactNode {
   const theme = useTheme();
   const rows = composerRows(lines);
   return (
@@ -46,6 +48,7 @@ export function Composer({ inputRef, lines, placeholder, onLines, onSlash, onSub
             onSlash();
             return;
           }
+          onText(input.plainText);
           onLines(wrappedLineCount(input.plainText, input.width));
         }}
         onSubmit={() => {

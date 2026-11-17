@@ -11,6 +11,7 @@ export class FakeBridge implements SessionBridge {
   approvals: Array<{ id: string; approved: boolean }> = [];
   previewRequests = 0;
   previewResolutions: Array<{ previewId: string; approved: boolean; summary?: string }> = [];
+  uiResponses: Array<{ requestId: string; value: string | boolean | null }> = [];
   stops = 0;
   private handler: CrewCoderEventHandler | undefined;
 
@@ -41,6 +42,11 @@ export class FakeBridge implements SessionBridge {
 
   resolveCompactionPreview(previewId: string, approved: boolean, summary?: string): boolean {
     this.previewResolutions.push({ previewId, approved, summary });
+    return this.running;
+  }
+
+  resolveUiRequest(requestId: string, value: string | boolean | null): boolean {
+    this.uiResponses.push({ requestId, value });
     return this.running;
   }
 

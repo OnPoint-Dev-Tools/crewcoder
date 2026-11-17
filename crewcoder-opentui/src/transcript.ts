@@ -86,6 +86,14 @@ export function blockToRow(block: TuiEventBlock): TranscriptRow {
       return { label: `COMPACTION · ${block.status}`, tone: "system", text: normalize(block.message) };
     case "image":
       return { label: "IMAGE", tone: "muted", text: block.attachment.path };
+    case "extension_ui":
+      // The question and its outcome only; extension and request ids stay internal.
+      return {
+        label: `QUESTION · ${block.status}`,
+        tone: "approval",
+        text: normalize(block.title),
+        detail: block.answer !== undefined ? `Answer: ${normalize(block.answer)}` : undefined
+      };
     default:
       // Structured blocks (goals, crews, live UI, ...) are not ported yet. Show
       // that something happened rather than silently dropping the event.

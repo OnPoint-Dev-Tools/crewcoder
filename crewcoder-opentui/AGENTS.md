@@ -60,8 +60,8 @@ scrollback, written by `ScrollbackWriter`; the React tree renders only the foote
   agent via `CREWCODER_BIN`); the test renderer does not model split-footer scrolling.
 - Footer rows are fixed height (`height={1}`, `wrapMode="none"`, `flexShrink={0}`) and
   `footerModel().rows` must equal what `App` renders; update both together. Variable parts
-  (open picker or summary editor, alert, composer lines) come only from
-  `controller.footerExtras(terminalHeight)`, passed to `footerModel` by both `App` and
+  (open picker, summary editor, or extension question, alert, composer lines) come only from
+  `controller.footerExtras(terminalHeight, terminalWidth)`, passed to `footerModel` by both `App` and
   `cli.tsx`.
 
 ## termcn components
@@ -111,6 +111,15 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   from `DEFAULT_APP_KEYBINDINGS` via `textareaBindings`. Its height comes from
   `wrappedLineCount`, not the textarea's `virtualLineCount` (that only covers the current
   viewport, so the composer could never grow).
+- Extension questions (`extension_ui_request`) are live control-channel state, like
+  approvals: a focused `ExtensionQuestion` card replaces the footer while the run is live,
+  and answers go back through `bridge.resolveUiRequest` (`ui_response`). Esc cancels the
+  question with `null`; it must not abort the run. Question text, option labels, and
+  descriptions wrap (never truncate), all rows come from `question-model.ts` so
+  `questionView().height` equals what renders, and the card never shows extension or
+  request ids. Overlay precedence is summary editor, then question, then picker, in both
+  `footerExtras` and `App`. An overlay that opens on its own must preserve the composer
+  draft. See `docs/QUESTIONS.md`.
 - `/clear` wipes the screen and scrollback with `renderer.resetSplitFooterForReplay({
   clearSavedLines: true })` (wired in `cli.tsx`); never write raw escapes to stdout, which is
   captured as transcript in split-footer mode.
@@ -139,7 +148,10 @@ src/tests/app.test.tsx (composer)     Shift+Enter / Ctrl+J newline, footer grows
 src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts, compaction preview
 src/tests/app.test.tsx                scrollback + footer end to end; bare "y" never approves; abort, quit; approval buttons;
                                       welcome screen centered, left on first prompt, restored by /new
-src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags
+src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags, key labels
+src/tests/question-model.test.ts      question wrapping, option rows, windowing, answers, height cap
+src/tests/app.test.tsx (questions)    select/confirm/input answers over ui_response, Esc cancels without abort,
+                                      keys never reach the composer, draft restored, mouse choice
 ```
 
 See `README.md` for what is implemented and what is not yet ported.

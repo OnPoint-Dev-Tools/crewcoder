@@ -1,5 +1,5 @@
 import os from "node:os";
-import type { TextareaRenderable } from "@opentui/core";
+import type { InputRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { alertLines } from "./alert-model.js";
@@ -9,6 +9,7 @@ import { ToolApproval, type RiskLevel } from "./components/ui/tool-approval.js";
 import { ToolCall } from "./components/ui/tool-call.js";
 import { CommandPalette } from "./components/ui/command-palette.js";
 import { Composer } from "./components/Composer.js";
+import { ExtensionQuestion } from "./components/ExtensionQuestion.js";
 import { Home } from "./components/Home.js";
 import { SummaryEditor } from "./components/SummaryEditor.js";
 import { COMPOSER_ROWS, footerModel, isHome, shortenPath, streamingTail } from "./footer-layout.js";
@@ -40,11 +41,14 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
   const theme = useTheme();
   const inputRef = useRef<TextareaRenderable>(null);
   const editorRef = useRef<TextareaRenderable>(null);
+  const questionInputRef = useRef<InputRenderable>(null);
   const state = controller.state;
   const picker = controller.picker;
   const editor = controller.editor;
-  const overlayOpen = picker !== undefined || editor !== undefined;
-  const extras = controller.footerExtras(renderer.terminalHeight);
+  const question = controller.question();
+  const questionView = controller.questionView(renderer.terminalHeight, renderer.terminalWidth);
+  const overlayOpen = picker !== undefined || editor !== undefined || question !== undefined;
+  const extras = controller.footerExtras(renderer.terminalHeight, renderer.terminalWidth);
   const model = footerModel(scrollback.pending, state.running, extras);
   const home = isHome(state.blocks, state.running);
 
@@ -72,6 +76,17 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
     }
     // An alert lasts until the next key; the key itself still does its job.
     controller.dismissAlert();
+    // The summary editor and an extension question gate a live run, so they
+    // take keys before a picker (matching footerExtras).
+    if (controller.editor) {
+      handleEditorKey(key);
+      return;
+    }
+    const pending = controller.question();
+    if (pending) {
+      handleQuestionKey(key, pending.uiKind);
+      return;
+    }
     // Read overlays live, not from this render: keys typed right after "/"
     // can arrive before React re-renders. Global handlers run before the
     // focused textarea, so preventDefault keeps it from also taking the key
@@ -86,24 +101,49 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
       else if (!key.ctrl && !key.meta && key.name.length === 1) controller.setPickerQuery(controller.pickerQuery + key.name);
       return;
     }
-    if (controller.editor) {
-      // Other keys edit the summary in the focused textarea.
-      if (matchesAction(key, "summaryApply")) {
-        key.preventDefault?.();
-        controller.resolveSummary(true, editorRef.current?.plainText ?? controller.editor.summary);
-      } else if (matchesAction(key, "summaryReset")) {
-        key.preventDefault?.();
-        editorRef.current?.setText(controller.editor.summary);
-      } else if (matchesAction(key, "summaryCancel")) {
-        key.preventDefault?.();
-        controller.resolveSummary(false, "");
-      }
-      return;
-    }
     if (model.approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
     else if (model.approval && matchesAction(key, "deny")) controller.resolvePendingApproval(false);
     else if (matchesAction(key, "abort")) controller.abort();
   });
+
+  function handleEditorKey(key: KeyLike): void {
+    const current = controller.editor;
+    if (!current) return;
+    // Other keys edit the summary in the focused textarea.
+    if (matchesAction(key, "summaryApply")) {
+      key.preventDefault?.();
+      controller.resolveSummary(true, editorRef.current?.plainText ?? current.summary);
+    } else if (matchesAction(key, "summaryReset")) {
+      key.preventDefault?.();
+      editorRef.current?.setText(current.summary);
+    } else if (matchesAction(key, "summaryCancel")) {
+      key.preventDefault?.();
+      controller.resolveSummary(false, "");
+    }
+  }
+
+  function handleQuestionKey(key: KeyLike, kind: string): void {
+    const scroll = matchesAction(key, "questionScrollUp") ? -3 : matchesAction(key, "questionScrollDown") ? 3 : 0;
+    if (scroll) {
+      key.preventDefault?.();
+      controller.scrollQuestion(scroll, renderer.terminalHeight, renderer.terminalWidth);
+    } else if (matchesAction(key, "questionCancel")) {
+      key.preventDefault?.();
+      controller.answerQuestion(null);
+    } else if (kind === "input") {
+      // Other keys edit the reply in the focused input.
+      if (!matchesAction(key, "questionSubmit")) return;
+      key.preventDefault?.();
+      controller.answerQuestion(questionInputRef.current?.value ?? "");
+    } else {
+      key.preventDefault?.();
+      if (matchesAction(key, "questionPrev")) controller.moveQuestionCursor(-1);
+      else if (matchesAction(key, "questionNext")) controller.moveQuestionCursor(1);
+      else if (matchesAction(key, "questionSubmit")) controller.submitQuestionChoice();
+      else if (kind === "confirm" && matchesAction(key, "questionYes")) controller.answerQuestion(true);
+      else if (kind === "confirm" && matchesAction(key, "questionNo")) controller.answerQuestion(false);
+    }
+  }
 
   const submit = (text: string): void => {
     // The composer is uncontrolled; clear its buffer after each submission.
@@ -125,6 +165,7 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
       lines={controller.composerLines}
       placeholder={state.running ? "Send a follow-up to the running turn" : "Ask CrewCoder"}
       onLines={(lines) => controller.setComposerLines(lines)}
+      onText={(text) => controller.setComposerText(text)}
       onSlash={() => controller.openCommandPalette()}
       onSubmit={submit}
     />
@@ -133,6 +174,22 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
   const alert = controller.currentAlert
     ? <Alert variant={controller.currentAlert.variant} title={controller.currentAlert.title} lines={alertLines(controller.currentAlert)} />
     : null;
+
+  if (editor) {
+    return (
+      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent={home ? "center" : "flex-start"}>
+        <SummaryEditor editor={editor} editorRef={editorRef} textRows={summaryEditorTextRows(renderer.terminalHeight)} />
+      </box>
+    );
+  }
+
+  if (question && questionView) {
+    return (
+      <box width="100%" height="100%" backgroundColor={theme.colors.background}>
+        <ExtensionQuestion block={question} view={questionView} inputRef={questionInputRef} onChoose={(choice) => controller.chooseQuestion(choice)} />
+      </box>
+    );
+  }
 
   const view = controller.pickerView(renderer.terminalHeight);
   if (picker && view) {
@@ -147,14 +204,6 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
             emptyText={picker.loading ? "Loading…" : picker.emptyText}
           />
         </box>
-      </box>
-    );
-  }
-
-  if (editor) {
-    return (
-      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent={home ? "center" : "flex-start"}>
-        <SummaryEditor editor={editor} editorRef={editorRef} textRows={summaryEditorTextRows(renderer.terminalHeight)} />
       </box>
     );
   }

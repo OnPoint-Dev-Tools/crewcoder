@@ -15,6 +15,7 @@ import { composerRows, type FooterExtras } from "./footer-layout.js";
 import { pickerEntries, pickerHeight, pickerMaxRows, pickerView, type PaletteCommand, type PickerView } from "./palette-model.js";
 import { PickerFlows } from "./picker-flows.js";
 import { PICKER_COMMANDS, type Picker } from "./pickers.js";
+import { choiceAnswer, questionChoices, questionContentWidth, questionMaxRows, questionView, type QuestionAnswer, type QuestionBlock, type QuestionView } from "./question-model.js";
 
 /** The subset of `CrewCoderProcessBridge` the OpenTUI shell drives. */
 export type SessionBridge = {
@@ -25,6 +26,7 @@ export type SessionBridge = {
   resolveApproval(approvalId: string, approved: boolean, reason?: string): boolean;
   requestCompactionPreview(): boolean;
   resolveCompactionPreview(previewId: string, approved: boolean, summary?: string): boolean;
+  resolveUiRequest(requestId: string, value: QuestionAnswer): boolean;
   stop(): void;
 };
 
@@ -65,6 +67,10 @@ export class SessionController implements CommandHost {
   editor: SummaryEditorState | undefined;
   /** Clears the terminal screen and scrollback (`/clear`); wired by cli.tsx to the renderer. */
   onClearScreen: (() => void) | undefined;
+  /** Latest composer text, so a draft survives an overlay that unmounts the composer. */
+  private composerText = "";
+  /** Cursor and scroll for the open question; reset when another request opens. */
+  private questionNav = { requestId: "", cursor: 0, offset: 0 };
 
   constructor(bridge: SessionBridge, state: TuiState = createInitialState(), cli: CrewCoderCli = processCli) {
     this.bridge = bridge;
@@ -156,11 +162,88 @@ export class SessionController implements CommandHost {
     return this.picker ? pickerView(this.picker.items, this.pickerQuery, this.pickerCursor, pickerMaxRows(terminalHeight)) : undefined;
   }
 
-  /** Everything outside the transcript that sizes the footer. Shared by App and the footer sizer. */
-  footerExtras(terminalHeight: number): FooterExtras {
+  /**
+   * Everything outside the transcript that sizes the footer. Shared by App and
+   * the footer sizer. Overlays take the whole footer: the summary editor and a
+   * question gate a live run, so they win over a picker.
+   */
+  footerExtras(terminalHeight: number, terminalWidth: number): FooterExtras {
+    const question = this.questionView(terminalHeight, terminalWidth);
     const view = this.pickerView(terminalHeight);
-    const overlayRows = view ? pickerHeight(view) : this.editor ? summaryEditorTextRows(terminalHeight) + 3 : 0;
+    const overlayRows = this.editor ? summaryEditorTextRows(terminalHeight) + 3 : question ? question.height : view ? pickerHeight(view) : 0;
     return { overlayRows, alertRows: alertRows(this.currentAlert), composerRows: composerRows(this.composerLines) };
+  }
+
+  // ── Extension questions ────────────────────────────────────────────────────
+
+  /**
+   * The extension question waiting for an answer: the oldest pending
+   * `extension_ui` request of the active run. Only a running agent can receive
+   * the answer, so none shows once the run is over.
+   */
+  question(): QuestionBlock | undefined {
+    if (!this.bridge.running) return undefined;
+    return this.state.blocks.find((block): block is QuestionBlock => block.type === "extension_ui" && block.status === "pending" && block.requestId !== "");
+  }
+
+  questionView(terminalHeight: number, terminalWidth: number): QuestionView | undefined {
+    const block = this.question();
+    if (!block) return undefined;
+    const nav = this.navFor(block);
+    return questionView(block, questionContentWidth(terminalWidth), questionMaxRows(terminalHeight), nav.cursor, nav.offset);
+  }
+
+  /** Move between choices (confirm, select, component), wrapping at either end. */
+  moveQuestionCursor(delta: number): void {
+    const block = this.question();
+    if (!block) return;
+    const count = questionChoices(block).length;
+    if (count === 0) return;
+    const nav = this.navFor(block);
+    this.questionNav = { ...nav, cursor: (((nav.cursor + delta) % count) + count) % count };
+    this.notify();
+  }
+
+  /** Scroll a question that is too long for the card; the view clamps the offset. */
+  scrollQuestion(delta: number, terminalHeight: number, terminalWidth: number): void {
+    const block = this.question();
+    if (!block) return;
+    const nav = this.navFor(block);
+    const applied = this.questionView(terminalHeight, terminalWidth)?.offset ?? nav.offset;
+    this.questionNav = { ...nav, offset: Math.max(0, applied + delta) };
+    this.notify();
+  }
+
+  /** Answer with the highlighted choice (Enter on confirm, select, or component). */
+  submitQuestionChoice(): void {
+    const block = this.question();
+    if (block) this.answerQuestion(choiceAnswer(block, this.navFor(block).cursor));
+  }
+
+  /** Answer with a clicked choice. */
+  chooseQuestion(choice: number): void {
+    const block = this.question();
+    if (block) this.answerQuestion(choiceAnswer(block, choice));
+  }
+
+  /**
+   * Send the answer over the `ui_response` control channel; `null` cancels.
+   * The block is settled locally at once so the card closes; the agent's
+   * `extension_ui_resolved` confirms it.
+   */
+  answerQuestion(value: QuestionAnswer): void {
+    const block = this.question();
+    if (!block) return;
+    if (!this.bridge.resolveUiRequest(block.requestId, value)) {
+      this.state.blocks.push({ type: "error", text: "No active CrewCoder run is waiting for this extension question." });
+    }
+    block.status = value === null ? "cancelled" : "answered";
+    if (value !== null) block.answer = typeof value === "boolean" ? (value ? "yes" : "no") : value;
+    this.notify();
+  }
+
+  private navFor(block: QuestionBlock): { requestId: string; cursor: number; offset: number } {
+    return this.questionNav.requestId === block.requestId ? this.questionNav : { requestId: block.requestId, cursor: 0, offset: 0 };
   }
 
   // ── Alerts, composer, editor ───────────────────────────────────────────────
@@ -180,6 +263,16 @@ export class SessionController implements CommandHost {
     this.composerDraft = text;
     this.composerDraftVersion += 1;
     this.notify();
+  }
+
+  /** The composer's current text; restored as a draft after an overlay closes. */
+  setComposerText(text: string): void {
+    this.composerText = text;
+  }
+
+  /** Keep the composer draft when an overlay that unmounts it opens on its own. */
+  private preserveComposerDraft(): void {
+    if (this.composerText) this.setComposerDraft(this.composerText);
   }
 
   setComposerLines(lines: number): void {
@@ -345,9 +438,18 @@ export class SessionController implements CommandHost {
   }
 
   private readonly onEvent = (event: CrewCoderJsonEvent): void => {
+    const questionOpen = this.question() !== undefined;
     applyCrewCoderEvent(this.state, event);
+    // An extension question replaces the footer, picker included; keep what the user was typing.
+    if (event.type === "extension_ui_request" && !questionOpen && this.question()) {
+      this.preserveComposerDraft();
+      this.picker = undefined;
+      this.pickerQuery = "";
+      this.pickerCursor = 0;
+    }
     // A live /compact preview: the loop paused for the user to edit the summary.
     if (event.type === "session_compaction_preview" && typeof event.previewId === "string" && typeof event.summary === "string") {
+      this.preserveComposerDraft();
       this.openSummaryEditor({
         summary: event.summary,
         context: { mode: "live", previewId: event.previewId },

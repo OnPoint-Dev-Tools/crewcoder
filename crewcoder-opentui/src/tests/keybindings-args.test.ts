@@ -21,7 +21,9 @@ describe("keybindings", () => {
 
   it("labels default chords", () => {
     expect(actionLabel("approve")).toBe("^Y");
-    expect(actionLabel("abort")).toBe("escape");
+    expect(actionLabel("abort")).toBe("Esc");
+    expect(actionLabel("questionSubmit")).toBe("Enter");
+    expect(actionLabel("questionScrollUp")).toBe("PgUp");
   });
 });
 

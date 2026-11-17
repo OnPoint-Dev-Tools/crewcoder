@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   );
   const footerState = () => ({
     ...controller.state,
-    extras: controller.footerExtras(renderer.terminalHeight)
+    extras: controller.footerExtras(renderer.terminalHeight, renderer.terminalWidth)
   });
   // /clear: wipe the screen and the terminal's scrollback through the renderer
   // (stdout is captured in split-footer mode, so raw escapes would be transcript).

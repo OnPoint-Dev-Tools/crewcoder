@@ -35,6 +35,7 @@ crewcoder-opentui --remote me@vps --remote-cwd /workspace [--remote-bin <path>]
 | Enter | Send the prompt. While a run is active it is queued as a follow-up to that run. |
 | Escape | Abort the active run. |
 | Ctrl+Y / Ctrl+N | Approve / deny the pending tool approval. |
+| Up/Down, Enter, Esc | Choose, answer, or cancel an extension question ([docs](docs/QUESTIONS.md)). |
 | Ctrl+C | Quit. |
 
 Keys come from `DEFAULT_APP_KEYBINDINGS` in `src/keybindings.ts`; there is no user
@@ -65,8 +66,14 @@ Implemented now:
   issues are fixed in our copies, including a global `y` key that approved tool calls while
   typing. See
   [`docs/TERMCN.md`](docs/TERMCN.md).
+- **Extension questions**: `confirm`, `select`, `input`, and declarative `component`
+  requests from trusted extensions open a focused card that replaces the footer. Long
+  questions, option labels, and descriptions wrap. The answer goes back over the live
+  `ui_response` channel, and Esc cancels the question without aborting the run. The
+  question and its answer are committed to scrollback. Built on vendored termcn `select`
+  and `confirm`, plus OpenTUI's native `<input>`. See [`docs/QUESTIONS.md`](docs/QUESTIONS.md).
 - Transcript blocks for user (with muted `background` context), assistant, thinking, tool,
-  approval, compaction, image, error, and system. Tool output is clamped to 12 lines. Text
+  approval, extension question, compaction, image, error, and system. Tool output is clamped to 12 lines. Text
   is normalized to `\n` and stripped of terminal control sequences.
 - Other structured blocks (goals, crews, review summaries, live UI, ...) render as a
   labeled placeholder instead of being dropped.
@@ -87,11 +94,44 @@ Implemented now:
 
 ## Not yet ported
 
-`/crew` (skipped), `/sidebar` and `/file-changes` (wait for the right sidebar); unported
-commands report that they are unavailable instead of being sent as prompts. Also: branching from
-`/sessions`, themes, the right sidebar, markdown and syntax highlighting in the transcript,
-image attachments and terminal graphics, extension UI questions, Live UI, assistant throughput metadata, and the crew/goal views (these show as one-line
-placeholders while live and as labeled rows in scrollback).
+Unported slash commands report that they are unavailable instead of being sent as prompts.
+New components should come from [termcn](https://www.termcn.dev/docs/components/opentui)
+when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
+
+**Deferred by owner decision:** `/crew`, `/sidebar`, `/file-changes`, and the right
+sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
+
+**Composer and status:**
+
+- Status line under the composer: access mode (Review / Full Access), mode or worker,
+  provider/model, effort, context usage (`◔ 12.4k/200k - 6%`), and session cost. Usage and
+  cost are not shown anywhere yet (termcn `token-usage`).
+- Prompt history: Up/Down recalls this session's sent messages.
+- `@` path suggestions.
+- Shortcuts: Ctrl+V image paste (and dropped image paths), Ctrl+X clear attachments,
+  Ctrl+O expand tool output, Ctrl+P open the palette, Ctrl+I agents overlay.
+
+**Transcript rendering:**
+
+- Thinking / reasoning: rendered as a plain `THINKING` row; legacy draws a distinct
+  `THOUGHTS...` panel with a rail and muted italic text (termcn `thinking-block`).
+- Markdown and syntax highlighting (termcn `markdown`, `code`).
+- Inline side-by-side diffs for `edit` / `write` tool calls (termcn `diff-view`).
+- Assistant throughput metadata.
+- Image attachments and terminal graphics, including tool-result images.
+- Dedicated goal, crew roster, and review-summary views (these show as one-line
+  placeholders while live and as labeled rows in scrollback).
+- Live UI (sandboxed extension workers).
+
+**Commands and terminal behavior:**
+
+- `/repaint` (alias `/redraw`), `/quit`, and `/ext.<name>` direct extension commands.
+- Branching from `/sessions`.
+- Themes (`--theme`, `CREWCODER_THEME`, custom JSON themes).
+- Terminal focus reporting (DECSET 1004), which keeps a key sent to one CrewCoder tab or
+  pane from reaching another.
+- Mouse reporting control (`CREWCODER_TUI_MOUSE`).
+- The legacy logo color pulse.
 
 ## Architecture
 
@@ -110,6 +150,8 @@ src/command-format.ts       goal / why / review-summary / CLI output as alert te
 src/alert-model.ts          footer alert type, clamping, and height
 src/components/Composer.tsx multi-line composer (textarea)
 src/components/SummaryEditor.tsx  /compact preview summary editor
+src/components/ExtensionQuestion.tsx  extension question card (confirm / select / input / component)
+src/question-model.ts       pure question layout: wrapping, option rows, windowing, height, answers
 src/footer-sizer.ts         footer height and the welcome-screen transition, in step with commits
 src/terminal-background.ts  OSC 11 / OSC 111 theme background
 src/scrollback-writer.ts    commits settled blocks to native scrollback (OpenTUI surfaces)

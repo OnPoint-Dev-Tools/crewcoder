@@ -121,7 +121,7 @@ src/session-controller.ts           owns picker, alert, editor, composer lines; 
 
 - **Menu and palette items carry their action in the id**: a command (`/thinking on`) is
   submitted as if typed; `draft:<text>` fills the composer.
-- **One footer source.** `SessionController.footerExtras(terminalHeight)` returns the
+- **One footer source.** `SessionController.footerExtras(terminalHeight, terminalWidth)` returns the
   picker/editor rows, alert rows, and composer rows; `App` and the footer sizer
   (`cli.tsx`) both pass it to `footerModel`, so the footer always matches what renders.
 - **One order for the cursor and the drawn rows.** `pickerEntries` returns items in

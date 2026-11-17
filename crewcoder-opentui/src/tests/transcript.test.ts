@@ -27,6 +27,14 @@ describe("blockToRow", () => {
     expect(row.text).toContain("… 8 more lines");
   });
 
+  it("records an extension question and its answer without internal ids", () => {
+    const row = blockToRow({ type: "extension_ui", requestId: "req-7", extensionId: "ext.internal", uiKind: "select", title: "Pick a cache", status: "answered", answer: "remote" });
+    expect(row).toEqual({ label: "QUESTION · answered", tone: "approval", text: "Pick a cache", detail: "Answer: remote" });
+    expect(JSON.stringify(row)).not.toContain("req-7");
+    expect(JSON.stringify(row)).not.toContain("ext.internal");
+    expect(blockToRow({ type: "extension_ui", requestId: "r", extensionId: "e", uiKind: "confirm", title: "Go?", status: "cancelled" }).detail).toBeUndefined();
+  });
+
   it("shows unported structured blocks instead of dropping them", () => {
     expect(blockToRow({ type: "crew", workers: [], completed: false })).toMatchObject({ label: "CREW", tone: "muted" });
   });

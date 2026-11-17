@@ -20,6 +20,8 @@ here**; there is no runtime termcn dependency. Attribution is in
 | `src/components/ui/tool-call.tsx` | `opentui/tool-call` | see file header |
 | `src/components/ui/tool-approval.tsx` | `opentui/tool-approval` | see file header |
 | `src/components/ui/alert.tsx` | `opentui/alert` | inline row `flexDirection="row"`; bordered variant sets `border`; fixed one-row body `lines`; trimmed props |
+| `src/components/ui/select.tsx` | `opentui/select` | no global keyboard (controlled `active`); renders precomputed wrapped `OptionRow`s from `src/question-model.ts` with indented descriptions; `flexDirection="row"`, height-1 rows; `#666` replaced with theme tokens; rows clickable |
+| `src/components/ui/confirm.tsx` | `opentui/confirm` | no global keyboard (upstream answered a bare `y`/`n` from anywhere; controlled `selected`); optional message row; `flexDirection="row"` answer row; answers clickable |
 | `src/components/ui/command-palette.tsx` | `opentui/command-palette` | renders a precomputed `PickerView` (filtering/grouping/windowing in `src/palette-model.ts`); keyboard routed by `App`; border title; current-value marker; theme tokens |
 
 Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
@@ -53,6 +55,11 @@ Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
   `borderStyle` without `border`, and its icon/title row is a `<box gap={1}>` with no
   `flexDirection`. Its body was wrapping `children`, so its height was unknown to the footer
   sizer; ours renders fixed one-row `lines` (`alertRows()` in `src/alert-model.ts`).
+- **`select` and `confirm` own global keyboard input upstream**, like `tool-approval`:
+  `confirm` answered on a bare `y`/`n` anywhere, and `select` moved and submitted on every
+  arrow/Enter even while another field had focus. Our copies are controlled and keyless;
+  `App` routes question keys (see `docs/QUESTIONS.md`). Upstream `select` also drew one
+  unwrapped row per option, so long labels were cut off.
 - `text-input` was evaluated and **not** adopted: it hand-parses keys (no paste, single
   characters only) through a global `useKeyboard`. The composer uses OpenTUI's native
   `<textarea>`.

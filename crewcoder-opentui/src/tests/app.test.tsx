@@ -32,7 +32,7 @@ async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean
     { width: 80, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4, ...options }
   );
   // Mirrors cli.tsx, including picker rows, so palette sizing is exercised end to end.
-  const footerState = () => ({ ...controller.state, extras: controller.footerExtras(setup!.renderer.terminalHeight) });
+  const footerState = () => ({ ...controller.state, extras: controller.footerExtras(setup!.renderer.terminalHeight, setup!.renderer.terminalWidth) });
   attachScrollback(controller, writer, { prepare: () => prepareFooterForWrites(setup!.renderer, footerState()), size: () => applyFooterHeight(setup!.renderer, footerState(), writer), settled: () => footerSettled(setup!.renderer) });
   active = setup;
   await setup.renderOnce();
@@ -208,7 +208,7 @@ describe("pickers", () => {
 
     await setup.mockInput.typeText("/");
     const frame = await setup.waitForFrame((text) => text.includes("Esc close") && text.includes("╰"));
-    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(setup.renderer.terminalHeight).overlayRows);
+    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(setup.renderer.terminalHeight, setup.renderer.terminalWidth).overlayRows);
     expect(frame).toContain("/sessions");
     expect(frame).toMatch(/1\/\d+/);
 
@@ -288,8 +288,8 @@ describe("alerts", () => {
     const frame = await setup.waitForFrame((text) => text.includes("Provider thinking: on"));
     const lines = frame.split("\n");
     expect(lines.findIndex((line) => line.includes("Provider thinking: on"))).toBeLessThan(lines.findIndex((line) => line.includes("CrewCoder") && line.includes("│")));
-    expect(controller.footerExtras(24).alertRows).toBe(3);
-    expect(setup.renderer.footerHeight).toBe(footerModel([], false, controller.footerExtras(24)).rows);
+    expect(controller.footerExtras(24, 80).alertRows).toBe(3);
+    expect(setup.renderer.footerHeight).toBe(footerModel([], false, controller.footerExtras(24, 80)).rows);
 
     await setup.mockInput.typeText("x");
     await setup.waitForFrame((text) => !text.includes("Provider thinking: on"));
@@ -304,7 +304,7 @@ describe("compaction summary editor", () => {
     setup.mockInput.pressEnter();
     bridge.emit({ type: "session_compaction_preview", previewId: "p-1", summary: "proposed summary" });
     await setup.waitForFrame((text) => text.includes("Edit compaction summary") && text.includes("proposed summary"));
-    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(24).overlayRows);
+    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(24, 80).overlayRows);
 
     await setup.mockInput.typeText(" plus");
     setup.mockInput.pressKey("s", { ctrl: true });
@@ -313,6 +313,89 @@ describe("compaction summary editor", () => {
     // The cursor opens after the summary, so typing appends.
     expect(bridge.previewResolutions[0]?.summary).toBe("proposed summary plus");
     expect(controller.editor).toBeUndefined();
+  });
+});
+
+describe("extension questions", () => {
+  async function asked(event: Record<string, unknown>, draft = "") {
+    const rendered = await renderApp();
+    await rendered.setup.mockInput.typeText("go");
+    rendered.setup.mockInput.pressEnter();
+    if (draft) await rendered.setup.mockInput.typeText(draft);
+    rendered.bridge.emit({ type: "extension_ui_request", requestId: "q-1", extensionId: "ext.secret-id", ...event });
+    return rendered;
+  }
+
+  it("answers a select with the original option value and commits the outcome", async () => {
+    const { setup, bridge, controller, scrollbackText } = await asked({
+      uiKind: "select",
+      title: "Which cache strategy should the build use for this repository?",
+      options: [
+        { label: "Local", value: "local-disk", description: "Fastest on one machine" },
+        { label: "Remote", value: "remote-s3", description: "Shared across CI runners" }
+      ]
+    });
+    const frame = await setup.waitForFrame((text) => text.includes("Which cache strategy"));
+    expect(frame).toContain("Shared across CI runners");
+    expect(frame).not.toContain("ext.secret-id");
+    expect(frame).not.toContain("q-1");
+    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(24, 80).overlayRows);
+
+    setup.mockInput.pressArrow("down");
+    await setup.renderOnce();
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: "remote-s3" }]);
+    expect(controller.question()).toBeUndefined();
+
+    bridge.emit({ type: "extension_ui_resolved", requestId: "q-1" });
+    bridge.emit({ type: "agent_end" });
+    const committed = await scrollbackText();
+    expect(committed).toContain("QUESTION · answered");
+    expect(committed).toContain("Answer: remote-s3");
+  });
+
+  it("answers a confirm with y, and its keys never reach the composer", async () => {
+    const { setup, bridge } = await asked({ uiKind: "confirm", title: "Overwrite the lockfile?" });
+    await setup.waitForFrame((text) => text.includes("Overwrite the lockfile?") && text.includes("Yes"));
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: true }]);
+    const frame = await setup.waitForFrame((text) => !text.includes("Overwrite the lockfile?"));
+    expect(frame).not.toMatch(/│\s*y\s/);
+  });
+
+  it("sends typed text for an input and restores the composer draft afterwards", async () => {
+    const { setup, bridge, controller } = await asked({ uiKind: "input", title: "Name the release branch", defaultValue: "release/" }, "half typed");
+    await setup.waitForFrame((text) => text.includes("Name the release branch"));
+    await setup.mockInput.typeText("1.2");
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: "release/1.2" }]);
+    expect(bridge.followUps).toEqual([]);
+    expect(controller.question()).toBeUndefined();
+    const frame = await setup.waitForFrame((text) => text.includes("half typed"));
+    expect(frame).not.toContain("Name the release branch");
+  });
+
+  it("cancels with escape instead of aborting the run", async () => {
+    const { setup, bridge } = await asked({ uiKind: "select", title: "Pick one", options: [{ label: "A", value: "a" }] });
+    await setup.waitForFrame((text) => text.includes("Pick one"));
+    setup.mockInput.pressEscape();
+    await vi.waitFor(() => expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: null }]), { timeout: 2_000 });
+    expect(bridge.stops).toBe(0);
+  });
+
+  it("chooses an option with a mouse click", async () => {
+    const { setup, bridge } = await asked({ uiKind: "select", title: "Pick one", options: [{ label: "Alpha", value: "a" }, { label: "Bravo", value: "b" }] });
+    const frame = await setup.waitForFrame((text) => text.includes("Bravo"));
+    const lines = frame.split("\n");
+    const row = lines.findIndex((line) => line.includes("Bravo"));
+    // Mouse rows are terminal rows; the split footer starts at the renderer's (private) render offset.
+    const offset = (setup.renderer as unknown as { renderOffset: number }).renderOffset;
+    await setup.mockMouse.click(lines[row]!.indexOf("Bravo"), offset + row);
+    await setup.renderOnce();
+    expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: "b" }]);
   });
 });
 

@@ -363,8 +363,8 @@ describe("alerts", () => {
   it("is part of the footer height and goes away when dismissed", () => {
     const { controller } = setup();
     controller.alert({ variant: "info", title: "x", body: "a\nb" });
-    expect(controller.footerExtras(30).alertRows).toBe(5);
+    expect(controller.footerExtras(30, 80).alertRows).toBe(5);
     controller.dismissAlert();
-    expect(controller.footerExtras(30).alertRows).toBe(0);
+    expect(controller.footerExtras(30, 80).alertRows).toBe(0);
   });
 });
