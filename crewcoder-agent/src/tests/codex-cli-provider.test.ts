@@ -94,6 +94,7 @@ describe("bring-your-own Codex CLI provider", () => {
     const argv = entries[0]?.argv as string[];
     for (const feature of CODEX_NATIVE_TOOL_FEATURES) expect(argv).toContain(feature);
     expect(argv).toContain("web_search=disabled");
+    expect(argv).toContain("features.default_mode_request_user_input=true");
     expect(argv).toContain("agents.max_depth=0");
     const catalogArgument = argv.find(arg => arg.startsWith("model_catalog_json="));
     expect(catalogArgument).toBeDefined();

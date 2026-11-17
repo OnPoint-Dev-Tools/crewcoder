@@ -231,7 +231,9 @@ export async function runCodexCliProvider(input: ProviderRunInput, signal?: Abor
       throw new Error(`Codex CLI could not be locked to CrewCoder tools (${detail}).`);
     }
   }
-  const args = [...lockdown, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)];
+  // Default-mode Codex questions are opt-in; enable them only with an interactive host.
+  const questionArgs = input.stream?.requestQuestion ? ["-c", "features.default_mode_request_user_input=true"] : [];
+  const args = [...lockdown, ...questionArgs, "app-server", "--stdio", ...codexAppServerContextArgs(input.modelInput)];
   let cause: { message: string; code?: string; stderr: string } | undefined;
   const result = await runAppServerTurn(input, signal, { command, args, hostedToolsOnly, syncCredentialBack: false, onUnavailable: value => { cause = value; } });
   if (!result) throw new Error(codexCliStartFailure(command, cause));

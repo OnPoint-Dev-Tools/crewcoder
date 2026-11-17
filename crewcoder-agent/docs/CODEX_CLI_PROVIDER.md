@@ -179,3 +179,13 @@ ModelStreamCallbacks.onThinkingDelta retains portable text deltas and may also c
 Portable text includes blank lines when switching reasoning items, summary sections, raw-content sections or plans. Completion-only text uses the same boundaries; final suffixes within a section append without repeating its body. The adapter forwards provider text verbatim apart from these separators. A heading-only provider summary remains heading-only; receiving it does not establish that a longer summary was available.
 
 The terminal `--json-events` stream keeps the established nonempty `{ type: "thinking_delta", text, emittedAt }` shape. Do not send ACP snapshot metadata or empty completion-only events into that terminal contract. Structured completion corrections remain available over ACP. When completed text differs from streamed text, text-only consumers still receive the exposed final text rather than having it suppressed.
+
+
+## Structured questions in normal mode
+
+When the host provides `requestQuestion`, the Codex CLI launch adds the process-local
+`features.default_mode_request_user_input=true` config override. Codex otherwise
+defaults this feature off in normal execution mode even though its app-server can
+receive question responses. Non-interactive runs keep the user's configuration.
+This does not change native tool, filesystem, or approval policy. ACP clients must
+still negotiate `crewcoder/questions` version 1 to collect custom text.

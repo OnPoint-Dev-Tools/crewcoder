@@ -1,13 +1,5 @@
 # Development Rules
 
-## Conversational Style
-
-- Keep answers short and concise
-- No emojis in commits, issues, PR comments, or code
-- When the user asks a question, answer it first before making edits or running implementation commands.
-- When responding to user feedback or an analysis, explicitly say whether you agree or disagree before saying what you changed.
-- Challenge me and push back and play devils advocate when i want to add implement something that has risks or for a new feature.
-
 ## Code Quality
 
 - Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes.
