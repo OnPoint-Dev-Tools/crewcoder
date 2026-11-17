@@ -62,7 +62,7 @@ describe("OpenTUI split-footer App", () => {
     const committed = await scrollbackText();
     expect(committed).toContain("YOU");
     expect(committed).toContain("hello crew");
-    expect(committed).toContain("THINKING");
+    expect(committed).toContain("▼ Reasoning");
     expect(committed).toContain("considering");
     expect(committed).toContain("CREW CODER");
     expect(committed).toContain("hi there");

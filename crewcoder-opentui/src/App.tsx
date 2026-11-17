@@ -244,9 +244,17 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
         <text fg={theme.colors.mutedForeground} height={1} flexShrink={0}>{`… ${model.hiddenTools} more running`}</text>
       ) : null}
       {/* Reserved row (RESERVED_ROWS): the streaming tail, or empty. */}
-      <text fg={model.streaming ? toneColor(theme, blockToRow(model.streaming).tone) : theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>
-        {model.streaming ? streamingTail(blockToRow(model.streaming).text, width) : ""}
-      </text>
+      {model.streaming?.type === "thinking" ? (
+        // Continues the Reasoning panel's left border above it in scrollback.
+        <box flexDirection="row" height={1} flexShrink={0}>
+          <text fg={theme.colors.border} wrapMode="none">{"│ "}</text>
+          <text fg={toneColor(theme, "thinking")} wrapMode="none">{streamingTail(blockToRow(model.streaming).text, width - 2)}</text>
+        </box>
+      ) : (
+        <text fg={model.streaming ? toneColor(theme, blockToRow(model.streaming).tone) : theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>
+          {model.streaming ? streamingTail(blockToRow(model.streaming).text, width) : ""}
+        </text>
+      )}
       {model.approval ? (
         <ToolApproval
           name={model.approval.toolName ?? "tool"}
@@ -260,7 +268,7 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
       {/* Reserved row (RESERVED_ROWS): the working spinner, or empty when idle. */}
       {model.working ? (
         <box height={1} flexShrink={0}>
-          <Spinner label="Working" />
+          <Spinner label={model.streaming?.type === "thinking" ? "Thinking" : "Working"} />
         </box>
       ) : (
         <text height={1} wrapMode="none" flexShrink={0} />

@@ -96,6 +96,37 @@ describe("ScrollbackWriter", () => {
     expect((await flush()).filter(Boolean)).toEqual(["YOU", "fresh"]);
   });
 
+  it("draws reasoning as a bordered Reasoning panel", async () => {
+    const { writer, flush } = await setup(30);
+    writer.sync([{ type: "thinking", text: "check the tests first\n\n" }], false);
+    const rows = await flush();
+
+    expect(rows[0]).toMatch(/^┌─+┐$/);
+    expect(rows[1]).toMatch(/^│ ▼ Reasoning\s+│$/);
+    expect(rows[2]).toMatch(/^│\s+│$/);
+    expect(rows[3]).toMatch(/^│ check the tests first\s+│$/);
+    // Trailing blank lines are trimmed, so the panel closes right after the text.
+    expect(rows[4]).toMatch(/^└─+┘$/);
+    expect(rows).toHaveLength(5);
+  });
+
+  it("streams reasoning but holds back its last text row and bottom border", async () => {
+    const { writer, flush } = await setup(24);
+    const thinking: TuiEventBlock = { type: "thinking", text: "alpha beta gamma delta epsilon zeta" };
+    writer.sync([thinking], true);
+    const first = await flush();
+    expect(first.at(-1)).not.toMatch(/^└/);
+    expect(first.join(" ")).not.toContain("zeta");
+
+    thinking.text += " eta";
+    writer.sync([thinking], false);
+    const all = [...first, ...(await flush())];
+    const text = all.slice(3, -1).map((row) => row.replace(/^│\s?|\s*│$/g, "")).join(" ").replace(/\s+/g, " ").trim();
+    expect(text).toBe("alpha beta gamma delta epsilon zeta eta");
+    expect(all.at(-1)).toMatch(/^└─+┘$/);
+    expect(all.filter((row) => row.includes("Reasoning"))).toHaveLength(1);
+  });
+
   it("drops a streaming block that disappears, such as after /new", async () => {
     const { writer, flush } = await setup();
     writer.sync([{ type: "assistant", text: "partial" }], true);

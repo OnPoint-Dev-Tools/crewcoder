@@ -1,8 +1,8 @@
-import { BoxRenderable, TextRenderable, bold, fg, t, type ScrollbackSurface } from "@opentui/core";
+import { TextRenderable, type ScrollbackSurface } from "@opentui/core";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import type { Theme } from "./components/ui/types.js";
-import { bodyColor, toneColor } from "./theme.js";
-import { blockPhase, blockToRow } from "./transcript.js";
+import { createBlockView, type BlockView } from "./scrollback-blocks.js";
+import { blockPhase } from "./transcript.js";
 
 /** The renderer surface the writer needs; satisfied by a split-footer `CliRenderer`. */
 export type ScrollbackHost = {
@@ -11,9 +11,7 @@ export type ScrollbackHost = {
 
 type ActiveBlock = {
   block: TuiEventBlock;
-  surface: ScrollbackSurface;
-  body: TextRenderable;
-  text: string;
+  view: BlockView;
   committedRows: number;
 };
 
@@ -79,8 +77,8 @@ const MAX_COMMIT_CELLS = 200_000;
  *
  * Blocks are tracked by identity rather than index because the reducer trims
  * `state.blocks` to its last 500 entries. A streaming assistant/thinking block
- * commits every finished row as text arrives and keeps only its last, still
- * changing row back. The first `live` block (running tool, pending approval,
+ * commits every row its view reports stable (`BlockView.stableRows`) as text
+ * arrives and keeps the still-changing rows back. The first `live` block (running tool, pending approval,
  * ...) stops the writer so scrollback never goes out of order; it and every
  * later block are returned as pending for the footer to show.
  */
@@ -136,10 +134,10 @@ export class ScrollbackWriter {
     const active = this.active?.block === block ? this.active : this.open(block);
     this.active = undefined;
     try {
-      this.update(active);
-      this.commitThrough(active, active.surface.height, true);
+      active.view.update(block, false);
+      this.commitThrough(active, active.view.surface.height, true);
     } finally {
-      active.surface.destroy();
+      active.view.destroy();
     }
     this.committed.add(block);
   }
@@ -147,53 +145,16 @@ export class ScrollbackWriter {
   private stream(block: TuiEventBlock): void {
     if (!this.active) this.active = this.open(block);
     const active = this.active;
-    this.update(active);
-    // The last row can still grow or rewrap as text arrives; hold it back.
-    this.commitThrough(active, active.surface.height - 1);
+    active.view.update(block, true);
+    // Rows past stableRows can still grow or rewrap as text arrives; hold them back.
+    this.commitThrough(active, active.view.stableRows());
   }
 
   private open(block: TuiEventBlock): ActiveBlock {
     this.writeBlankRows(this.wroteBlock ? 1 : this.leadingRows());
     this.wroteBlock = true;
-    const row = blockToRow(block);
     const surface = this.host.createScrollbackSurface({ startOnNewLine: true });
-    try {
-      const column = new BoxRenderable(surface.renderContext, { flexDirection: "column", width: "100%" });
-      column.add(new TextRenderable(surface.renderContext, {
-        content: t`${bold(fg(toneColor(this.theme, row.tone))(row.label))}`,
-        width: "100%",
-        wrapMode: "word"
-      }));
-      const body = new TextRenderable(surface.renderContext, {
-        content: "",
-        width: "100%",
-        wrapMode: "word",
-        fg: bodyColor(this.theme, row.tone)
-      });
-      column.add(body);
-      if (row.detail) {
-        column.add(new TextRenderable(surface.renderContext, {
-          content: row.detail,
-          width: "100%",
-          wrapMode: "word",
-          fg: this.theme.colors.mutedForeground
-        }));
-      }
-      surface.root.add(column);
-      return { block, surface, body, text: "", committedRows: 0 };
-    } catch (error) {
-      surface.destroy();
-      throw error;
-    }
-  }
-
-  private update(active: ActiveBlock): void {
-    const text = blockToRow(active.block).text;
-    if (text !== active.text) {
-      active.body.content = text;
-      active.text = text;
-    }
-    active.surface.render();
+    return { block, view: createBlockView(surface, this.theme, block), committedRows: 0 };
   }
 
   /**
@@ -203,15 +164,16 @@ export class ScrollbackWriter {
    * whenever a turn finishes.
    */
   private commitThrough(active: ActiveBlock, endRow: number, final = false): void {
-    const chunk = Math.max(1, Math.floor(MAX_COMMIT_CELLS / Math.max(1, active.surface.width)));
+    const surface = active.view.surface;
+    const chunk = Math.max(1, Math.floor(MAX_COMMIT_CELLS / Math.max(1, surface.width)));
     if (final && active.committedRows >= endRow) {
       // Everything was streamed already; still end the block on a new line.
-      active.surface.commitRows(endRow, endRow, { trailingNewline: true });
+      surface.commitRows(endRow, endRow, { trailingNewline: true });
       return;
     }
     while (active.committedRows < endRow) {
       const next = Math.min(endRow, active.committedRows + chunk);
-      active.surface.commitRows(active.committedRows, next, final && next === endRow ? { trailingNewline: true } : undefined);
+      surface.commitRows(active.committedRows, next, final && next === endRow ? { trailingNewline: true } : undefined);
       active.committedRows = next;
     }
   }
@@ -230,7 +192,7 @@ export class ScrollbackWriter {
   }
 
   private dropActive(): void {
-    this.active?.surface.destroy();
+    this.active?.view.destroy();
     this.active = undefined;
   }
 }
