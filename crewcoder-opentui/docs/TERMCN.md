@@ -27,6 +27,21 @@ here**; there is no runtime termcn dependency. Attribution is in
 Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
 (`src/theme.ts`) is CrewCoder's own, expressed as termcn `Theme` tokens.
 
+## Designs ported, not vendored
+
+The transcript is native terminal scrollback written with `@opentui/core` renderables, so
+termcn's React components cannot render there.
+
+- **`thinking-block`**: its design (single-line border, `▼` header, `Reasoning` label, a
+  blank row, muted content) is ported to core renderables in `src/scrollback-blocks.ts`
+  (`ThinkingView`). Upstream toggles on every Enter/Space through a global `useKeyboard` and
+  defaults to collapsed. Ours is always expanded: committed rows cannot toggle, and
+  reasoning summaries must stay visible. The streaming header (`Thinking...`) is the
+  footer spinner label instead, because the header row commits as soon as the block starts.
+- **`markdown`**: not adopted (owner decision). It is React-only, and its regex parser has
+  no fenced code blocks, numbered lists, or tables. Transcript markdown uses OpenTUI's
+  native `MarkdownRenderable` (`src/markdown-body.ts`).
+
 ## Upstream problems found and fixed in our copies
 
 - **`tool-approval` approved on a bare `y`.** It registered a global `useKeyboard` for

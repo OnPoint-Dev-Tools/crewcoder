@@ -127,6 +127,70 @@ describe("ScrollbackWriter", () => {
     expect(all.filter((row) => row.includes("Reasoning"))).toHaveLength(1);
   });
 
+  it("renders assistant replies as markdown", async () => {
+    const { writer, flush } = await setup(40);
+    const text = "## Plan\n\nUse **bold** and `code`.\n\n- first\n- second\n\n```ts\nconst x = 1;\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |";
+    writer.sync([{ type: "assistant", text }], false);
+    const rows = await flush();
+
+    expect(rows[0]).toBe("CREW CODER");
+    expect(rows).toContain("Plan");
+    expect(rows).toContain("Use bold and code.");
+    expect(rows.some((row) => /^\s*[-•]\s+first$/.test(row))).toBe(true);
+    expect(rows).toContain("│ const x = 1;");
+    expect(rows.some((row) => row.includes("1") && row.includes("2") && row.includes("│"))).toBe(true);
+    expect(rows.join("\n")).not.toMatch(/\*\*|```|##/);
+  });
+
+  it("commits the same rows whether a markdown reply streams in or arrives whole", async () => {
+    const text = [
+      "# Cache setup",
+      "",
+      "The build cache is configured for local and CI runs, with remote credentials read from the environment so nothing secret lands in the repository.",
+      "",
+      "1. Add the cache step",
+      "2. Point it at the bucket",
+      "",
+      "```sh",
+      "npm run build -- --cache remote",
+      "npm test",
+      "```",
+      "",
+      "| runner | hit rate |",
+      "|---|---|",
+      "| local | 80% |",
+      "| ci | 95% |",
+      "",
+      "> Note: cold caches are slower on the first run.",
+      "",
+      "Done."
+    ].join("\n");
+
+    const whole = await setup(36);
+    whole.writer.sync([{ type: "assistant", text }], false);
+    const expected = await whole.flush();
+    await whole.term.dispose();
+    active = undefined;
+
+    const streamed = await setup(36);
+    const reply: TuiEventBlock = { type: "assistant", text: "" };
+    const rows: string[] = [];
+    for (let at = 0; at < text.length;) {
+      const size = 1 + ((at * 7) % 13);
+      reply.text = text.slice(0, at + size);
+      at += size;
+      streamed.writer.sync([reply], true);
+      rows.push(...(await streamed.flush()));
+    }
+    // Final blocks and finished paragraph rows stream out early; only the open tail waits for the end.
+    const streamedEarly = rows.length;
+    streamed.writer.sync([reply], false);
+    rows.push(...(await streamed.flush()));
+
+    expect(rows).toEqual(expected);
+    expect(streamedEarly).toBeGreaterThan(expected.length - 3);
+  });
+
   it("drops a streaming block that disappears, such as after /new", async () => {
     const { writer, flush } = await setup();
     writer.sync([{ type: "assistant", text: "partial" }], true);

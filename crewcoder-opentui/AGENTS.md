@@ -38,8 +38,15 @@ scrollback, written by `ScrollbackWriter`; the React tree renders only the foote
 - Write each block exactly once and in order. Track committed blocks by identity (the
   reducer trims and re-slices `state.blocks`), never by index.
 - Only `streaming` blocks (the last assistant/thinking block of an active run) may commit
-  rows early, and always hold back the last row. This relies on the reducer appending to
-  them only; if a block type starts changing in place, classify it `live` in `blockPhase`.
+  rows early, and only the rows their `BlockView.stableRows()` reports final
+  (`scrollback-blocks.ts`). This relies on the reducer appending to them only; if a block
+  type starts changing in place, classify it `live` in `blockPhase`.
+- Assistant replies and reasoning render as markdown through OpenTUI's native
+  `MarkdownRenderable` (`markdown-body.ts`), by owner decision over termcn `markdown`
+  (React-only, cannot render into scrollback). Streaming commits only what
+  `MarkdownBody.stableEnd()` allows; keep the "streamed equals one-shot" writer test
+  passing. Reasoning is termcn's `thinking-block` design ported to core renderables and
+  always expanded (committed rows cannot toggle; summaries must stay visible).
 - The first `live` block stops the writer. With no active run every block is `final`.
 - Keep commits chunked under the OpenTUI per-commit cell limit.
 - `attachScrollback` must run before the footer mounts so `pending` is current on render.
@@ -136,7 +143,8 @@ Tests that protect current behavior:
 ```txt
 src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, unported commands
 src/tests/transcript.test.ts          row mapping, block phases, control stripping
-src/tests/scrollback-writer.test.ts   first block placement, order, single commit, streaming hold-back, live blocking, trimmed arrays
+src/tests/scrollback-writer.test.ts   first block placement, order, single commit, streaming hold-back, live blocking, trimmed arrays,
+                                      Reasoning panel + hold-back, markdown rendering, streamed markdown equals one-shot
 src/tests/footer-layout.test.ts       footer row math, reserved rows, approval height, streaming tail, home logo rule
 src/tests/footer-sizer.test.ts        welcome transition, after-write sizing, settled detection
 src/tests/terminal-background.test.ts OSC 11/111 and color validation

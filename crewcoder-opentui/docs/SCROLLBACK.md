@@ -32,7 +32,7 @@ alternate screen.
 | Phase | Blocks | Written |
 |---|---|---|
 | `final` | user, system, error, finished tools, resolved approvals, … | whole, once |
-| `streaming` | the last `assistant`/`thinking` block while a run is active | every finished row as text arrives; the last row is held back |
+| `streaming` | the last `assistant`/`thinking` block while a run is active | rows its view reports stable (`BlockView.stableRows`) as text arrives; the rest is held back |
 | `live` | running tools, pending approvals, pending extension questions, running compaction/validation/background jobs, active crews, Live UI | not yet; shown in the footer |
 
 The first `live` block stops the writer: nothing after it is written until it becomes final,
@@ -50,6 +50,37 @@ Rules the writer depends on:
   above about 349,000), so very long replies are committed in chunks.
 - A blank spacer row separates blocks after the first. A streaming block that disappears
   (for example after `/new`) is dropped; rows already written stay in the terminal.
+
+## Block views
+
+`src/scrollback-blocks.ts` lays out one block per scrollback surface and reports which
+rows are final while the block streams:
+
+| View | Blocks | Layout | Stable rows while streaming |
+|---|---|---|---|
+| `AssistantView` | `assistant` | `CREW CODER` label, then markdown | `MarkdownBody.stableEnd()` |
+| `ThinkingView` | `thinking` | termcn `thinking-block` panel: single border, `▼ Reasoning`, blank row, muted markdown | `stableEnd()`, never the bottom border |
+| `RowView` | everything else | tone label, plain text, muted detail | all but the last row (these never stream) |
+
+`src/markdown-body.ts` wraps OpenTUI's native `MarkdownRenderable` (owner decision over
+termcn's React-only `markdown`, which cannot render into scrollback and has no fenced code,
+numbered lists, or tables). Styles are slate `markup.*` scopes (`markdownStyles`).
+`stableEnd()` commits:
+
+- every top-level block the engine reports final (`committedBlockCount`);
+- of the block still being written, every row but its last when it is a paragraph or code
+  block, because appending only changes their last row (a paragraph that later gains a
+  setext underline turns into a heading; its committed rows then keep paragraph styling,
+  with the same text);
+- nothing of an open list, table, or quote, because they can still reflow (a list turning
+  loose, table columns widening).
+
+The invariant is tested directly: streaming a mixed document in uneven chunks commits
+exactly the rows a one-shot render does.
+
+Fenced code renders as plain accent text behind a left rail. OpenTUI would otherwise
+highlight it through its tree-sitter worker asynchronously, after rows may already be
+committed, so colors would differ between blocks.
 
 ## Theme background
 
@@ -104,7 +135,8 @@ line, truncated from the left; it always contains the row still being held back.
 
 - `src/tests/scrollback-writer.test.ts`: ordering, single commit, streaming row hold-back,
   live blocks holding later ones, trimmed arrays, dropped streaming blocks, first-block
-  placement.
+  placement, the Reasoning panel and its hold-back, markdown rendering, and streamed
+  markdown equal to a one-shot render.
 - `src/tests/footer-layout.test.ts`, `src/tests/footer-sizer.test.ts`: footer row math,
   reserved rows, the welcome transition, settled detection, the streaming tail.
 - `src/tests/terminal-background.test.ts`: OSC 11/111 and color validation.
@@ -118,7 +150,6 @@ line, truncated from the left; it always contains the row still being held back.
 
 ## Not yet done
 
-Markdown and syntax highlighting in scrollback (OpenTUI's `MarkdownRenderable` streams by
-committed block and needs a tree-sitter client), assistant throughput metadata, images, and
-terminal resize reflow of rows already written (they stay as the terminal wrapped them,
-like any other scrollback).
+Syntax highlighting for fenced code (needs the writer to wait for tree-sitter before
+committing a code block), assistant throughput metadata, images, and terminal resize reflow
+of rows already written (they stay as the terminal wrapped them, like any other scrollback).

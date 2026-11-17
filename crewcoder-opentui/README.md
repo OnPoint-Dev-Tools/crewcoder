@@ -72,7 +72,16 @@ Implemented now:
   `ui_response` channel, and Esc cancels the question without aborting the run. The
   question and its answer are committed to scrollback. Built on vendored termcn `select`
   and `confirm`, plus OpenTUI's native `<input>`. See [`docs/QUESTIONS.md`](docs/QUESTIONS.md).
-- Transcript blocks for user (with muted `background` context), assistant, thinking, tool,
+- **Markdown replies**: assistant text renders through OpenTUI's native
+  `MarkdownRenderable` in slate styles. That covers headings, bold/italic/strikethrough,
+  inline code, links, ordered and unordered lists, quotes, tables sized to content, and
+  fenced code behind a rail. Replies still stream into scrollback: a block is committed as
+  soon as it is final, so a streamed reply ends up row-for-row identical to a one-shot
+  render.
+- **Reasoning panel**: thinking renders as termcn's `thinking-block` design, a bordered
+  panel headed `▼ Reasoning` with muted markdown text, always expanded. While it streams,
+  the footer tail continues the panel's border and the spinner reads `Thinking`.
+- Transcript blocks for user (with muted `background` context), assistant, reasoning, tool,
   approval, extension question, compaction, image, error, and system. Tool output is clamped to 12 lines. Text
   is normalized to `\n` and stripped of terminal control sequences.
 - Other structured blocks (goals, crews, review summaries, live UI, ...) render as a
@@ -113,9 +122,8 @@ sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
 
 **Transcript rendering:**
 
-- Thinking / reasoning: rendered as a plain `THINKING` row; legacy draws a distinct
-  `THOUGHTS...` panel with a rail and muted italic text (termcn `thinking-block`).
-- Markdown and syntax highlighting (termcn `markdown`, `code`).
+- Syntax highlighting in fenced code blocks (OpenTUI's tree-sitter highlights
+  asynchronously; the scrollback writer must wait for it before committing a code block).
 - Inline side-by-side diffs for `edit` / `write` tool calls (termcn `diff-view`).
 - Assistant throughput metadata.
 - Image attachments and terminal graphics, including tool-result images.
@@ -155,6 +163,8 @@ src/question-model.ts       pure question layout: wrapping, option rows, windowi
 src/footer-sizer.ts         footer height and the welcome-screen transition, in step with commits
 src/terminal-background.ts  OSC 11 / OSC 111 theme background
 src/scrollback-writer.ts    commits settled blocks to native scrollback (OpenTUI surfaces)
+src/scrollback-blocks.ts    per-block scrollback layout (reply, Reasoning panel, rows) and stable rows
+src/markdown-body.ts        OpenTUI MarkdownRenderable in slate styles, with streaming stable-row math
 src/footer-layout.ts        pure footer model and row count for renderer.footerHeight
 src/session-controller.ts   owns TuiState + bridge; subscribe/getVersion for useSyncExternalStore
 src/transcript.ts           pure block -> display row, and block lifecycle phase
