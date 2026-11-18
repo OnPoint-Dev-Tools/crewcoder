@@ -78,11 +78,21 @@ Implemented now:
   fenced code behind a rail. Replies still stream into scrollback: a block is committed as
   soon as it is final, so a streamed reply ends up row-for-row identical to a one-shot
   render.
-- **Reasoning panel**: thinking renders as termcn's `thinking-block` design, a bordered
-  panel headed `▼ Reasoning` with muted markdown text, always expanded. While it streams,
-  the footer tail continues the panel's border and the spinner reads `Thinking`.
+- **Turn sections**: a turn reads in event order as separate sections divided by a blank
+  row. Reasoning comes first, then the agent's work, then the reply.
+  - **Reasoning** is an amber bordered panel headed `💭 Reasoning`, with the reasoning as
+    markdown, always expanded. It follows termcn's `thinking-block` design. While it
+    streams, the footer tail continues the panel's border and the spinner reads `Thinking`.
+  - **Agent work**: each tool call is one section row with an icon and a bold title, and
+    consecutive calls stack without blank rows. Reads, searches, commands, and listings put
+    their target on the next row (`📖 Read File` / `src/App.jsx`). Edits and writes keep it
+    inline (`± Edit File: src/App.jsx`). Paths under the workspace are shown relative.
+    Command and unknown-tool output follows, clamped to 8 lines; read/edit/search output is
+    hidden, and a failure always shows its output. Running tools use the same
+    icon and title in the footer. Names are mapped across CrewCoder, Claude Code, Codex, and
+    MCP-prefixed tools (`src/tool-presentation.ts`).
 - Transcript blocks for user (with muted `background` context), assistant, reasoning, tool,
-  approval, extension question, compaction, image, error, and system. Tool output is clamped to 12 lines. Text
+  approval, extension question, compaction, image, error, and system. Text
   is normalized to `\n` and stripped of terminal control sequences.
 - Other structured blocks (goals, crews, review summaries, live UI, ...) render as a
   labeled placeholder instead of being dropped.
@@ -163,7 +173,8 @@ src/question-model.ts       pure question layout: wrapping, option rows, windowi
 src/footer-sizer.ts         footer height and the welcome-screen transition, in step with commits
 src/terminal-background.ts  OSC 11 / OSC 111 theme background
 src/scrollback-writer.ts    commits settled blocks to native scrollback (OpenTUI surfaces)
-src/scrollback-blocks.ts    per-block scrollback layout (reply, Reasoning panel, rows) and stable rows
+src/scrollback-blocks.ts    per-block scrollback layout (reply, Reasoning panel, tool rows, rows) and stable rows
+src/tool-presentation.ts    tool name -> icon, title, target, layout, and which output to show
 src/markdown-body.ts        OpenTUI MarkdownRenderable in slate styles, with streaming stable-row math
 src/footer-layout.ts        pure footer model and row count for renderer.footerHeight
 src/session-controller.ts   owns TuiState + bridge; subscribe/getVersion for useSyncExternalStore

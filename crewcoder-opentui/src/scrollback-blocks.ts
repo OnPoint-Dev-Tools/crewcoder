@@ -2,7 +2,8 @@ import { BoxRenderable, TextRenderable, bold, fg, t, type ScrollbackSurface } fr
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import type { Theme } from "./components/ui/types.js";
 import { MarkdownBody } from "./markdown-body.js";
-import { bodyColor, THINKING_COLOR, toneColor } from "./theme.js";
+import { bodyColor, toneColor } from "./theme.js";
+import { toolPresentation } from "./tool-presentation.js";
 import { blockToRow } from "./transcript.js";
 
 /**
@@ -19,10 +20,12 @@ export interface BlockView {
   destroy(): void;
 }
 
-export function createBlockView(surface: ScrollbackSurface, theme: Theme, block: TuiEventBlock): BlockView {
+/** `cwd` shortens tool paths under the workspace to workspace-relative ones. */
+export function createBlockView(surface: ScrollbackSurface, theme: Theme, block: TuiEventBlock, cwd?: string): BlockView {
   try {
     if (block.type === "thinking") return new ThinkingView(surface, theme);
     if (block.type === "assistant") return new AssistantView(surface, theme, block);
+    if (block.type === "tool") return new ToolView(surface, theme, block, cwd);
     return new RowView(surface, theme, block);
   } catch (error) {
     surface.destroy();
@@ -103,16 +106,62 @@ class RowView implements BlockView {
   }
 }
 
-/** termcn `thinking-block` header text; scrollback is never collapsed, so the glyph is always open. */
+/**
+ * One tool call as a section row: icon and bold title, the target inline or on
+ * its own row, then output only where it helps (commands, unknown tools, and
+ * failures). Consecutive tools stack without spacer rows (see the writer).
+ */
+class ToolView implements BlockView {
+  readonly surface: ScrollbackSurface;
+
+  constructor(surface: ScrollbackSurface, theme: Theme, block: Extract<TuiEventBlock, { type: "tool" }>, cwd?: string) {
+    this.surface = surface;
+    const tool = toolPresentation(block, cwd);
+    const titleColor = tool.failed ? theme.colors.error : theme.colors.primary;
+    const title = tool.title || block.name;
+    const status = tool.failed ? fg(theme.colors.error)(" · failed") : "";
+    const inlineTarget = tool.layout === "inline" && tool.target ? fg(theme.colors.accent)(`: ${tool.target}`) : "";
+    const column = new BoxRenderable(surface.renderContext, { flexDirection: "column", width: "100%" });
+    column.add(new TextRenderable(surface.renderContext, {
+      content: t`${fg(titleColor)(tool.icon)} ${bold(fg(titleColor)(title))}${inlineTarget}${status}`,
+      width: "100%",
+      wrapMode: "word"
+    }));
+    if (tool.layout === "stacked" && tool.target) {
+      column.add(new TextRenderable(surface.renderContext, { content: tool.target, width: "100%", wrapMode: "word", fg: theme.colors.accent, paddingLeft: TOOL_INDENT }));
+    }
+    if (tool.output) {
+      column.add(new TextRenderable(surface.renderContext, { content: tool.output, width: "100%", wrapMode: "word", fg: tool.failed ? theme.colors.error : theme.colors.mutedForeground, paddingLeft: TOOL_INDENT }));
+    }
+    surface.root.add(column);
+  }
+
+  update(): void {
+    this.surface.render();
+  }
+
+  stableRows(): number {
+    return this.surface.height - 1;
+  }
+
+  destroy(): void {
+    this.surface.destroy();
+  }
+}
+
+/** Lines under a tool title start below the title text, past the icon and its space. */
+const TOOL_INDENT = 3;
+
+/** Reasoning header, after termcn `thinking-block`'s label. */
 export const THINKING_LABEL = "Reasoning";
-const THINKING_OPEN = "▼";
+const THINKING_ICON = "💭";
 
 /**
- * Reasoning as termcn's `thinking-block` panel: a single-line bordered box with
- * a `▼ Reasoning` header, a blank row, and muted content (markdown, since
- * reasoning summaries use bold headings). Ported as core
- * renderables because the transcript is native scrollback, not React. It is
- * always expanded: committed rows cannot be toggled, and thinking summaries
+ * Reasoning as a panel after termcn's `thinking-block`: a single-line bordered
+ * box in the warning (amber) tone with a bold `💭 Reasoning` header, a blank
+ * row, and the reasoning as markdown (summaries use bold headings). Ported as
+ * core renderables because the transcript is native scrollback, not React. It
+ * is always expanded: committed rows cannot be toggled, and thinking summaries
  * must stay visible (see the event-rendering guardrails).
  */
 class ThinkingView implements BlockView {
@@ -126,16 +175,16 @@ class ThinkingView implements BlockView {
       width: "100%",
       border: true,
       borderStyle: "single",
-      borderColor: theme.colors.border,
+      borderColor: theme.colors.warning,
       paddingLeft: 1,
       paddingRight: 1
     });
     panel.add(new TextRenderable(surface.renderContext, {
-      content: t`${fg(theme.colors.mutedForeground)(THINKING_OPEN)} ${fg(theme.colors.mutedForeground)(THINKING_LABEL)}`,
+      content: t`${THINKING_ICON} ${bold(fg(theme.colors.warning)(THINKING_LABEL))}`,
       width: "100%",
       wrapMode: "none"
     }));
-    this.body = new MarkdownBody(surface, theme, { base: THINKING_COLOR, heading: THINKING_COLOR }, { marginTop: 1 });
+    this.body = new MarkdownBody(surface, theme, { base: theme.colors.foreground, heading: theme.colors.foreground }, { marginTop: 1 });
     panel.add(this.body.renderable);
     surface.root.add(panel);
   }

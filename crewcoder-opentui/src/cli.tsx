@@ -43,7 +43,8 @@ async function main(): Promise<void> {
   const scrollback = new ScrollbackWriter(renderer, slateTheme, () =>
     renderer.terminalWidth < HOME_LOGO_MIN_WIDTH
       ? renderer.terminalHeight - footerModel([], true).rows
-      : 0
+      : 0,
+  () => controller.state.cwd
   );
   const footerState = () => ({
     ...controller.state,

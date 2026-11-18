@@ -70,7 +70,7 @@ describe("ScrollbackWriter", () => {
     tool.text = "ok";
     expect(writer.sync(blocks, true)).toEqual([after]);
     writer.sync(blocks, false);
-    expect(await flush()).toEqual(["", "TOOL bash · done", "ok", "", "CREW CODER", "after the tool"]);
+    expect(await flush()).toEqual(["", "💻 Run Command", "   ok", "", "CREW CODER", "after the tool"]);
   });
 
   it("does not re-commit blocks after the reducer trims and re-slices the array", async () => {
@@ -96,13 +96,39 @@ describe("ScrollbackWriter", () => {
     expect((await flush()).filter(Boolean)).toEqual(["YOU", "fresh"]);
   });
 
+  it("orders a turn as sections: reasoning, then the work as one stacked section, then the reply", async () => {
+    const term = await createTestRenderer({ width: 40, height: 20, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4 });
+    active = term;
+    const writer = new ScrollbackWriter(term.renderer, slateTheme, () => 0, () => "/repo");
+    writer.sync([
+      { type: "thinking", text: "look first" },
+      { type: "tool", name: "Read", status: "done", args: { file_path: "/repo/src/App.jsx" }, text: "contents" },
+      { type: "tool", name: "Edit", status: "done", args: { file_path: "/repo/src/App.jsx" } },
+      { type: "assistant", text: "Updated the app." }
+    ], false);
+    await term.renderOnce();
+    const rows = term.externalOutput.take().flatMap((commit) => commit.rows.map((row) => row.trimEnd()));
+
+    expect(rows.slice(rows.indexOf("└──────────────────────────────────────┘"))).toEqual([
+      "└──────────────────────────────────────┘",
+      "",
+      "📖 Read File",
+      "   src/App.jsx",
+      "± Edit File: src/App.jsx",
+      "",
+      "CREW CODER",
+      "Updated the app."
+    ]);
+    expect(rows[1]).toMatch(/💭 Reasoning/);
+  });
+
   it("draws reasoning as a bordered Reasoning panel", async () => {
     const { writer, flush } = await setup(30);
     writer.sync([{ type: "thinking", text: "check the tests first\n\n" }], false);
     const rows = await flush();
 
     expect(rows[0]).toMatch(/^┌─+┐$/);
-    expect(rows[1]).toMatch(/^│ ▼ Reasoning\s+│$/);
+    expect(rows[1]).toMatch(/^│ 💭 Reasoning\s+│$/);
     expect(rows[2]).toMatch(/^│\s+│$/);
     expect(rows[3]).toMatch(/^│ check the tests first\s+│$/);
     // Trailing blank lines are trimmed, so the panel closes right after the text.

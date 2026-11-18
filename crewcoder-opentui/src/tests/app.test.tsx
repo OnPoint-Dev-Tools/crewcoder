@@ -62,7 +62,7 @@ describe("OpenTUI split-footer App", () => {
     const committed = await scrollbackText();
     expect(committed).toContain("YOU");
     expect(committed).toContain("hello crew");
-    expect(committed).toContain("▼ Reasoning");
+    expect(committed).toContain("💭 Reasoning");
     expect(committed).toContain("considering");
     expect(committed).toContain("CREW CODER");
     expect(committed).toContain("hi there");
@@ -100,13 +100,13 @@ describe("OpenTUI split-footer App", () => {
     setup.mockInput.pressEnter();
     bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "t1", args: { command: "npm test" } });
 
-    const frame = await setup.waitForFrame((text) => text.includes("bash"));
+    const frame = await setup.waitForFrame((text) => text.includes("💻 Run Command · npm test"));
     expect(frame).toContain("Working");
-    expect(await scrollbackText()).not.toContain("TOOL bash");
+    expect(await scrollbackText()).not.toContain("Run Command");
 
     bridge.emit({ type: "tool_execution_end", toolName: "bash", toolCallId: "t1", result: "all green" });
     bridge.emit({ type: "agent_end" });
-    expect(await scrollbackText()).toContain("TOOL bash");
+    expect(await scrollbackText()).toContain("💻 Run Command");
   });
 
   it("aborts the running request on escape and quits on ctrl+c", async () => {

@@ -59,8 +59,14 @@ rows are final while the block streams:
 | View | Blocks | Layout | Stable rows while streaming |
 |---|---|---|---|
 | `AssistantView` | `assistant` | `CREW CODER` label, then markdown | `MarkdownBody.stableEnd()` |
-| `ThinkingView` | `thinking` | termcn `thinking-block` panel: single border, `▼ Reasoning`, blank row, muted markdown | `stableEnd()`, never the bottom border |
+| `ThinkingView` | `thinking` | panel after termcn `thinking-block`: amber single border, bold `💭 Reasoning`, blank row, markdown | `stableEnd()`, never the bottom border |
+| `ToolView` | `tool` | icon + bold title; target inline or on the next row; clamped output where useful (`tool-presentation.ts`) | all but the last row (tools never stream) |
 | `RowView` | everything else | tone label, plain text, muted detail | all but the last row (these never stream) |
+
+Sections: the writer puts one blank row between blocks, except between consecutive tool
+blocks, so a turn reads as reasoning, then one stacked work section, then the reply.
+Blocks are never reordered; they follow event order, which is the order the agent worked
+in.
 
 `src/markdown-body.ts` wraps OpenTUI's native `MarkdownRenderable` (owner decision over
 termcn's React-only `markdown`, which cannot render into scrollback and has no fenced code,

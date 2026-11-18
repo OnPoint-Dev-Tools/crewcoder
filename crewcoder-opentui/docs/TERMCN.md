@@ -32,9 +32,10 @@ Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
 The transcript is native terminal scrollback written with `@opentui/core` renderables, so
 termcn's React components cannot render there.
 
-- **`thinking-block`**: its design (single-line border, `▼` header, `Reasoning` label, a
-  blank row, muted content) is ported to core renderables in `src/scrollback-blocks.ts`
-  (`ThinkingView`). Upstream toggles on every Enter/Space through a global `useKeyboard` and
+- **`thinking-block`**: its design (single-line border, a header row with the `Reasoning`
+  label, a blank row, then the content) is ported to core renderables in
+  `src/scrollback-blocks.ts` (`ThinkingView`), restyled to the owner's reference: amber
+  (`warning`) border, a bold `💭 Reasoning` header, and foreground-colored markdown content. Upstream toggles on every Enter/Space through a global `useKeyboard` and
   defaults to collapsed. Ours is always expanded: committed rows cannot toggle, and
   reasoning summaries must stay visible. The streaming header (`Thinking...`) is the
   footer spinner label instead, because the header row commits as soon as the block starts.

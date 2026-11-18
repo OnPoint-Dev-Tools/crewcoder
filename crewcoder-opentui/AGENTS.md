@@ -47,6 +47,11 @@ scrollback, written by `ScrollbackWriter`; the React tree renders only the foote
   `MarkdownBody.stableEnd()` allows; keep the "streamed equals one-shot" writer test
   passing. Reasoning is termcn's `thinking-block` design ported to core renderables and
   always expanded (committed rows cannot toggle; summaries must stay visible).
+- A turn reads as sections in event order: reasoning panel, then the agent's work as one
+  stacked section (no blank rows between consecutive tool blocks), then the reply. Never
+  reorder blocks to group them. Tool rows come from the pure `tool-presentation.ts`
+  (icon, title, target, layout, output policy) for both scrollback (`ToolView`) and the
+  footer's running tools; add new provider tool names to `KINDS_BY_NAME`.
 - The first `live` block stops the writer. With no active run every block is `final`.
 - Keep commits chunked under the OpenTUI per-commit cell limit.
 - `attachScrollback` must run before the footer mounts so `pending` is current on render.
@@ -144,7 +149,9 @@ Tests that protect current behavior:
 src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, unported commands
 src/tests/transcript.test.ts          row mapping, block phases, control stripping
 src/tests/scrollback-writer.test.ts   first block placement, order, single commit, streaming hold-back, live blocking, trimmed arrays,
-                                      Reasoning panel + hold-back, markdown rendering, streamed markdown equals one-shot
+                                      Reasoning panel + hold-back, markdown rendering, streamed markdown equals one-shot,
+                                      turn sections (reasoning, stacked tools, reply)
+src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, output policy
 src/tests/footer-layout.test.ts       footer row math, reserved rows, approval height, streaming tail, home logo rule
 src/tests/footer-sizer.test.ts        welcome transition, after-write sizing, settled detection
 src/tests/terminal-background.test.ts OSC 11/111 and color validation

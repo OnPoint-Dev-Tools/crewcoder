@@ -86,15 +86,19 @@ export class ScrollbackWriter {
   private readonly host: ScrollbackHost;
   private readonly theme: Theme;
   private readonly leadingRows: () => number;
+  private readonly cwd: () => string | undefined;
   private readonly committed = new WeakSet<TuiEventBlock>();
   private active: ActiveBlock | undefined;
-  private wroteBlock = false;
+  /** Type of the last block opened; undefined until the first block of a screen. */
+  private lastType: TuiEventBlock["type"] | undefined;
   private pendingBlocks: readonly TuiEventBlock[] = [];
 
-  constructor(host: ScrollbackHost, theme: Theme, leadingRows: () => number = () => 0) {
+  /** `cwd` lets tool rows show workspace-relative paths. */
+  constructor(host: ScrollbackHost, theme: Theme, leadingRows: () => number = () => 0, cwd: () => string | undefined = () => undefined) {
     this.host = host;
     this.theme = theme;
     this.leadingRows = leadingRows;
+    this.cwd = cwd;
   }
 
   /** Blocks not fully in scrollback yet, in transcript order. */
@@ -104,7 +108,7 @@ export class ScrollbackWriter {
 
   sync(blocks: readonly TuiEventBlock[], running: boolean): readonly TuiEventBlock[] {
     if (this.active && !blocks.includes(this.active.block)) this.dropActive();
-    if (blocks.length === 0) this.wroteBlock = false;
+    if (blocks.length === 0) this.lastType = undefined;
     const pending: TuiEventBlock[] = [];
     let held = false;
     blocks.forEach((block, index) => {
@@ -150,11 +154,16 @@ export class ScrollbackWriter {
     this.commitThrough(active, active.view.stableRows());
   }
 
+  /**
+   * A blank row separates sections (reasoning, agent work, reply, ...);
+   * consecutive tool calls stack into one work section without one.
+   */
   private open(block: TuiEventBlock): ActiveBlock {
-    this.writeBlankRows(this.wroteBlock ? 1 : this.leadingRows());
-    this.wroteBlock = true;
+    const sameSection = this.lastType === "tool" && block.type === "tool";
+    this.writeBlankRows(this.lastType === undefined ? this.leadingRows() : sameSection ? 0 : 1);
+    this.lastType = block.type;
     const surface = this.host.createScrollbackSurface({ startOnNewLine: true });
-    return { block, view: createBlockView(surface, this.theme, block), committedRows: 0 };
+    return { block, view: createBlockView(surface, this.theme, block, this.cwd()), committedRows: 0 };
   }
 
   /**

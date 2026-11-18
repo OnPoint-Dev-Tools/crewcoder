@@ -18,6 +18,7 @@ import { matchesAction, type KeyLike } from "./keybindings.js";
 import type { ScrollbackWriter } from "./scrollback-writer.js";
 import { summaryEditorTextRows, type SessionController } from "./session-controller.js";
 import { toneColor } from "./theme.js";
+import { toolPresentation } from "./tool-presentation.js";
 import { blockToRow } from "./transcript.js";
 
 export type AppProps = {
@@ -237,7 +238,7 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
       })}
       {model.tools.map((tool, index) => (
         <box key={tool.id ?? `tool-${index}`} height={1} flexShrink={0}>
-          <ToolCall name={tool.name} status="running" args={tool.args} collapsed />
+          <ToolCall name={toolLabel(tool, state.cwd)} status="running" args={tool.args} collapsed />
         </box>
       ))}
       {model.hiddenTools > 0 ? (
@@ -247,8 +248,8 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
       {model.streaming?.type === "thinking" ? (
         // Continues the Reasoning panel's left border above it in scrollback.
         <box flexDirection="row" height={1} flexShrink={0}>
-          <text fg={theme.colors.border} wrapMode="none">{"│ "}</text>
-          <text fg={toneColor(theme, "thinking")} wrapMode="none">{streamingTail(blockToRow(model.streaming).text, width - 2)}</text>
+          <text fg={theme.colors.warning} wrapMode="none">{"│ "}</text>
+          <text fg={theme.colors.foreground} wrapMode="none">{streamingTail(blockToRow(model.streaming).text, width - 2)}</text>
         </box>
       ) : (
         <text fg={model.streaming ? toneColor(theme, blockToRow(model.streaming).tone) : theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>
@@ -294,6 +295,13 @@ function homeInfo(provider: string, model: string, cwd: string, remoteTarget: st
   const location = remoteTarget ? `${remoteTarget}:${cwd}` : cwd;
   const room = Math.max(8, width - 2 - prefix.length);
   return `${prefix}${shortenPath(location, room, remoteTarget ? undefined : os.homedir())}`;
+}
+
+/** One-row running-tool label matching the committed tool section: `📖 Read File · src/App.tsx`. */
+function toolLabel(tool: Parameters<typeof toolPresentation>[0], cwd: string): string {
+  const view = toolPresentation(tool, cwd);
+  const title = `${view.icon} ${view.title || tool.name}`;
+  return view.target ? `${title} · ${view.target}` : title;
 }
 
 function firstLine(text: string): string {
