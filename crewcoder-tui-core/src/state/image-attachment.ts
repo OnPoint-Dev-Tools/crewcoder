@@ -22,6 +22,8 @@ export type ImageAttachment = {
   height?: number;
   byteSize: number;
   source: ImageAttachmentSource;
+  /** For `file` attachments: the resolved file the cache copy came from (dedupes re-attaching it). */
+  sourcePath?: string;
 };
 
 const MIME_EXTENSION: Record<ImageMime, string> = {
@@ -215,7 +217,12 @@ export function persistImageFile(filePath: string): ImageAttachment | undefined 
   }
   const info = sniffImage(buffer);
   if (!info) return undefined;
-  return persistImageBuffer(buffer, info, "file", path.basename(resolved));
+  return { ...persistImageBuffer(buffer, info, "file", path.basename(resolved)), sourcePath: resolved };
+}
+
+/** The source files of `attachments` (their cache path when there is no source), for dedupe. */
+export function attachedSources(attachments: readonly ImageAttachment[]): Set<string> {
+  return new Set(attachments.map((attachment) => attachment.sourcePath ?? attachment.path));
 }
 
 function sanitizeFileName(name: string, extension: string): string {
@@ -238,4 +245,25 @@ export function formatBytes(bytes: number): string {
 export function describeAttachment(attachment: ImageAttachment): string {
   const dimensions = attachment.width && attachment.height ? `${attachment.width}×${attachment.height}` : "image";
   return `${dimensions} · ${formatBytes(attachment.byteSize)}`;
+}
+
+/**
+ * Image file paths in pasted or typed text (a file dropped onto the terminal
+ * arrives as its path): absolute, `~/`, `./`, `../`, or `file://` paths ending
+ * in a supported image extension. `~` expands to HOME; duplicates collapse.
+ */
+export function imagePathsFromText(text: string): string[] {
+  const values = new Set<string>();
+  for (const match of text.matchAll(/(?:file:\/\/)?(?:~|\/|\.\.?\/)[^\s'"`<>]+\.(?:png|jpe?g|gif|webp|bmp)\b/gi)) {
+    const raw = match[0] ?? "";
+    const filePath = raw.startsWith("file://") ? decodeURIComponent(raw.slice("file://".length)) : raw;
+    values.add(expandHome(filePath));
+  }
+  return [...values];
+}
+
+function expandHome(filePath: string): string {
+  if (filePath === "~") return process.env.HOME ?? filePath;
+  if (filePath.startsWith("~/")) return `${process.env.HOME ?? "~"}${filePath.slice(1)}`;
+  return filePath;
 }

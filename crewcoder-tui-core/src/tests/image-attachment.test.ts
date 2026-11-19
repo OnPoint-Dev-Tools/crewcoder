@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { describeAttachment, formatBytes, imageCacheDir, persistImageBuffer, sniffImage } from "../state/image-attachment.js";
+import { describeAttachment, formatBytes, imageCacheDir, imagePathsFromText, persistImageBuffer, sniffImage } from "../state/image-attachment.js";
 
 function pngBuffer(width: number, height: number): Buffer {
   const buffer = Buffer.alloc(24);
@@ -81,5 +81,14 @@ describe("persistImageBuffer", () => {
     expect(attachment.byteSize).toBe(buffer.length);
     expect(attachment.name.endsWith(".png")).toBe(true);
     expect(describeAttachment(attachment)).toBe(`800×600 · ${formatBytes(buffer.length)}`);
+  });
+});
+
+describe("imagePathsFromText", () => {
+  it("finds dropped and typed image paths, expands ~, decodes file:// URLs, and ignores other files", () => {
+    const home = process.env.HOME ?? "";
+    const text = "see /tmp/a.png and ~/shots/b.JPG plus ./c.webp, file:///tmp/my%20d.gif, not /tmp/e.txt or x.png";
+    expect(imagePathsFromText(text)).toEqual(["/tmp/a.png", `${home}/shots/b.JPG`, "./c.webp", "/tmp/my d.gif"]);
+    expect(imagePathsFromText("/tmp/a.png /tmp/a.png")).toEqual(["/tmp/a.png"]);
   });
 });
