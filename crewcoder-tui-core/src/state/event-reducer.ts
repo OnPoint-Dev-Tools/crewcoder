@@ -1,6 +1,6 @@
 import type { CrewCoderJsonEvent } from "../bridge/event-parser.js";
 import { eventToText } from "../bridge/event-parser.js";
-import { pushSystemLog, type TuiCheckpoint, type TuiDeclarativeComponent, type TuiReviewIssueReference, type TuiSafetyPolicy, type TuiState, type TuiUiAction } from "./tui-store.js";
+import { pushSystemLog, type TuiCheckpoint, type TuiDeclarativeComponent, type TuiFileDiff, type TuiReviewIssueReference, type TuiSafetyPolicy, type TuiState, type TuiUiAction } from "./tui-store.js";
 import type { TuiUsageSummary } from "./usage.js";
 import { toolImageAttachments } from "./image-attachment.js";
 
@@ -107,6 +107,15 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
     case "file_changed": {
       const path = String(event.path ?? "");
       if (path && !state.changedFiles.includes(path)) state.changedFiles.push(path);
+      break;
+    }
+    case "file_diff": {
+      // Arrives before the tool's tool_execution_end, while the block is still running.
+      const files = fileDiffs(event.files);
+      const id = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+      const block = findActiveTool(state, String(event.toolName ?? "unknown"), id);
+      if (block) block.fileDiffs = files;
+      for (const file of files) if (!state.changedFiles.includes(file.path)) state.changedFiles.push(file.path);
       break;
     }
     case "background_job_start":
@@ -575,6 +584,27 @@ function primitiveRecord(record: Record<string, unknown>): Record<string, string
   return result;
 }
 
+/** Validate `file_diff` files from the wire; malformed entries are dropped. */
+function fileDiffs(value: unknown): TuiFileDiff[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): TuiFileDiff[] => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    // Only created and modified files show diffs; a deletion from an older agent is dropped.
+    if (typeof record.path !== "string" || !record.path || record.status === "deleted") return [];
+    const status = record.status === "added" ? "added" : "modified";
+    return [{
+      path: record.path,
+      status,
+      additions: typeof record.additions === "number" ? record.additions : 0,
+      deletions: typeof record.deletions === "number" ? record.deletions : 0,
+      binary: record.binary === true,
+      truncated: record.truncated === true,
+      ...(typeof record.patch === "string" ? { patch: record.patch } : {})
+    }];
+  });
+}
+
 function findActiveTool(state: TuiState, name: string, id?: string): Extract<TuiState["blocks"][number], { type: "tool" }> | undefined {
   for (let i = state.blocks.length - 1; i >= 0; i--) {
     const block = state.blocks[i];
@@ -672,7 +702,9 @@ function toolResultText(event: CrewCoderJsonEvent): string {
       .map((part: any) => typeof part?.text === "string" ? part.text : "")
       .filter(Boolean)
       .join("\n")
-      .trim();
+      // Drop blank edge lines but keep the first line's indentation (padded line numbers in reads).
+      .replace(/^(?:[ \t]*\n)+/, "")
+      .trimEnd();
     if (text) return text;
   }
   return eventToText(event);

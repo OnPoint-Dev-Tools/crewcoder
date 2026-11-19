@@ -53,6 +53,18 @@ export type TuiSafetyPolicy = { extensionId: string; policyId: string; title: st
 
 export type TuiReviewIssueReference = { id: string; source: "branch" | "commit" | "status" | string; text: string; url?: string };
 
+/** A file an edit/write tool created or modified, from the agent's `file_diff` event (workspace snapshots). */
+export type TuiFileDiff = {
+  path: string;
+  status: "added" | "modified";
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  truncated: boolean;
+  /** Unified git diff for this file; absent for binary or oversized changes. */
+  patch?: string;
+};
+
 export type TuiReviewSummary = { branch?: string; clean: boolean; changedFiles: string[]; issueReferences: TuiReviewIssueReference[] };
 
 /** Plain-language explanation of the agent's last decision, from `session why`. */
@@ -106,7 +118,7 @@ export type TuiEventBlock =
   | { type: "checkpoint"; checkpointId: string; sessionId: string; reason: string; toolCallId?: string; toolName?: string; fileCount: number; totalBytes: number; truncated: boolean }
   | { type: "checkpoint_diff"; checkpointId: string; path: string; lines: string[]; truncated: boolean }
   | { type: "background_job"; bgId: string; command: string; status: "running" | "completed" | "failed" | "stopped"; output: string; exitCode?: number | null; startedAt?: string; endedAt?: string }
-  | { type: "tool"; id?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; text?: string; metadata?: Record<string, unknown> }
+  | { type: "tool"; id?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; text?: string; metadata?: Record<string, unknown>; fileDiffs?: TuiFileDiff[] }
   | { type: "validation"; target: string; status: "running" | "passed" | "failed"; errors?: string[]; warnings?: string[] }
   | { type: "approval"; id?: string; toolCallId?: string; toolName?: string; risk?: string; text: string; args?: Record<string, unknown>; status: "pending" | "approved" | "denied"; resolutionReason?: string }
   | { type: "extension_ui"; requestId: string; extensionId: string; uiKind: "confirm" | "input" | "select" | "component"; title: string; message?: string; placeholder?: string; defaultValue?: string; options?: Array<{ label: string; value: string; description?: string }>; component?: TuiDeclarativeComponent; actions?: TuiUiAction[]; status: "pending" | "answered" | "cancelled"; answer?: string }

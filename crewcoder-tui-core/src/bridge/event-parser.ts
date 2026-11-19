@@ -51,6 +51,8 @@ export function eventToText(event: CrewCoderJsonEvent): string {
       return `tool ${event.isError ? "failed" : "completed"}: ${String(event.toolName ?? "unknown")}`;
     case "file_changed":
       return `changed: ${String(event.path ?? "unknown")}`;
+    case "file_diff":
+      return `changed ${Array.isArray(event.files) ? event.files.length : 0} file(s): ${String(event.toolName ?? "unknown")}`;
     case "background_job_start":
       return `background job started: ${String(event.bgId ?? "unknown")}`;
     case "background_job_output":

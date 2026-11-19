@@ -7,6 +7,31 @@ describe("TUI event reducer", () => {
     delete process.env.CREWCODER_TUI_SYSTEM_LOGS;
   });
 
+  it("attaches file_diff files to their running tool, drops deletions, and records the changed paths", () => {
+    const state = createInitialState();
+    applyCrewCoderEvent(state, { type: "tool_execution_start", toolName: "write", toolCallId: "w1", args: { path: "a.txt", content: "hi" } });
+    applyCrewCoderEvent(state, { type: "file_diff", toolName: "write", toolCallId: "w1", files: [
+      { path: "a.txt", status: "added", additions: 1, deletions: 0, binary: false, truncated: false, patch: "diff --git a/a.txt b/a.txt\n" },
+      { path: 42 },
+      { path: "gone.txt", status: "deleted", deletions: 3 },
+      { path: "img.png", status: "weird", binary: true }
+    ] });
+    applyCrewCoderEvent(state, { type: "tool_execution_end", toolName: "write", toolCallId: "w1", result: { content: [{ type: "text", text: "" }] } });
+
+    expect(state.blocks.at(-1)).toMatchObject({ type: "tool", status: "done", fileDiffs: [
+      { path: "a.txt", status: "added", additions: 1, deletions: 0, binary: false, truncated: false, patch: "diff --git a/a.txt b/a.txt\n" },
+      { path: "img.png", status: "modified", additions: 0, deletions: 0, binary: true, truncated: false }
+    ] });
+    expect(state.changedFiles).toEqual(["a.txt", "img.png"]);
+  });
+
+  it("keeps the first line's indentation in tool result text", () => {
+    const state = createInitialState();
+    applyCrewCoderEvent(state, { type: "tool_execution_start", toolName: "read", toolCallId: "r1" });
+    applyCrewCoderEvent(state, { type: "tool_execution_end", toolName: "read", toolCallId: "r1", result: { content: [{ type: "text", text: "\n  1  a\n  2  b\n\n" }] } });
+    expect(state.blocks.at(-1)).toMatchObject({ type: "tool", status: "done", text: "  1  a\n  2  b" });
+  });
+
   it("tracks active crew workers and completion", () => {
     const state = createInitialState();
 
