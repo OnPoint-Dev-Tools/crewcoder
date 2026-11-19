@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 
 export function readGitLabel(cwd: string): string | undefined {
   const insideWorkTree = runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
@@ -10,6 +11,20 @@ export function readGitLabel(cwd: string): string | undefined {
 
   const dirty = runGit(cwd, ["status", "--porcelain"])?.length;
   return `${revision}${dirty ? "*" : ""}`;
+}
+
+/**
+ * The repository's name: the directory holding its shared `.git`, so linked
+ * worktrees report the main repo (`crewcoder`), not the worktree folder.
+ * Undefined outside a git repository.
+ */
+export function readGitRepoName(cwd: string): string | undefined {
+  const commonDir = runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (!commonDir) return undefined;
+  const trimmed = commonDir.replace(/[\\/]+$/, "");
+  // `<repo>/.git` for normal clones; a bare repo is `<name>.git` itself.
+  const repoDir = path.basename(trimmed) === ".git" ? path.dirname(trimmed) : trimmed;
+  return path.basename(repoDir).replace(/\.git$/, "") || undefined;
 }
 
 function runGit(cwd: string, args: string[]): string | undefined {

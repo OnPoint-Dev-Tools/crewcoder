@@ -140,6 +140,8 @@ export type TuiState = {
   cwd: string;
   remoteTarget?: string;
   gitLabel?: string;
+  /** Repository name (main repo for linked worktrees); unset outside git and in remote mode. */
+  gitRepo?: string;
   mode: TuiMode;
   integrationProfile: TuiIntegrationProfile;
   worker?: string;
