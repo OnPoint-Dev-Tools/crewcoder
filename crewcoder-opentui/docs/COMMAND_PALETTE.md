@@ -83,6 +83,9 @@ alert; bad values report what is accepted.
 | `/approve-plan` | Accept the CrewCoder-mode plan: a prompt when idle, a follow-up during a run. |
 | `/follow-up <message>` | Queue a message for the running turn (plain messages during a run do the same). |
 | `/new`, `/stop`, `/help` | Fresh session; stop the run; open this palette. |
+| `/repaint` (`/redraw`) | Redraw every cell of a screen garbled by outside output. Silent. |
+| `/quit` | Exit, the same as Ctrl+C. |
+| `/ext.<extension-id>.<command-id> [args]` | Run an extension's executable command (`crewcoder command run <name> -- <args>`; the agent enforces trust). Output in an alert; never a prompt. Not listed in the palette; `/commands` shows the available extension commands. |
 
 Commands that need an argument (`/remember`, `/add-dir`, `/follow-up`, `/team`) put
 `/name ` into the composer when picked from the palette. `/add-dir` without a path lists

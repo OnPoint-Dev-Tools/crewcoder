@@ -57,6 +57,13 @@ Implemented now:
 - **Footer**: only the working spinner, alerts (errors and command results), the pending
   approval card (selectable Approve/Deny; Ctrl+Y and Ctrl+N also work), the composer, and
   the status line. Agent output never goes to the footer.
+- **Status line** under the composer: access (`Review`, or `Full Access` in the warning
+  color), mode or worker, `provider/model (effort)`, and the session as `<repo> · <first
+  prompt>` on the left (the repo is the main repository for worktrees; omitted outside git
+  and in remote mode); context usage and session cost pinned right
+  (`◔ 12.4k/200k - 6% | 15k tokens | $0.03`), live from `usage_update`. Usage appears after
+  the first report; on narrow terminals the session name shortens first and access always
+  stays (`src/status-line.ts`).
 - Footer components from [termcn](https://www.termcn.dev): the pending approval card with
   risk level, arguments, and selectable decision controls (`ToolApproval`), and the working
   spinner (`Spinner`), themed in slate. Several upstream
@@ -101,7 +108,26 @@ Implemented now:
   labeled placeholder instead of being dropped.
 - New runs, automatic resume of the current session, live follow-ups, approval
   decisions, and abort, all through the shared `crewcoder-tui-core` bridge.
+- `/repaint` (alias `/redraw`): redraws every cell when something else wrote to the
+  terminal behind the UI (a stray process, a system message, a glitch after `/diff`).
+  Silent on success; the transcript and session are untouched.
+- `/quit`: exits like Ctrl+C.
+- `/ext.<extension-id>.<command-id> [args]`: runs an extension's executable command
+  through `crewcoder command run` (the agent enforces the extension's trust); its output
+  shows in an alert and nothing is sent to the agent.
+- **Focus gate:** while the terminal tab, pane, or window is unfocused, keys and pastes
+  are ignored (Ctrl+C included), so input a terminal duplicates to several panes cannot
+  reach a second CrewCoder. OpenTUI enables focus reporting (DECSET 1004) itself.
+  Terminals without focus reporting never report a blur, so input keeps working there.
+- **`CREWCODER_TUI_MOUSE=0`** leaves the mouse to the terminal: native selection, but no
+  click toggles, no copy-on-select, and wheel scrolling is up to the terminal (some send
+  Up/Down in the alternate screen, which then moves through prompt history; PgUp/PgDn
+  always scroll the transcript).
 - Multi-line composer: Enter sends, Shift+Enter or Ctrl+J adds a line; it grows to 8 lines.
+- Prompt history: Up/Down move between the composer's lines, and on the first/last line
+  recall this session's sent messages (newest first). Down past the newest restores the
+  unsent draft; editing a recalled message starts over from the newest
+  (`src/prompt-history.ts`).
 - Slash command palette (`/`) with the legacy commands: every picker (`/sessions`,
   `/provider`, `/model`, `/effort`, `/modes`, `/prompts`, `/tool-mode`, `/profile`,
   `/rewind`, `/handoff`, ...), settings switches (`/thinking`, `/identity`, `/checkpoints`,
@@ -126,10 +152,6 @@ sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
 
 **Composer and status:**
 
-- Status line under the composer: access mode (Review / Full Access), mode or worker,
-  provider/model, effort, context usage (`◔ 12.4k/200k - 6%`), and session cost. Usage and
-  cost are not shown anywhere yet (termcn `token-usage`).
-- Prompt history: Up/Down recalls this session's sent messages.
 - `@` path suggestions.
 - Shortcuts: Ctrl+V image paste (and dropped image paths), Ctrl+X clear attachments,
   Ctrl+P open the palette, Ctrl+I agents overlay.
@@ -137,8 +159,9 @@ sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
 **Transcript rendering:**
 
 - Search inside the transcript (terminal search cannot see the alternate screen).
-- Syntax highlighting in fenced code blocks (needs a tree-sitter client and scope styles).
-- Split (side-by-side) view and syntax highlighting for inline diffs.
+- Tree-sitter syntax highlighting for fenced code, inline diffs, and read output (see
+  [`docs/PORT_LIST.md`](docs/PORT_LIST.md)). Inline diffs stay single-column by owner
+  decision.
 - Assistant throughput metadata.
 - Image attachments and terminal graphics, including tool-result images.
 - Dedicated goal, crew roster, and review-summary views (these show as one-line
@@ -147,12 +170,8 @@ sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
 
 **Commands and terminal behavior:**
 
-- `/repaint` (alias `/redraw`), `/quit`, and `/ext.<name>` direct extension commands.
 - Branching from `/sessions`.
 - Themes (`--theme`, `CREWCODER_THEME`, custom JSON themes).
-- Terminal focus reporting (DECSET 1004), which keeps a key sent to one CrewCoder tab or
-  pane from reaching another.
-- Mouse reporting control (`CREWCODER_TUI_MOUSE`).
 - The legacy logo color pulse.
 
 ## Architecture
@@ -176,6 +195,7 @@ src/components/ExtensionQuestion.tsx  extension question card (confirm / select 
 src/question-model.ts       pure question layout: wrapping, option rows, windowing, height, answers
 src/components/Transcript.tsx  scrollbox transcript: reply, Reasoning panel, Agent work box, tool entries, rows
 src/tool-presentation.ts    tool name -> icon, title, target, layout; output clamping and diff line tones
+src/status-line.ts          status line under the composer: access, mode, model, session, context usage and cost
 src/glyphs.ts               emoji vs single-cell icon set from the terminal capability probe (CREWCODER_TUI_ICONS)
 src/hooks/use-glyph-set.ts  follows the renderer's capabilities event and resolves the icon set
 src/tool-diff.ts            per-file unified diffs from edit/write tool arguments, all providers

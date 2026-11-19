@@ -63,6 +63,8 @@ export const SLASH_COMMANDS: readonly PaletteCommand[] = [
   command("/handoff", "Hand off this session to a worker", "Workers"),
   command("/teams", "List worker teams from crewcoder.json", "Workers"),
   draft("/team", "Run a declared team: /team <team> <task>", "Workers"),
+  command("/repaint", "Redraw the whole screen if it looks garbled (alias /redraw)", "General"),
+  command("/quit", "Exit CrewCoder (same as Ctrl+C)", "General"),
   command("/help", "Show this command list", "General")
 ];
 

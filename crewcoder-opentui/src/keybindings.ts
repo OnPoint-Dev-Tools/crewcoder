@@ -1,7 +1,7 @@
 export type AppAction =
   | "abort" | "quit" | "approve" | "deny"
   | "paletteClose" | "paletteUp" | "paletteDown" | "paletteSelect" | "paletteBackspace"
-  | "composerSubmit" | "composerNewline"
+  | "composerSubmit" | "composerNewline" | "composerHistoryPrev" | "composerHistoryNext"
   | "summaryApply" | "summaryReset" | "summaryCancel"
   | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
   | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown"
@@ -34,6 +34,9 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   // everywhere: kitty reports it as ctrl+j, legacy terminals as "linefeed".
   composerSubmit: ["return", "kpenter"],
   composerNewline: ["shift+return", "ctrl+j", "linefeed", "meta+return"],
+  // Move between wrapped lines; on the first/last line, recall sent messages.
+  composerHistoryPrev: ["up"],
+  composerHistoryNext: ["down"],
   summaryApply: ["ctrl+s"],
   summaryReset: ["ctrl+r"],
   summaryCancel: ["escape"],

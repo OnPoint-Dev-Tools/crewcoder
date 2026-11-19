@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs } from "../args.js";
+import { mouseEnabled, parseArgs } from "../args.js";
 import { actionLabel, DEFAULT_APP_KEYBINDINGS, matchesAction } from "../keybindings.js";
 
 const key = (name: string, modifiers: Partial<{ ctrl: boolean; meta: boolean; shift: boolean }> = {}) => ({ name, ctrl: false, meta: false, shift: false, ...modifiers });
@@ -37,5 +37,14 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--theme", "dark"])).toThrow(/Unknown argument/);
     expect(() => parseArgs(["--remote"])).toThrow(/requires a value/);
     expect(() => parseArgs(["--remote="])).toThrow(/requires a value/);
+  });
+});
+
+describe("mouseEnabled", () => {
+  it("is on unless CREWCODER_TUI_MOUSE is exactly 0, like the legacy UI", () => {
+    expect(mouseEnabled({})).toBe(true);
+    expect(mouseEnabled({ CREWCODER_TUI_MOUSE: "1" })).toBe(true);
+    expect(mouseEnabled({ CREWCODER_TUI_MOUSE: "" })).toBe(true);
+    expect(mouseEnabled({ CREWCODER_TUI_MOUSE: "0" })).toBe(false);
   });
 });

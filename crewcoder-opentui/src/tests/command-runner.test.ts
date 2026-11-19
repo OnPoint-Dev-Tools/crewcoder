@@ -274,6 +274,72 @@ describe("session commands", () => {
     });
   });
 
+  describe("/quit", () => {
+    it("exits through the same path as Ctrl+C", async () => {
+      const { controller, bridge } = setup();
+      const quit = vi.fn();
+      controller.quit = quit;
+      await run(controller, "/quit");
+      expect(quit).toHaveBeenCalledTimes(1);
+      expect(bridge.runs).toHaveLength(0);
+    });
+
+    it("explains Ctrl+C without an interactive terminal", async () => {
+      const { controller } = setup();
+      await run(controller, "/quit");
+      expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "/quit needs an interactive terminal" });
+    });
+  });
+
+  describe("/ext.<name>", () => {
+    it("runs the extension command through the CLI with its arguments after --, never as a prompt", async () => {
+      const { controller, cli, bridge } = setup();
+      cli.responses.set("command run ext.lint.fix -- src/a.ts --dry-run", { stdout: "Fixed 2 files\n", stderr: "", exitCode: 0 });
+      await run(controller, "/ext.lint.fix src/a.ts   --dry-run");
+      expect(cli.calls.at(-1)).toEqual(["command", "run", "ext.lint.fix", "--", "src/a.ts", "--dry-run"]);
+      expect(controller.currentAlert?.variant).not.toBe("error");
+      expect(JSON.stringify(controller.currentAlert)).toContain("Fixed 2 files");
+      expect(bridge.runs).toHaveLength(0);
+      expect(controller.state.blocks).toHaveLength(0);
+    });
+
+    it("reports a failing or untrusted extension command as an error alert", async () => {
+      const { controller, cli } = setup();
+      cli.fail("command run ext.lint.fix --", "Extension lint is not trusted.");
+      await run(controller, "/ext.lint.fix");
+      expect(controller.currentAlert?.variant).toBe("error");
+      expect(JSON.stringify(controller.currentAlert)).toContain("Extension lint is not trusted.");
+    });
+
+    it("shows usage for a bare /ext.", async () => {
+      const { controller, cli } = setup();
+      await run(controller, "/ext.");
+      expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "Usage" });
+      expect(cli.calls).toHaveLength(0);
+    });
+  });
+
+  describe("/repaint", () => {
+    it("redraws the screen silently, also as /redraw, without touching the transcript or the agent", async () => {
+      const { controller, bridge } = setup();
+      const repaint = vi.fn();
+      controller.repaint = repaint;
+      controller.state.blocks = [{ type: "user", text: "keep me" }];
+      await run(controller, "/repaint");
+      await run(controller, "/redraw");
+      expect(repaint).toHaveBeenCalledTimes(2);
+      expect(controller.currentAlert).toBeUndefined();
+      expect(controller.state.blocks).toEqual([{ type: "user", text: "keep me" }]);
+      expect(bridge.runs).toHaveLength(0);
+    });
+
+    it("needs an interactive terminal", async () => {
+      const { controller } = setup();
+      await run(controller, "/repaint");
+      expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "/repaint needs an interactive terminal" });
+    });
+  });
+
   it("/set-budget parses shorthand and applies to the next run", async () => {
     const { controller, bridge } = setup();
     await run(controller, "/set-budget 1.5m");

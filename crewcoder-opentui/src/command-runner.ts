@@ -39,11 +39,17 @@ export interface CommandHost extends PickerHost {
   requestLiveCompactionPreview(): boolean;
   /** Hands the terminal to a full-screen program (wired by cli.tsx); undefined without one. */
   readonly runInTerminal: TerminalRun | undefined;
+  /** Redraws every cell of the screen (wired by cli.tsx); undefined without a renderer. */
+  readonly repaint: (() => void) | undefined;
+  /** Leaves the UI like Ctrl+C (wired by cli.tsx); undefined without a renderer. */
+  readonly quit: (() => void) | undefined;
 }
 
 type Handler = (rest: string) => void | Promise<void>;
 
 const TASKS_ENV = "CREWCODER_TASKS_ENABLED";
+/** Extension commands are typed as `/ext.<extension-id>.<command-id> [args]`. */
+const EXTENSION_COMMAND_PREFIX = "/ext.";
 
 /**
  * Every slash command that is not a picker. Results are alerts (status,
@@ -82,6 +88,9 @@ export class CommandRunner {
       "/reload": () => this.reload(),
       "/goal": (rest) => this.goal(rest),
       "/clear": () => this.clear(),
+      "/repaint": () => this.repaint(),
+      "/redraw": () => this.repaint(),
+      "/quit": () => this.quit(),
       "/diff": () => this.diff(),
       "/approve": (rest) => this.host.resolveApproval(rest || undefined, true),
       "/deny": (rest) => this.host.resolveApproval(rest || undefined, false),
@@ -93,7 +102,9 @@ export class CommandRunner {
 
   /** Run `name` with the raw text after it. Returns false for commands it does not own. */
   run(name: string, rest: string): boolean {
-    const handler = Object.hasOwn(this.handlers, name) ? this.handlers[name] : undefined;
+    const handler = Object.hasOwn(this.handlers, name)
+      ? this.handlers[name]
+      : name.startsWith(EXTENSION_COMMAND_PREFIX) ? (text: string) => this.extensionCommand(name, text) : undefined;
     if (!handler) return false;
     Promise.resolve()
       .then(() => handler(rest.trim()))
@@ -137,6 +148,45 @@ export class CommandRunner {
     if (this.state.sessionId && this.state.sessionId !== "new") return this.state.sessionId;
     this.alert({ variant: "warning", title: `No saved session to ${action} yet`, body: "Send a prompt first." });
     return undefined;
+  }
+
+  /**
+   * `/ext.<extension-id>.<command-id> [args]`: runs an extension's executable
+   * command through `crewcoder command run`, which enforces the extension's
+   * trust (as in the legacy UI). Its notifications come back as one alert;
+   * nothing is sent to the agent. `--` keeps typed arguments from being read as
+   * agent CLI options, and the CLI runs without a shell.
+   */
+  private async extensionCommand(name: string, rest: string): Promise<void> {
+    const id = name.slice(1);
+    if (id.length <= EXTENSION_COMMAND_PREFIX.length - 1) {
+      this.usage("/ext.<extension-id>.<command-id> [args]. Run /commands to see extension commands.");
+      return;
+    }
+    await this.cliAlert(name, ["command", "run", id, "--", ...rest.split(/\s+/).filter(Boolean)]);
+  }
+
+  private quit(): void {
+    const quit = this.host.quit;
+    if (!quit) {
+      this.alert({ variant: "warning", title: "/quit needs an interactive terminal", body: "Press Ctrl+C to exit." });
+      return;
+    }
+    quit();
+  }
+
+  /**
+   * Recovery for a garbled screen: something wrote to the terminal behind
+   * OpenTUI's back (a stray child process, a system message, a glitch after
+   * /diff). Silent on success; the redrawn screen is the result.
+   */
+  private repaint(): void {
+    const repaint = this.host.repaint;
+    if (!repaint) {
+      this.alert({ variant: "warning", title: "/repaint needs an interactive terminal" });
+      return;
+    }
+    repaint();
   }
 
   /** Review this session's file changes in Hunk; the UI is suspended until Hunk exits. */

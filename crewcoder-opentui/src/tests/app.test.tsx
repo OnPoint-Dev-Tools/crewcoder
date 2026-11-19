@@ -19,7 +19,7 @@ afterEach(async () => {
   active = undefined;
 });
 
-async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean; width?: number; height?: number } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
+async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean; width?: number; height?: number; exitOnCtrlC?: boolean } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
   const bridge = new FakeBridge();
   const controller = new SessionController(bridge, undefined, cli);
   const onQuit = vi.fn();
@@ -61,7 +61,10 @@ describe("full-screen transcript", () => {
     expect(live).toContain("💭 Reasoning");
     expect(live).toContain("considering");
     expect(live).toContain("CREW CODER");
-    expect(live).toContain("s-9");
+    // The status line names the session by its first prompt, never by its raw id.
+    const statusRow = live.split("\n")[23] ?? "";
+    expect(statusRow).toContain("hello crew");
+    expect(live).not.toContain("s-9");
 
     bridge.emit({ type: "agent_end" });
     const idle = await setup.waitForFrame((text) => !text.includes("Working"));
@@ -87,6 +90,22 @@ describe("full-screen transcript", () => {
       setup.renderer.emit("capabilities", setRendererCapabilities(setup.renderer, { unicode: "unicode-wide", multiplexer: "none" }));
     });
     await setup.waitForFrame((frame) => frame.includes("💭 Reasoning") && frame.includes("💻 Run Command"));
+  });
+
+  it("shows access, model, and live context usage with cost in the status line", async () => {
+    const { setup, bridge, controller } = await inConversation();
+    const statusRow = (frame: string): string => frame.split("\n")[23] ?? "";
+    const before = await setup.waitForFrame((text) => statusRow(text).includes("Review"));
+    expect(statusRow(before)).not.toContain("tokens");
+
+    bridge.emit({ type: "usage_update", summary: { turns: 1, contextWindow: 200_000, lastInputTokens: 12_400, totalTokens: 15_000, costUsd: 0.034 } });
+    const live = await setup.waitForFrame((text) => statusRow(text).includes("$0.03"));
+    expect(statusRow(live)).toContain("Review · general · claude/");
+    expect(statusRow(live).trimEnd().endsWith("◔ 12.4k/200k - 6% | 15k tokens | $0.03")).toBe(true);
+
+    controller.state.fullAccess = true;
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => statusRow(text).includes("Full Access"));
   });
 
   it("keeps the composer and status line at the bottom", async () => {
@@ -296,6 +315,34 @@ describe("keys", () => {
     setup.mockInput.pressKey("c", { ctrl: true });
     expect(onQuit).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores keys and pastes while the terminal is unfocused, and takes them again on focus", async () => {
+    // As in cli.tsx: Ctrl+C reaches the app instead of the renderer exiting on its own.
+    const { setup, bridge, onQuit } = await renderApp(new FakeCli(), { exitOnCtrlC: false });
+    await setup.waitForFrame((text) => text.includes("Ask CrewCoder"));
+
+    act(() => {
+      setup.renderer.emit("blur");
+    });
+    await setup.mockInput.typeText("ghost");
+    await setup.mockInput.pasteBracketedText("pasted ghost");
+    setup.mockInput.pressEnter();
+    setup.mockInput.pressKey("c", { ctrl: true });
+    await setup.renderOnce();
+    expect(bridge.runs).toHaveLength(0);
+    expect(onQuit).not.toHaveBeenCalled();
+
+    act(() => {
+      setup.renderer.emit("focus");
+    });
+    await setup.mockInput.typeText("real");
+    await setup.mockInput.pasteBracketedText(" text");
+    // Had any blurred key or paste landed, "ghost" would sit in front of this text.
+    const focused = await setup.waitForFrame((text) => text.includes("real text"));
+    expect(focused).not.toContain("ghost");
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "real text" });
+  });
 });
 
 describe("welcome screen", () => {
@@ -385,6 +432,57 @@ describe("multi-line composer", () => {
     await rendered.setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request"));
     return rendered;
   }
+
+  /** The composer's text row (one-line composer: border rows 20 and 22, status 23). */
+  const composerRow = (frame: string): string => frame.split("\n")[21] ?? "";
+
+  it("Up/Down recall this session's sent messages and restore the draft", async () => {
+    const { setup, bridge } = await idle(); // sent "hi"
+    await setup.mockInput.typeText("second prompt");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => composerRow(text).includes("Ask CrewCoder"));
+
+    await setup.mockInput.typeText("my draft");
+    setup.mockInput.pressArrow("up");
+    await setup.waitForFrame((text) => composerRow(text).includes("second prompt"));
+    setup.mockInput.pressArrow("up");
+    await setup.waitForFrame((text) => composerRow(text).includes("hi") && !composerRow(text).includes("second"));
+    // Past the oldest message, Up does nothing.
+    setup.mockInput.pressArrow("up");
+    await setup.renderOnce();
+    expect(composerRow(await setup.waitForFrame(() => true))).toContain("hi");
+
+    setup.mockInput.pressArrow("down");
+    await setup.waitForFrame((text) => composerRow(text).includes("second prompt"));
+    setup.mockInput.pressArrow("down");
+    await setup.waitForFrame((text) => composerRow(text).includes("my draft"));
+
+    // A recalled message can be sent as is.
+    setup.mockInput.pressArrow("up");
+    await setup.waitForFrame((text) => composerRow(text).includes("second prompt"));
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "second prompt" });
+  });
+
+  it("Up moves between a multi-line draft's lines before recalling", async () => {
+    const { setup, bridge, controller } = await idle({ kittyKeyboard: true }); // sent "hi"
+    await setup.mockInput.typeText("line one");
+    setup.mockInput.pressEnter({ shift: true });
+    await setup.mockInput.typeText("line two");
+    await vi.waitFor(() => expect(controller.composerLines).toBe(2));
+
+    // First Up: cursor moves to line one, nothing is recalled.
+    setup.mockInput.pressArrow("up");
+    await setup.renderOnce();
+    const moved = await setup.waitForFrame((text) => text.includes("line one"));
+    expect(moved).toContain("line two");
+    // Second Up: on the first line, so the sent message comes back.
+    setup.mockInput.pressArrow("up");
+    await setup.waitForFrame((text) => !text.includes("line two"));
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "hi" });
+  });
 
   it("Shift+Enter adds a line and Enter sends every line", async () => {
     const { setup, bridge, controller } = await idle({ kittyKeyboard: true });

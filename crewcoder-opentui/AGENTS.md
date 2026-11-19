@@ -73,10 +73,36 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
 - Programs that need the real terminal (Hunk for `/diff`) run through
   `SessionController.runInTerminal`, which `cli.tsx` wires to `renderer.suspend()` /
   `resume()`. Never write raw escapes to stdout; `/clear` only empties the transcript.
+- `/repaint` (alias `/redraw`) is the recovery path for a screen garbled by output that
+  bypassed OpenTUI. `cli.tsx` wires `SessionController.repaint` as `resize(w, h - 1)` then
+  `resize(w, h)`: OpenTUI 0.9.2 has no public full-redraw call and ignores a same-size
+  resize (it repaints only after seeing a different size). Keep it silent, and keep it
+  from touching the transcript or the agent. Verified in tmux by writing junk to the
+  pane TTY: typing does not clear it, `/repaint` restores the exact prior screen.
 - Verify layout changes in a real terminal (detached `tmux` on its own socket with a fake
   agent via `CREWCODER_BIN`, `capture-pane -p`, `-e` for colors); the test renderer does not
-  exercise the real terminal, mouse reporting, or suspend/resume.
+  exercise the real terminal, mouse reporting, or suspend/resume. Focus events need an
+  **attached** tmux client (`set -g focus-events on`, then attach through `script`); a
+  detached session never sends them, so a focus check there proves nothing.
+- Focus gate (`hooks/use-terminal-focus.ts`, ported from legacy `InputFocusGate`): while
+  OpenTUI reports `blur`, App drops every key (Ctrl+C included) and the hook drops pastes
+  (global paste listeners run before the composer, which honors `preventDefault`). It
+  starts focused so terminals without focus reporting keep working. OpenTUI enables
+  DECSET 1004 and parses `CSI I`/`CSI O` itself; never write those escapes from here.
+- `CREWCODER_TUI_MOUSE=0` turns mouse reporting off (`args.ts` `mouseEnabled`, same rule as
+  legacy). `/quit` uses the same exit as Ctrl+C (`SessionController.quit`, wired by
+  `cli.tsx`). `/ext.<id>.<command>` runs `crewcoder command run <name> -- <args>` through
+  the injectable CLI: the agent enforces extension trust, `--` keeps arguments from being
+  read as agent options, and it is never sent to the agent as a prompt.
 - Footer rows that must not wrap use `height={1}`, `wrapMode="none"`, `flexShrink={0}`.
+- The status line comes from the pure `status-line.ts` and reads only shared state
+  (`fullAccess`, mode/worker, provider/model/effort, `gitRepo`, `blocks`, `usage`); usage
+  uses tui-core's `formatContextStatus`, not a local copy. Access always shows (safety
+  state); details truncate from the end, before usage, measured in terminal cells
+  (`string-width`, pinned to OpenTUI's version). Hide usage until token counts arrive (no
+  `?/?`). Never show the raw session id: the session reads as `<repo> · <first prompt>`
+  (`sessionName`, the same label `/sessions` uses). `cli.tsx` sets `gitRepo` from tui-core
+  `readGitRepoName` (main repo name for linked worktrees) and never in `--remote` mode.
 
 ## termcn components
 
@@ -125,6 +151,12 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   from `DEFAULT_APP_KEYBINDINGS` via `textareaBindings`. Its height comes from
   `wrappedLineCount`, not the textarea's `virtualLineCount` (that only covers the current
   viewport, so the composer could never grow).
+- Prompt history (`composerHistoryPrev`/`Next`, Up/Down): `App.handleHistoryKey` first
+  moves the cursor between wrapped lines and recalls only when the cursor offset did not
+  change. Do not trust `moveCursorUp/Down`'s return value: OpenTUI 0.9.2 returns true on
+  the first/last row. History comes from `state.blocks` user entries
+  (`prompt-history.ts`), so it is session-scoped and resumed sessions recall their own
+  messages; `SessionController.recallPrompt` holds the recall state and `submit` resets it.
 - Extension questions (`extension_ui_request`) are live control-channel state, like
   approvals: a focused `ExtensionQuestion` card replaces the footer while the run is live,
   and answers go back through `bridge.resolveUiRequest` (`ui_response`). Esc cancels the
@@ -153,6 +185,9 @@ src/tests/transcript.test.ts          row mapping, control stripping
 src/tests/transcript.test.ts          turn sections (tools + approvals grouped, event order), streaming flag
 src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, full output, clamping, diff tones, text icons
 src/tests/glyphs.test.ts              emoji only for Unicode-width terminals without a multiplexer; CREWCODER_TUI_ICONS override
+src/tests/prompt-history.test.ts      sent messages newest first, Up/Down walk, draft restore, edit restarts recall
+src/tests/app.test.tsx (history)      Up/Down recall in the composer, multi-line drafts move lines before recalling
+src/tests/status-line.test.ts         access/mode/model, repo + first prompt (no raw id), usage + cost pinned right, no ?/?, wide chars, width never exceeded
 src/tests/tool-diff.test.ts           edit shapes per provider, single-file patches, Codex headers, anchors
 src/tests/app.test.tsx (diffs)        inline diff replaces output, click/Ctrl+T hide, real line numbers, long diff collapse
 src/tests/footer-layout.test.ts       composer sizing, approval height, home logo rule, path shortening
@@ -165,8 +200,8 @@ src/tests/app.test.tsx (pickers)      palette below the transcript; fast "/comma
 src/tests/app.test.tsx (composer)     Shift+Enter / Ctrl+J newline, Enter sends every line; alert until next key;
                                       summary editor opens at the end and applies with Ctrl+S
 src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts, compaction preview,
-                                      /diff arguments and Hunk failures
-src/tests/app.test.tsx                bare "y" never approves; abort, quit; approval buttons;
+                                      /diff arguments and Hunk failures, /repaint and /redraw, /quit, /ext.* args after --
+src/tests/app.test.tsx                bare "y" never approves; abort, quit; unfocused keys/pastes/Ctrl+C dropped; approval buttons;
                                       welcome screen centered, left on first prompt, restored by /new
 src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags, key labels
 src/tests/question-model.test.ts      question wrapping, option rows, windowing, answers, height cap

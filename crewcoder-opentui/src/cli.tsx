@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { CrewCoderProcessBridge } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
+import { readGitRepoName } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
 import { createCliRenderer, type Selection } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { App } from "./App.js";
-import { parseArgs, USAGE } from "./args.js";
+import { mouseEnabled, parseArgs, USAGE } from "./args.js";
 import { spawnInTerminal } from "./hunk.js";
 import { ThemeProvider } from "./providers/theme-provider.js";
 import { SessionController } from "./session-controller.js";
@@ -21,12 +22,16 @@ async function main(): Promise<void> {
   if (parsed.remoteBin) process.env.CREWCODER_REMOTE_BIN = parsed.remoteBin;
 
   const controller = new SessionController(new CrewCoderProcessBridge());
+  // The status line names the repo. Remote workspaces live on the SSH host, so
+  // never inspect the local directory for them.
+  if (!parsed.remote) controller.state.gitRepo = readGitRepoName(controller.state.cwd);
   // Full screen: the UI draws the whole conversation in a scrollbox, so tools
   // update in place and tool output can expand and collapse.
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     screenMode: "alternate-screen",
-    useMouse: true,
+    // CREWCODER_TUI_MOUSE=0 leaves the mouse to the terminal (native selection).
+    useMouse: mouseEnabled(),
     backgroundColor: slateTheme.colors.background,
     onDestroy: () => controller.dispose()
   });
@@ -45,10 +50,20 @@ async function main(): Promise<void> {
       await renderer.resume();
     }
   };
+  // /repaint: OpenTUI has no public full-redraw call, and a resize to the same
+  // size is a no-op (0.9.2 only repaints when a different size was seen in
+  // between). Resizing one row away and straight back reallocates the frame and
+  // redraws every cell; both calls run before the next frame, so nothing flashes.
+  controller.repaint = () => {
+    const { terminalWidth: width, terminalHeight: height } = renderer;
+    renderer.resize(width, Math.max(1, height - 1));
+    renderer.resize(width, height);
+  };
   const quit = (): void => {
     renderer.destroy();
     process.exit(0);
   };
+  controller.quit = quit;
   createRoot(renderer).render(
     <ThemeProvider theme={slateTheme}>
       <App controller={controller} onQuit={quit} />

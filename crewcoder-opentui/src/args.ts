@@ -11,6 +11,11 @@ Remote agent:
   --remote-cwd /workspace   Remote project directory (defaults to ~)
   --remote-bin <path>       Remote CrewCoder binary (defaults to ~/crewcoder-runner/crewcoder)
 
+Environment:
+  CREWCODER_TUI_MOUSE=0     Leave the mouse to the terminal (native selection;
+                            no click toggles, wheel scrolling depends on the terminal)
+  CREWCODER_TUI_ICONS=text  Single-cell icons (or emoji; default picks per terminal)
+
 Requires Node.js >=26.4. The legacy UI remains available as crewcoder-tui
 (npm i -g @onpoint-dev-tools/crewcoder-tui).
 `;
@@ -36,6 +41,11 @@ export function parseArgs(values: readonly string[]): ParsedArgs {
     result[VALUE_FLAGS[flag]] = next;
   }
   return result;
+}
+
+/** Mouse reporting stays on unless `CREWCODER_TUI_MOUSE=0`, the same switch as the legacy UI. */
+export function mouseEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CREWCODER_TUI_MOUSE !== "0";
 }
 
 function isValueFlag(flag: string): flag is keyof typeof VALUE_FLAGS {

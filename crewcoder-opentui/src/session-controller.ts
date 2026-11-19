@@ -8,6 +8,7 @@ import {
 import type { CrewCoderJsonEvent } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/event-parser";
 import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
 import { createInitialState, normalizeTuiMode, type TuiEventBlock, type TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import { IDLE_RECALL, sentMessages, stepRecall, type HistoryRecall } from "./prompt-history.js";
 import { alertRows, type FooterAlert } from "./alert-model.js";
 import { CommandRunner, type CommandHost, type SummaryEditorState } from "./command-runner.js";
 import { DRAFT_PREFIX, paletteCommands } from "./commands.js";
@@ -65,6 +66,7 @@ export class SessionController implements CommandHost {
   /** Text a picker wants in the composer; App applies it when `composerDraftVersion` changes. */
   composerDraft = "";
   composerDraftVersion = 0;
+  private historyRecall: HistoryRecall = IDLE_RECALL;
   /** Visual (wrapped) lines in the composer, reported by App; sizes the footer. */
   composerLines = 1;
   /** Shown above the composer until the next keypress or command. */
@@ -73,6 +75,10 @@ export class SessionController implements CommandHost {
   editor: SummaryEditorState | undefined;
   /** Hands the terminal to a full-screen program such as Hunk (`/diff`); wired by cli.tsx. */
   runInTerminal: TerminalRun | undefined;
+  /** `/repaint`: redraws every cell, discarding whatever else wrote to the terminal; wired by cli.tsx. */
+  repaint: (() => void) | undefined;
+  /** `/quit`: the same exit as Ctrl+C; wired by cli.tsx. */
+  quit: (() => void) | undefined;
   /** Ctrl+O: every tool's output expanded. A per-tool toggle flips its own state against this. */
   private allToolsExpanded = false;
   /** Tools toggled individually. Keyed by identity: the reducer mutates blocks in place. */
@@ -332,6 +338,18 @@ export class SessionController implements CommandHost {
     if (this.composerText) this.setComposerDraft(this.composerText);
   }
 
+  /**
+   * Up/Down on the composer's first/last line: the text of the older/newer
+   * sent message (or the saved draft), or undefined when there is nothing
+   * further that way. See `prompt-history.ts`.
+   */
+  recallPrompt(direction: "up" | "down", current: string): string | undefined {
+    const step = stepRecall(this.historyRecall, direction, current, sentMessages(this.state.blocks));
+    if (!step) return undefined;
+    this.historyRecall = step.recall;
+    return step.text;
+  }
+
   setComposerLines(lines: number): void {
     const next = Math.max(1, lines);
     if (next === this.composerLines) return;
@@ -384,6 +402,8 @@ export class SessionController implements CommandHost {
 
   /** Start, resume, or queue a follow-up for the active run. */
   submit(input: string): void {
+    // A sent message ends any recall; the next Up starts from the newest again.
+    this.historyRecall = IDLE_RECALL;
     const text = input.trim();
     if (!text) return;
     if (text.startsWith("/")) {

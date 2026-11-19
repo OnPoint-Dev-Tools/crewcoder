@@ -13,9 +13,11 @@ import { Home } from "./components/Home.js";
 import { SummaryEditor } from "./components/SummaryEditor.js";
 import { Transcript } from "./components/Transcript.js";
 import { COMPOSER_ROWS, isHome, shortenPath } from "./footer-layout.js";
+import { useTerminalFocus } from "./hooks/use-terminal-focus.js";
 import { useTheme } from "./hooks/use-theme.js";
 import { actionLabel, matchesAction, type KeyLike } from "./keybindings.js";
 import { summaryEditorTextRows, type SessionController } from "./session-controller.js";
+import { splitGauge, statusLine, type StatusLine } from "./status-line.js";
 
 export type AppProps = {
   controller: SessionController;
@@ -36,6 +38,7 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
   const editorRef = useRef<TextareaRenderable>(null);
   const questionInputRef = useRef<InputRenderable>(null);
   const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const terminalFocused = useTerminalFocus();
   const state = controller.state;
   const picker = controller.picker;
   const editor = controller.editor;
@@ -64,6 +67,11 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
   }, [controller.composerDraftVersion, controller.composerDraft, overlayOpen]);
 
   useKeyboard((key: KeyLike) => {
+    // An unfocused surface ignores input (Ctrl+C included): it was meant for another pane.
+    if (!terminalFocused.current) {
+      key.preventDefault?.();
+      return;
+    }
     if (matchesAction(key, "quit")) {
       onQuit();
       return;
@@ -96,6 +104,7 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
       return;
     }
     if (handleTranscriptKey(key)) return;
+    if (handleHistoryKey(key)) return;
     if (approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
     else if (approval && matchesAction(key, "deny")) controller.resolvePendingApproval(false);
     else if (matchesAction(key, "abort")) controller.abort();
@@ -112,6 +121,30 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     else if (matchesAction(key, "transcriptBottom")) scroll?.scrollTo(Number.POSITIVE_INFINITY);
     else return false;
     key.preventDefault?.();
+    return true;
+  }
+
+  /**
+   * Up/Down move between the composer's wrapped lines; only when the cursor
+   * cannot move further do they recall sent messages (legacy order). True when
+   * the key was used.
+   */
+  function handleHistoryKey(key: KeyLike): boolean {
+    const direction = matchesAction(key, "composerHistoryPrev") ? "up" : matchesAction(key, "composerHistoryNext") ? "down" : undefined;
+    const input = inputRef.current;
+    if (!direction || !input) return false;
+    key.preventDefault?.();
+    // moveCursorUp/Down return true even on the first/last row (OpenTUI 0.9.2),
+    // so compare the cursor offset to tell whether it actually moved.
+    const before = input.cursorOffset;
+    if (direction === "up") input.moveCursorUp();
+    else input.moveCursorDown();
+    if (input.cursorOffset !== before) return true;
+    const text = controller.recallPrompt(direction, input.plainText);
+    if (text !== undefined) {
+      input.setText(text);
+      input.gotoBufferEnd();
+    }
     return true;
   }
 
@@ -161,12 +194,8 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     controller.submit(text);
   };
 
-  const status = [
-    state.provider,
-    `${state.model} (${state.effort})`,
-    state.worker ? `worker ${state.worker}` : state.mode,
-    state.sessionId === "new" ? "new session" : state.sessionId
-  ].join(" · ");
+  // One row under the composer; paddingLeft takes a cell, the right edge keeps one free.
+  const status = statusLine(state, Math.max(0, width - 2));
 
   const composer = (
     <Composer
@@ -246,10 +275,33 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
             ) : null}
             {alert}
             {composer}
-            <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0} paddingLeft={1}>{status}</text>
+            <StatusRow status={status} />
           </>
         )}
       </box>
+    </box>
+  );
+}
+
+/**
+ * Access, mode, model, and session on the left; context usage and cost pinned
+ * right. Full Access reads in the warning color: it skips approvals.
+ */
+function StatusRow({ status }: { status: StatusLine }): ReactNode {
+  const theme = useTheme();
+  const { gauge, rest: usage } = splitGauge(status.right);
+  return (
+    <box flexDirection="row" height={1} flexShrink={0} paddingLeft={1} paddingRight={1}>
+      <text height={1} wrapMode="none" flexGrow={1} flexShrink={1}>
+        <span fg={status.access === "Full Access" ? theme.colors.warning : theme.colors.success}>{status.access}</span>
+        <span fg={theme.colors.mutedForeground}>{status.left}</span>
+      </text>
+      {status.right ? (
+        <text height={1} wrapMode="none" flexShrink={0}>
+          {gauge ? <span fg={theme.colors.accent}>{gauge}</span> : null}
+          <span fg={theme.colors.mutedForeground}>{usage}</span>
+        </text>
+      ) : null}
     </box>
   );
 }
