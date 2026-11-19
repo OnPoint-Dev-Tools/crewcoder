@@ -227,6 +227,93 @@ describe("sessions", () => {
   });
 });
 
+describe("branching from /sessions", () => {
+  const saved = (id: string, prompt: string) => ({
+    id, startedAt: "2026-11-15T10:00:00Z", cwd: "/repo", requestedMode: "crewcoder", resolvedMode: "crewcoder",
+    prompt, provider: "opencode", model: "sonnet", effort: "low", externalDirectories: ["/data"]
+  });
+
+  it("Tab-branch forks the highlighted session and opens the fork with the source's settings", async () => {
+    const { controller, cli, bridge } = setup();
+    cli.sessionList = [saved("s-1", "first"), saved("s-2", "second")];
+    cli.branchResult = "s-2-branch\n";
+    controller.submit("/sessions");
+    await flush();
+    expect(controller.picker?.hint).toContain("Tab branch");
+    controller.movePickerCursor(pickerEntries(controller.picker?.items ?? [], "").findIndex((item) => item.id === "s-2") - controller.pickerCursor);
+    controller.branchPickerItem();
+    await flush();
+
+    expect(cli.branches).toEqual(["s-2"]);
+    expect(controller.picker).toBeUndefined();
+    // Loaded like a resume (no prompt), so the transcript shows the branch, not what was on screen.
+    expect(bridge.resumes).toEqual([expect.objectContaining({ sessionId: "s-2-branch", provider: "opencode", model: "sonnet", mode: "crewcoder", externalDirectories: ["/data"] })]);
+    expect(bridge.resumes[0]?.prompt).toBeUndefined();
+    expect(controller.state.sessionId).toBe("s-2-branch");
+    expect(controller.currentAlert).toMatchObject({ variant: "success", title: "Branched session" });
+  });
+
+  it("is blocked while a run is active, so the run is never stopped by surprise", async () => {
+    const { controller, cli, bridge } = setup();
+    cli.sessionList = [saved("s-1", "first")];
+    controller.submit("go");
+    controller.submit("/sessions");
+    await flush();
+    controller.branchPickerItem();
+    await flush();
+    expect(cli.branches).toEqual([]);
+    expect(bridge.stops).toBe(0);
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: expect.stringContaining("branching a session") });
+  });
+
+  it("reports a failed branch and keeps the current session", async () => {
+    const { controller, cli, bridge } = setup();
+    cli.sessionList = [saved("s-1", "first")];
+    cli.branch = async () => { throw new Error("session not found on disk"); };
+    controller.state.sessionId = "current";
+    controller.submit("/sessions");
+    await flush();
+    controller.branchPickerItem();
+    await flush();
+    expect(controller.currentAlert).toMatchObject({ variant: "error", title: "Could not branch the session", body: "session not found on disk" });
+    expect(controller.state.sessionId).toBe("current");
+    expect(bridge.resumes).toEqual([]);
+  });
+
+  it("refuses a branch result that is not a new session", async () => {
+    const { controller, cli, bridge } = setup();
+    cli.sessionList = [saved("s-1", "first")];
+    cli.branchResult = "";
+    controller.submit("/sessions");
+    await flush();
+    controller.branchPickerItem();
+    await flush();
+    expect(controller.currentAlert).toMatchObject({ variant: "error", body: expect.stringContaining("new session id") });
+    expect(bridge.resumes).toEqual([]);
+  });
+
+  it("does nothing outside the sessions picker", async () => {
+    const { controller, cli } = setup();
+    controller.openCommandPalette();
+    controller.branchPickerItem();
+    await flush();
+    expect(cli.branches).toEqual([]);
+    expect(controller.picker?.kind).toBe("commands");
+  });
+
+  it("/branch <id or prefix> branches a listed session; bare /branch still forks the current one", async () => {
+    const { controller, cli, bridge } = setup();
+    cli.sessionList = [saved("abc-111", "a"), saved("abc-222", "b")];
+    controller.submit("/branch abc");
+    await flush();
+    expect(controller.currentAlert).toMatchObject({ variant: "error", title: "2 sessions start with abc" });
+    controller.submit("/branch abc-2");
+    await flush();
+    expect(cli.branches).toEqual(["abc-222"]);
+    expect(bridge.resumes.at(-1)).toMatchObject({ sessionId: "branch-1" });
+  });
+});
+
 describe("content pickers", () => {
   it("attaches a skill to the next prompt only, without showing it as typed text", async () => {
     const { controller, cli, bridge } = setup();

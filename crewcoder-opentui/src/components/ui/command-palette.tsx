@@ -6,6 +6,7 @@
 // - Renders a precomputed PickerView (palette-model.ts) so the same component
 //   serves every picker, scrolls long lists, and matches footer sizing exactly.
 // - Optional border title and a marker for the current value.
+// - Optional hint row text, for pickers with extra keys (/sessions: Tab branch).
 import type { ReactNode } from "react";
 import { useTheme } from "../../hooks/use-theme.js";
 import type { PickerView } from "../../palette-model.js";
@@ -19,9 +20,11 @@ export interface CommandPaletteProps {
   placeholder?: string;
   /** Shown instead of the list when it is empty. */
   emptyText?: string;
+  /** Key hint row; defaults to navigate/select/close. */
+  hint?: string;
 }
 
-export function CommandPalette({ view, query, title, placeholder = "Search commands…", emptyText = "No commands found" }: CommandPaletteProps): ReactNode {
+export function CommandPalette({ view, query, title, placeholder = "Search commands…", emptyText = "No commands found", hint = "↑↓ navigate · Enter select · Esc close" }: CommandPaletteProps): ReactNode {
   const theme = useTheme();
   const position = view.total > view.rows.filter((row) => row.kind === "item").length ? ` · ${view.selectedIndex + 1}/${view.total}` : "";
   return (
@@ -52,7 +55,7 @@ export function CommandPalette({ view, query, title, placeholder = "Search comma
           );
         })
       )}
-      <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>{`↑↓ navigate · Enter select · Esc close${position}`}</text>
+      <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>{`${hint}${position}`}</text>
     </box>
   );
 }

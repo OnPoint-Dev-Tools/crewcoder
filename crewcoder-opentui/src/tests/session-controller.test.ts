@@ -104,11 +104,11 @@ describe("SessionController", () => {
   it("reports unported slash commands instead of sending them as prompts", () => {
     const { bridge, controller } = setup();
 
-    controller.submit("/sidebar");
+    controller.submit("/crew");
 
     expect(bridge.runs).toHaveLength(0);
     expect(controller.state.blocks).toEqual([]);
-    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "/sidebar is not available in OpenTUI yet" });
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "/crew is not available in OpenTUI yet" });
   });
 
   it("ignores blank input", () => {

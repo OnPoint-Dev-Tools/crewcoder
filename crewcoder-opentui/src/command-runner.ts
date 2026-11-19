@@ -17,6 +17,8 @@ import { cliJson, cliText, errorMessage } from "./crewcoder-cli.js";
 import { HUNK_COMMAND, HUNK_INSTALL_HINT, hunkDiffArgs, type TerminalRun } from "./hunk.js";
 import type { PaletteCommand } from "./palette-model.js";
 import type { PickerFlows, PickerHost } from "./picker-flows.js";
+import { MIN_SIDEBAR_TERMINAL_WIDTH } from "./sidebar-model.js";
+import type { SidebarController } from "./sidebar.js";
 
 /** A summary waiting in the compaction editor, idle (saved session) or live (running loop). */
 export type SummaryEditorState = {
@@ -43,6 +45,7 @@ export interface CommandHost extends PickerHost {
   readonly repaint: (() => void) | undefined;
   /** Leaves the UI like Ctrl+C (wired by cli.tsx); undefined without a renderer. */
   readonly quit: (() => void) | undefined;
+  readonly sidebar: SidebarController;
 }
 
 type Handler = (rest: string) => void | Promise<void>;
@@ -83,7 +86,7 @@ export class CommandRunner {
       "/team": (rest) => this.team(rest),
       "/review-summary": () => this.reviewSummary(),
       "/why": () => this.why(),
-      "/branch": () => this.branch(),
+      "/branch": (rest) => rest ? this.flows.branchById(rest) : this.branch(),
       "/export": (rest) => this.exportSession(rest),
       "/reload": () => this.reload(),
       "/goal": (rest) => this.goal(rest),
@@ -92,6 +95,8 @@ export class CommandRunner {
       "/redraw": () => this.repaint(),
       "/quit": () => this.quit(),
       "/diff": () => this.diff(),
+      "/sidebar": (rest) => this.setSidebar(rest),
+      "/file-changes": (rest) => this.fileChanges(rest),
       "/approve": (rest) => this.host.resolveApproval(rest || undefined, true),
       "/deny": (rest) => this.host.resolveApproval(rest || undefined, false),
       "/approve-plan": () => this.approvePlan(),
@@ -206,6 +211,40 @@ export class CommandRunner {
     } else if (result.code !== 0) {
       this.alert({ variant: "error", title: `hunk diff exited with ${result.code ?? "a signal"}`, body: result.stderr.trim() || undefined });
     }
+  }
+
+  /** Bare `/sidebar` toggles; on/off/status are explicit. Display only: nothing is saved. */
+  private setSidebar(value: string): void {
+    const action = value.toLowerCase();
+    const sidebar = this.host.sidebar;
+    if (action === "status") return this.alert({ variant: "info", title: `Sidebar is ${sidebar.open ? "open" : "closed"}` });
+    if (action && action !== "on" && action !== "off") return this.usage("/sidebar on|off|status (bare /sidebar toggles)");
+    const open = action ? action === "on" : !sidebar.open;
+    if (open === sidebar.open) return this.alert({ variant: "info", title: `Sidebar already ${open ? "open" : "closed"}` });
+    sidebar.setOpen(open);
+    if (sidebar.hiddenByWidth) {
+      this.alert({ variant: "warning", title: "Sidebar opened, but the terminal is too narrow", body: `It shows at ${MIN_SIDEBAR_TERMINAL_WIDTH} columns or wider.` });
+    }
+  }
+
+  /**
+   * Show or hide modified files in the sidebar. Tracking never stops, so
+   * turning it back on restores the list. Instance-local and kept across /new.
+   */
+  private fileChanges(value: string): void {
+    const action = value.toLowerCase();
+    const count = this.state.changedFiles.length;
+    if (action === "status") {
+      return this.alert({ variant: "info", title: `File changes display is ${this.state.showFileChanges ? "on" : "off"}`, body: `File tracking remains active (${count} changed).` });
+    }
+    if (action && action !== "on" && action !== "off") return this.usage("/file-changes on|off|status (bare /file-changes toggles)");
+    this.state.showFileChanges = action ? action === "on" : !this.state.showFileChanges;
+    const hint = this.host.sidebar.open ? undefined : "The sidebar is closed; open it with /sidebar or Ctrl+B.";
+    this.alert({
+      variant: "success",
+      title: `File changes display turned ${this.state.showFileChanges ? "on" : "off"}`,
+      body: [`File tracking remains active (${count} changed).`, hint].filter(Boolean).join(" ")
+    });
   }
 
   private usage(text: string): void {
@@ -421,7 +460,12 @@ export class CommandRunner {
     this.alert(decision ? whyAlert(decision) : { variant: "info", title: "Nothing to explain yet", body: "This session has no agent turn." });
   }
 
+  /**
+   * Fork the current session in place. Refused mid-run: the copy would miss the
+   * rest of the turn (and any follow-ups), which keep going to the original.
+   */
   private async branch(): Promise<void> {
+    if (this.busy("branching the session")) return;
     const source = this.savedSession("branch");
     if (!source) return;
     const branched = await this.host.cli.branch(source);

@@ -113,6 +113,8 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   `?/?`). Never show the raw session id: the session reads as `<repo> · <first prompt>`
   (`sessionName`, the same label `/sessions` uses). `cli.tsx` sets `gitRepo` from tui-core
   `readGitRepoName` (main repo name for linked worktrees) and never in `--remote` mode.
+  In `--remote` mode `cli.tsx` sets `state.remoteTarget` and the remote `state.cwd` (as
+  legacy does); local spawns keep the local process cwd through the bridge.
 
 ## termcn components
 
@@ -149,10 +151,17 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   footer alerts (`controller.alert`, vendored termcn `alert`) that last until the next key;
   they never go into the transcript. Only `/approve-plan` sends a prompt. `/why` is a
   one-shot `session why` call and must never push a turn. `/crew` is skipped by owner
-  decision; `/sidebar` and `/file-changes` wait for the sidebar port. Picker commands
-  take their value directly (`/effort high`) through `PickerFlows.applyArgument`, which
-  must reuse the same selection path as the picker. `/plugins` is listed only under the
-  `crewcode` profile (`paletteCommands`).
+  decision. Picker commands take their value directly (`/effort high`) through
+  `PickerFlows.applyArgument`, which must reuse the same selection path as the picker.
+  `/plugins` is listed only under the `crewcode` profile (`paletteCommands`).
+- Branching from `/sessions`: `sessionBranch` (Tab) on the highlighted session runs
+  `PickerFlows.branch`, which forks through `cli.branch` and then opens the branch through
+  `resumeSession` with the source record's settings, so the transcript and new messages
+  both belong to the branch (legacy's `b` only switched the id). It is refused while a run
+  is active and rejects an empty or unchanged id. `/branch <id>` uses the same path; bare
+  `/branch` forks the current session in place and is also refused mid-run (the fork would
+  miss the rest of the turn and follow-ups, which still go to the original). Never bind it to a letter (letters search
+  the picker) or Ctrl+B (sidebar). A picker with extra keys sets `Picker.hint`.
 - Unported slash commands must report that they are unavailable; never send them to the
   agent as prompts.
 - The composer is a multi-line `<textarea>` (`components/Composer.tsx`), uncontrolled:
@@ -192,6 +201,24 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   request ids. Overlay precedence in `App` is summary editor, then question, then picker.
   An overlay that opens on its own must preserve the composer draft. See
   `docs/QUESTIONS.md`.
+- Right sidebar (`docs/SIDEBAR.md`): the only persistent place for workspace/git state,
+  modified files, live crew agents, and crew tasks; agent output still belongs in the
+  transcript. `App` lays out a row (main column, divider, sidebar), and every
+  width-dependent piece uses the main column's `width`, never the terminal's. Rows come
+  from the pure `sidebar-model.ts` (exactly `height` rows, each at most `width` cells,
+  measured with `string-width`); paths, worker names, and task text wrap, never truncate.
+  Section order and budgets follow legacy; keep the workspace footer anchored at the
+  bottom, and show AGENTS only while a crew has pending/running workers. State lives in
+  `SidebarController` (`SessionController.sidebar`): it starts closed, and open/closed,
+  the dragged width, and `showFileChanges` are instance-local, never saved. `/file-changes off`
+  hides the list but must never clear `state.changedFiles`, and it survives `/new`. Below
+  60 columns the sidebar hides but stays open. The divider is a bordered `box` (text
+  would start a selection instead of a drag). The task store reader is shared with legacy
+  (tui-core `state/crew-tasks`) and injectable (seventh `SessionController` argument,
+  `null` in remote mode: never read a local path for an SSH workspace). It polls only while
+  open and re-renders only on change. The git label is refreshed with `readGitLabelAsync`
+  after `agent_end` (wired by `cli.tsx`, local only); never call the sync reader outside
+  startup. Tests inject a fake task reader so they never read `~/.crewcoder`.
 - `/diff` runs `hunk diff -- <state.changedFiles>` (`hunk.ts`) through `runInTerminal`.
   Hunk is an external install, never a dependency; a missing binary is an error alert with
   install commands. See `docs/DIFF.md`.
@@ -229,7 +256,10 @@ src/tests/tool-diff.test.ts           edit shapes per provider, single-file patc
 src/tests/app.test.tsx (diffs)        inline diff replaces output, click/Ctrl+T hide, real line numbers, long diff collapse
 src/tests/footer-layout.test.ts       composer sizing, approval height, home logo rule, path shortening
 src/tests/command-palette.test.tsx    pickerHeight equals the rendered palette; grouped order matches cursor; long lists scroll
-src/tests/picker-flows.test.ts        every picker against FakeCli: chains, resume, skills, rewind confirm, busy guards
+src/tests/picker-flows.test.ts        every picker against FakeCli: chains, resume, skills, rewind confirm, busy guards,
+                                      branch from /sessions (opens the fork with saved settings, refused while running,
+                                      failed/unchanged ids), /branch <id|prefix>
+src/tests/app.test.tsx (pickers)      /sessions hint shows Tab branch; typed letters search; Tab branches the highlighted session
 src/tests/app.test.tsx (transcript)   reply + Reasoning panel, composer/status at the bottom, PgUp/Ctrl+End scrolling,
                                       live tool in the dashed Agent work box and not the footer, stacked tools,
                                       read contents, collapse/expand with Ctrl+O and a click
@@ -242,6 +272,11 @@ src/tests/app.test.tsx                bare "y" never approves; abort, quit; unfo
                                       welcome screen centered, left on first prompt, restored by /new
 src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags, key labels
 src/tests/question-model.test.ts      question wrapping, option rows, windowing, answers, height cap
+src/tests/sidebar-model.test.ts       width bounds, exact height, anchored <cwd>:<git> / <target>:<cwd> footer, cell wrapping,
+                                      file budget + "… N more", file-changes off, agents only while live, task markers, SSH note
+src/tests/sidebar.test.ts             task polling only while open, re-render on change, git label after runs, drag clamp,
+                                      /sidebar and /file-changes (tracking kept across /new)
+src/tests/app.test.tsx (sidebar)      Ctrl+B open/close beside the transcript, tasks and agents, hidden below 60 columns, divider drag
 src/tests/app.test.tsx (questions)    select/confirm/input answers over ui_response, Esc cancels without abort,
                                       keys never reach the composer, draft restored, mouse choice
 ```

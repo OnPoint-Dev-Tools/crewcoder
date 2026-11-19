@@ -45,4 +45,4 @@ which re-exports it), and `imagePathsFromText` / `attachedSources` in
 Legacy terminals send Tab and Ctrl+I as the same byte. While the `@` list is open, Tab
 picks a path instead (`mentionSelect` runs first). Ctrl+P and Tab keep the composer draft:
 the picker unmounts the composer, and the draft comes back when it closes. Ctrl+B
-(sidebar) arrives with the right sidebar.
+toggles the right sidebar (`docs/SIDEBAR.md`).

@@ -22,7 +22,7 @@ here**; there is no runtime termcn dependency. Attribution is in
 | `src/components/ui/alert.tsx` | `opentui/alert` | inline row `flexDirection="row"`; bordered variant sets `border`; fixed one-row body `lines`; trimmed props |
 | `src/components/ui/select.tsx` | `opentui/select` | no global keyboard (controlled `active`); renders precomputed wrapped `OptionRow`s from `src/question-model.ts` with indented descriptions; `flexDirection="row"`, height-1 rows; `#666` replaced with theme tokens; rows clickable |
 | `src/components/ui/confirm.tsx` | `opentui/confirm` | no global keyboard (upstream answered a bare `y`/`n` from anywhere; controlled `selected`); optional message row; `flexDirection="row"` answer row; answers clickable |
-| `src/components/ui/command-palette.tsx` | `opentui/command-palette` | renders a precomputed `PickerView` (filtering/grouping/windowing in `src/palette-model.ts`); keyboard routed by `App`; border title; current-value marker; theme tokens |
+| `src/components/ui/command-palette.tsx` | `opentui/command-palette` | renders a precomputed `PickerView` (filtering/grouping/windowing in `src/palette-model.ts`); keyboard routed by `App`; border title; current-value marker; theme tokens; per-picker hint row (`/sessions`: Tab branch) |
 
 Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
 (`src/theme.ts`) is CrewCoder's own, expressed as termcn `Theme` tokens.

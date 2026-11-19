@@ -142,13 +142,19 @@ Implemented now:
 - Slash command palette (`/`) with the legacy commands: every picker (`/sessions`,
   `/provider`, `/model`, `/effort`, `/modes`, `/prompts`, `/tool-mode`, `/profile`,
   `/rewind`, `/handoff`, ...), settings switches (`/thinking`, `/identity`, `/checkpoints`,
-  `/full-access`, `/memory`, `/task`, `/compact auto`), session tools (`/branch`,
+  `/full-access`, `/memory`, `/task`, `/compact auto`), session tools (`/branch [id]`,
+  Tab in `/sessions` to branch a saved session and open the branch,
   `/compact`, `/compact preview` with a summary editor, `/export`, `/goal`, `/reload`,
   `/clear`), and review tools (`/diff`, `/why`, `/review-summary`, `/extensions`, `/teams`,
   `/team`).
   Results show in a status alert above the composer. See
   [`docs/COMMAND_PALETTE.md`](docs/COMMAND_PALETTE.md).
-- Remote SSH mode, using the same bridge as the legacy UI.
+- **Right sidebar** (Ctrl+B, `/sidebar`): modified files (`/file-changes on|off`), live
+  crew agents, this session's crew tasks, and the `<cwd>:<branch>` footer
+  (`<target>:<cwd>` over SSH). Starts closed, hides below 60 columns, and the divider
+  drags to resize. See [`docs/SIDEBAR.md`](docs/SIDEBAR.md).
+- Remote SSH mode, using the same bridge as the legacy UI. The welcome screen and the
+  sidebar footer show the remote `<target>:<cwd>`.
 - Minimal slate colors (`#101216` background, `#3b414b` border, `#a7adb7` primary) as
   termcn theme tokens in `src/theme.ts`.
 
@@ -160,12 +166,7 @@ when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 
 **Deferred by owner decision:** `/crew`.
 
-**Next:** the right sidebar (modified files, live crew agents, crew tasks,
-`<cwd>:<branch>` footer) with `/sidebar`, `/file-changes`, and Ctrl+B.
-
-**Composer and status:**
-
-- Ctrl+B sidebar toggle (with the right sidebar).
+**Next:** transcript search.
 
 **Transcript rendering:**
 
@@ -178,7 +179,6 @@ when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 
 **Commands and terminal behavior:**
 
-- Branching from `/sessions`.
 - Themes (`--theme`, `CREWCODER_THEME`, custom JSON themes).
 - The legacy logo color pulse.
 
@@ -188,6 +188,7 @@ when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 src/cli.tsx                 argument parsing, alternate-screen renderer, copy-on-select, /diff terminal hand-off, React root
 src/App.tsx                 welcome screen, transcript + footer layout, overlays, keys
 src/components/Home.tsx     the centered welcome screen
+src/components/Sidebar.tsx  the right sidebar and its draggable divider
 src/components/ui/command-palette.tsx  termcn command picker presentation
 src/palette-model.ts        pure picker matching, grouped order, windowing, height
 src/pickers.ts              palette catalog, picker kinds, item builders
@@ -210,6 +211,8 @@ src/question-model.ts       pure question layout: wrapping, option rows, windowi
 src/components/Transcript.tsx  scrollbox transcript: reply, Reasoning panel, Agent work box, tool entries, rows
 src/tool-presentation.ts    tool name -> icon, title, target, layout; output clamping and diff line tones
 src/status-line.ts          status line under the composer: access, mode, model, session, context usage and cost
+src/sidebar-model.ts        pure sidebar rows: files, agents, tasks, <cwd>:<git> footer; widths and bounds
+src/sidebar.ts              SidebarController: open/width, task store polling, git label refresh
 src/glyphs.ts               emoji vs single-cell icon set from the terminal capability probe (CREWCODER_TUI_ICONS)
 src/hooks/use-glyph-set.ts  follows the renderer's capabilities event and resolves the icon set
 src/tool-diff.ts            per-file unified diffs from edit/write tool arguments, all providers

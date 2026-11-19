@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { CrewCoderProcessBridge } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
-import { readGitRepoName } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
+import { readCrewCoderRemoteConnection } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/remote-connection";
+import { readGitLabel, readGitLabelAsync, readGitRepoName } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
 import { createCliRenderer, type Selection } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { App } from "./App.js";
@@ -26,9 +27,17 @@ async function main(): Promise<void> {
   // the first highlight starts OpenTUI's parser worker.
   registerBundledGrammars();
   const controller = new SessionController(new CrewCoderProcessBridge());
-  // The status line names the repo. Remote workspaces live on the SSH host, so
-  // never inspect the local directory for them.
-  if (!parsed.remote) controller.state.gitRepo = readGitRepoName(controller.state.cwd);
+  const remote = readCrewCoderRemoteConnection();
+  if (remote) {
+    // The workspace is `<target>:<cwd>` on the SSH host (sidebar footer, welcome
+    // screen). Never inspect the local directory for it: no repo name, no git label.
+    controller.state.cwd = remote.cwd;
+    controller.state.remoteTarget = remote.target;
+  } else {
+    controller.state.gitRepo = readGitRepoName(controller.state.cwd);
+    controller.state.gitLabel = readGitLabel(controller.state.cwd);
+    controller.sidebar.gitLabelReader = readGitLabelAsync;
+  }
   // Full screen: the UI draws the whole conversation in a scrollbox, so tools
   // update in place and tool output can expand and collapse.
   const renderer = await createCliRenderer({

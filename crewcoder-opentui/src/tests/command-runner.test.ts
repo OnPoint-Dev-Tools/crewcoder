@@ -31,14 +31,15 @@ function choose(controller: SessionController, id: string): void {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("palette catalog", () => {
-  it("lists every requested command, skips /crew, and defers the sidebar commands", () => {
+  it("lists every requested command and skips /crew", () => {
     const labels = SLASH_COMMANDS.map((item) => item.label);
     for (const name of ["/branch", "/compact", "/compact preview", "/export", "/reload", "/goal", "/thinking", "/workers", "/identity",
       "/full-access", "/checkpoints", "/memory", "/remember", "/set-budget", "/add-dir", "/remove-dir", "/commands", "/extensions",
-      "/review-summary", "/why", "/task", "/teams", "/team", "/approve", "/approve-plan", "/deny", "/follow-up", "/clear", "/help"]) {
+      "/review-summary", "/why", "/task", "/teams", "/team", "/approve", "/approve-plan", "/deny", "/follow-up", "/clear", "/help",
+      "/sidebar", "/file-changes"]) {
       expect(labels).toContain(name);
     }
-    for (const name of ["/crew", "/sidebar", "/file-changes"]) expect(labels).not.toContain(name);
+    expect(labels).not.toContain("/crew");
     expect(new Set(SLASH_COMMANDS.map((item) => item.id)).size).toBe(SLASH_COMMANDS.length);
   });
 
@@ -181,6 +182,22 @@ describe("session commands", () => {
   it("/branch switches to the branched session", async () => {
     const { controller, cli } = setup();
     controller.state.sessionId = "s-1";
+    await run(controller, "/branch");
+    expect(cli.branches).toEqual(["s-1"]);
+    expect(controller.state.sessionId).toBe("branch-1");
+  });
+
+  it("/branch is refused while a run is active, and works once it ends", async () => {
+    const { controller, cli, bridge } = setup();
+    controller.state.sessionId = "s-1";
+    controller.submit("keep going");
+    await run(controller, "/branch");
+    expect(cli.branches).toEqual([]);
+    expect(controller.state.sessionId).toBe("s-1");
+    expect(bridge.stops).toBe(0);
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "Wait for the current run to finish before branching the session", body: "Use /stop to end it." });
+
+    bridge.emit({ type: "agent_end" });
     await run(controller, "/branch");
     expect(cli.branches).toEqual(["s-1"]);
     expect(controller.state.sessionId).toBe("branch-1");

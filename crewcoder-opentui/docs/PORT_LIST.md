@@ -30,19 +30,27 @@ code on 2026-11-18. The branch is not pushed until this list is done.
   Ctrl+X clear images, Ctrl+P palette, Tab/Ctrl+I modes picker. Images go to the agent as
   `--image`; the transcript shows an `IMAGE` row (pixels wait for item 11). See
   `docs/ATTACHMENTS.md`.
+- Right sidebar: modified files, live crew agents, crew tasks, `<cwd>:<git>` footer,
+  `/sidebar`, `/file-changes`, Ctrl+B, draggable divider. Task store reader shared with
+  legacy through tui-core `state/crew-tasks`. See `docs/SIDEBAR.md`.
+- Remote target in state: `--remote` sets `state.remoteTarget` and the remote `state.cwd`,
+  so the welcome screen and sidebar footer show `<target>:<cwd>`.
+- Branching from `/sessions`: Tab branches the highlighted session and opens the branch
+  (its history and saved settings); `/branch <id>` does the same by id. Legacy's `b` only
+  switched `state.sessionId` and left the old conversation on screen; this loads the
+  branch. See `docs/COMMAND_PALETTE.md`.
 
 ## Open
 
 1. **Transcript search.** Terminal search cannot see the alternate screen.
 2. ~~**Prompt history.**~~ Done.
 3. ~~**`@` path suggestions**~~ Done.
-4. ~~**Composer shortcuts**~~ Done, except Ctrl+B, which lands with the sidebar (8).
+4. ~~**Composer shortcuts**~~ Done (Ctrl+B with the sidebar).
 5. ~~**Slash commands:** `/repaint`, `/redraw`, `/quit`, `/ext.<name>`.~~ Done.
 6. ~~**Terminal focus reporting** and **`CREWCODER_TUI_MOUSE`**.~~ Done.
 7. ~~**Tree-sitter syntax highlighting.**~~ Done (`docs/SYNTAX.md`).
-8. **Right sidebar:** file changes, live crew agents, crew tasks, cwd:git footer; unblocks
-   `/sidebar` and `/file-changes`.
-9. **Branching from `/sessions`.**
+8. ~~**Right sidebar**~~ Done (`docs/SIDEBAR.md`).
+9. ~~**Branching from `/sessions`.**~~ Done.
 10. **Themes:** `--theme`, `CREWCODER_THEME`, custom JSON themes.
 11. **Image attachments and terminal graphics**, including tool-result images.
 12. **Live UI** (sandboxed extension workers).
@@ -50,11 +58,7 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 14. **Dedicated crew, goal, and review-summary views** (one-line placeholders today).
 15. **Logo color pulse.**
 
-16. **Remote target in state.** OpenTUI never sets `state.remoteTarget` (legacy sets it in
-    `tui.ts` from the resolved remote connection), so `--remote` shows the local folder on
-    the welcome screen instead of `<host>:<path>`, and `state.cwd` is the local directory.
-    Wire it from the bridge's remote connection; the status-line repo name stays off in
-    remote mode.
+16. ~~**Remote target in state.**~~ Done with the sidebar (`cli.tsx`).
 
 Skipped by owner decision: `/crew`.
 
@@ -65,6 +69,6 @@ Skipped by owner decision: `/crew`.
 3. ~~`/repaint`, `/quit`, `/ext.*`, focus reporting, `CREWCODER_TUI_MOUSE`.~~ Done.
 4. ~~Tree-sitter highlighting.~~ Done.
 5. ~~`@` paths and composer shortcuts.~~ Done.
-6. Right sidebar, then `/sessions` branching.
+6. ~~Right sidebar, then `/sessions` branching.~~ Done.
 7. Transcript search.
 8. Images, themes, Live UI, throughput, dedicated views, logo pulse.

@@ -12,6 +12,7 @@ import { Composer } from "./components/Composer.js";
 import { ExtensionQuestion } from "./components/ExtensionQuestion.js";
 import { Home } from "./components/Home.js";
 import { MentionList } from "./components/MentionList.js";
+import { Sidebar } from "./components/Sidebar.js";
 import { SummaryEditor } from "./components/SummaryEditor.js";
 import { Transcript } from "./components/Transcript.js";
 import { COMPOSER_ROWS, isHome, shortenPath } from "./footer-layout.js";
@@ -35,8 +36,11 @@ export type AppProps = {
  */
 export function App({ controller, onQuit }: AppProps): ReactNode {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
-  const { width, height } = useTerminalDimensions();
+  const { width: terminalWidth, height } = useTerminalDimensions();
   const theme = useTheme();
+  // The sidebar spans the full height on the right; everything else lays out in `width`.
+  const sidebarColumns = controller.sidebar.columns(terminalWidth);
+  const width = sidebarColumns > 0 ? terminalWidth - sidebarColumns - 1 : terminalWidth;
   const inputRef = useRef<TextareaRenderable>(null);
   const editorRef = useRef<TextareaRenderable>(null);
   const questionInputRef = useRef<InputRenderable>(null);
@@ -103,8 +107,14 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
       else if (matchesAction(key, "paletteUp")) controller.movePickerCursor(-1);
       else if (matchesAction(key, "paletteDown")) controller.movePickerCursor(1);
       else if (matchesAction(key, "paletteSelect")) controller.selectPickerItem();
+      else if (controller.picker.kind === "session" && matchesAction(key, "sessionBranch")) controller.branchPickerItem();
       else if (matchesAction(key, "paletteBackspace")) controller.setPickerQuery(controller.pickerQuery.slice(0, -1));
       else if (!key.ctrl && !key.meta && key.name.length === 1) controller.setPickerQuery(controller.pickerQuery + key.name);
+      return;
+    }
+    if (matchesAction(key, "toggleSidebar")) {
+      key.preventDefault?.();
+      controller.sidebar.toggle();
       return;
     }
     if (handleMentionKey(key)) return;
@@ -276,31 +286,39 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
           title={picker.title}
           placeholder={picker.placeholder}
           emptyText={picker.loading ? "Loading…" : picker.emptyText}
+          hint={picker.hint}
         />
       </box>
     </box>
   ) : null;
 
-  if (home) {
-    return (
-      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent="center">
-        {overlay ?? (
-          <Home
-            width={width}
-            height={height}
-            info={homeInfo(state.provider, state.model, state.cwd, state.remoteTarget, width)}
-            composer={<>{attachmentRow}{composer}{mentionList}</>}
-            alert={alert}
-            extraRows={(extras.alertRows ?? 0) + (extras.mentionRows ?? 0) + (extras.attachmentRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
-          />
-        )}
-      </box>
-    );
-  }
+  const sidebar = sidebarColumns > 0 ? (
+    <Sidebar
+      state={state}
+      tasks={controller.sidebar.tasks}
+      width={sidebarColumns}
+      height={height}
+      home={state.remoteTarget ? undefined : os.homedir()}
+      onDividerDrag={(x) => controller.sidebar.resize(terminalWidth - x - 1, terminalWidth)}
+    />
+  ) : null;
 
   const last = state.blocks.at(-1);
-  return (
-    <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.colors.background}>
+  const main = home ? (
+    <box width={width} height="100%" justifyContent="center" flexShrink={0}>
+      {overlay ?? (
+        <Home
+          width={width}
+          height={height}
+          info={homeInfo(state.provider, state.model, state.cwd, state.remoteTarget, width)}
+          composer={<>{attachmentRow}{composer}{mentionList}</>}
+          alert={alert}
+          extraRows={(extras.alertRows ?? 0) + (extras.mentionRows ?? 0) + (extras.attachmentRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
+        />
+      )}
+    </box>
+  ) : (
+    <box flexDirection="column" width={width} height="100%" flexShrink={0}>
       <Transcript blocks={state.blocks} running={state.running} cwd={state.cwd} expansion={controller.toolExpansion} scrollRef={scrollRef} />
       <box flexDirection="column" width="100%" flexShrink={0} marginTop={1}>
         {overlay ?? (
@@ -329,6 +347,13 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
           </>
         )}
       </box>
+    </box>
+  );
+
+  return (
+    <box flexDirection="row" width="100%" height="100%" backgroundColor={theme.colors.background}>
+      {main}
+      {sidebar}
     </box>
   );
 }

@@ -7,7 +7,9 @@ import {
 } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import type { CrewCoderJsonEvent } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/event-parser";
 import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
+import { readCrewTaskSnapshot } from "@onpoint-dev-tools/crewcoder-tui-core/state/crew-tasks";
 import { createInitialState, normalizeTuiMode, type TuiEventBlock, type TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import { SidebarController, type TaskReader } from "./sidebar.js";
 import { IDLE_RECALL, sentMessages, stepRecall, type HistoryRecall } from "./prompt-history.js";
 import { attachImagePaths, pasteFromClipboard, systemClipboard, type ClipboardSource } from "./attachments.js";
 import { actionLabel } from "./keybindings.js";
@@ -99,6 +101,8 @@ export class SessionController implements CommandHost {
   /** `@` path suggestions under the composer (`mentions.ts`). */
   readonly mentions: Mentions;
   private readonly clipboard: ClipboardSource;
+  /** The right sidebar (Ctrl+B, `/sidebar`): open state, width, crew tasks. */
+  readonly sidebar: SidebarController;
 
   constructor(
     bridge: SessionBridge,
@@ -107,8 +111,11 @@ export class SessionController implements CommandHost {
     readFile: FileReader = readLocalFile,
     // null, not undefined: an explicit undefined would take this default.
     listPaths: PathLister | null = isCrewCoderRemote() ? null : listPathSuggestions,
-    clipboard: ClipboardSource = systemClipboard
+    clipboard: ClipboardSource = systemClipboard,
+    // The task store lives on the workspace's disk; remote workspaces are not local.
+    readTasks: TaskReader | null = isCrewCoderRemote() ? null : readCrewTaskSnapshot
   ) {
+    this.sidebar = new SidebarController(this, readTasks);
     this.clipboard = clipboard;
     this.bridge = bridge;
     this.state = state;
@@ -216,6 +223,19 @@ export class SessionController implements CommandHost {
     this.flows.select(picker.kind, item.id).then(
       () => this.notify(),
       (error: unknown) => this.alert({ variant: "error", title: "Could not apply that choice", body: errorMessage(error) })
+    );
+  }
+
+  /** Tab in /sessions: branch the highlighted session and open the branch. */
+  branchPickerItem(): void {
+    const picker = this.picker;
+    if (picker?.kind !== "session" || picker.loading) return;
+    const item = pickerEntries(picker.items, this.pickerQuery)[this.pickerCursor];
+    if (!item) return;
+    this.closePicker();
+    this.flows.branch(item.id).then(
+      () => this.notify(),
+      (error: unknown) => this.alert({ variant: "error", title: "Could not branch the session", body: errorMessage(error) })
     );
   }
 
@@ -593,6 +613,7 @@ export class SessionController implements CommandHost {
   }
 
   dispose(): void {
+    this.sidebar.dispose();
     this.bridge.stop();
     this.listeners.clear();
   }
@@ -601,6 +622,9 @@ export class SessionController implements CommandHost {
     const questionOpen = this.question() !== undefined;
     applyCrewCoderEvent(this.state, event);
     if (event.type === "tool_execution_end") this.anchorEdit(event.toolCallId);
+    // Task tools write the store; a finished run may have moved the branch or dirtied the tree.
+    if (this.sidebar.open && (event.type === "tool_execution_end" || event.type === "agent_end")) void this.sidebar.refreshTasks();
+    if (event.type === "agent_end") void this.sidebar.refreshGitLabel();
     // An extension question replaces the footer, picker included; keep what the user was typing.
     if (event.type === "extension_ui_request" && !questionOpen && this.question()) {
       this.preserveComposerDraft();

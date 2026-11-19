@@ -8,6 +8,7 @@ import {
   cliJson, cliText, errorMessage, readToolMode,
   type CrewCoderCli, type LoadedPromptCommand, type LoadedSkill, type NamedEntry, type RewindPreview, type RewindResult, type WorkerSummary
 } from "./crewcoder-cli.js";
+import { actionLabel } from "./keybindings.js";
 import type { PaletteCommand } from "./palette-model.js";
 import {
   checkpointItems, directoryItems, effortItems, modeItems, modelItems, namedItems, profileItems, providerItems,
@@ -32,6 +33,8 @@ export interface PickerHost {
 }
 
 export type OpenableKind = Exclude<PickerKind, "commands" | "menu" | "rewindConfirm">;
+
+const SESSION_HINT = `↑↓ navigate · Enter resume · ${actionLabel("sessionBranch")} branch · Esc close`;
 
 const picker = (kind: PickerKind, title: string, items: PaletteCommand[] = [], loading = false, emptyText = "Nothing to pick"): Picker =>
   ({ kind, title, placeholder: "Search…", emptyText, items, loading });
@@ -77,7 +80,7 @@ export class PickerFlows {
         if (!state.externalDirectories.length) return this.host.alert({ variant: "info", title: "No external directories attached" });
         return this.host.openPicker(picker("removeDir", "Remove external directory", directoryItems(state.externalDirectories)));
       case "session":
-        return this.load(picker("session", "Resume session", [], true, "No sessions found"), async () => {
+        return this.load({ ...picker("session", "Resume session", [], true, "No sessions found"), hint: SESSION_HINT }, async () => {
           this.sessions = await this.host.cli.sessions();
           return sessionItems(this.sessions, state.sessionId);
         });
@@ -297,15 +300,42 @@ export class PickerFlows {
     this.host.alert({ variant: "success", title: `Worker: ${name}`, body: "This session only." });
   }
 
+  /**
+   * Fork a listed session and open the fork (Tab in /sessions, `/branch <id>`).
+   * The branch loads like a resume, with its conversation and saved settings, so
+   * the screen and new messages both belong to it; the original is untouched.
+   */
+  async branch(id: string): Promise<void> {
+    if (this.blockedWhileRunning("branching a session")) return;
+    const source = this.sessions.find((session) => session.id === id);
+    if (!source) return this.host.alert({ variant: "error", title: `Session not found: ${id}`, body: "Run /sessions to pick from the list." });
+    this.host.alert({ variant: "info", title: "Branching session…" });
+    const branchedId = (await this.host.cli.branch(source.id)).trim();
+    if (!branchedId || branchedId === source.id) throw new Error("session branch did not return a new session id.");
+    this.host.resumeSession({ ...source, id: branchedId });
+    this.host.alert({ variant: "success", title: "Branched session", body: "New messages go to the branch; the original session is unchanged." });
+  }
+
+  /** `/branch <id>`: an exact id or a unique prefix from the session list. */
+  async branchById(id: string): Promise<void> {
+    const session = await this.findSession(id);
+    if (session) await this.branch(session.id);
+  }
+
   /** `/sessions <id>`: an exact id or a unique prefix. */
   private async resumeById(id: string): Promise<void> {
+    const session = await this.findSession(id);
+    if (session) this.host.resumeSession(session);
+  }
+
+  /** Reload the list and match an exact id or a unique prefix; alerts and returns undefined otherwise. */
+  private async findSession(id: string): Promise<SessionRecord | undefined> {
     this.sessions = await this.host.cli.sessions();
     const exact = this.sessions.find((session) => session.id === id);
     const matches = exact ? [exact] : this.sessions.filter((session) => session.id.startsWith(id));
-    if (matches.length !== 1 || !matches[0]) {
-      return this.host.alert({ variant: "error", title: matches.length ? `${matches.length} sessions start with ${id}` : `Session not found: ${id}`, body: "Run /sessions to pick from the list." });
-    }
-    this.host.resumeSession(matches[0]);
+    if (matches.length === 1 && matches[0]) return matches[0];
+    this.host.alert({ variant: "error", title: matches.length ? `${matches.length} sessions start with ${id}` : `Session not found: ${id}`, body: "Run /sessions to pick from the list." });
+    return undefined;
   }
 
   private usage(text: string): void {

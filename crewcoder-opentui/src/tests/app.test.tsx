@@ -16,6 +16,8 @@ import { slateTheme, SYNTAX_COLORS } from "../theme.js";
 import { COLLAPSED_OUTPUT_LINES } from "../tool-presentation.js";
 import { FakeBridge } from "./fake-bridge.js";
 import { FakeCli, flush } from "./fake-cli.js";
+import { DISABLED_TASKS } from "@onpoint-dev-tools/crewcoder-tui-core/state/crew-tasks";
+import type { TaskReader } from "../sidebar.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 let active: Setup | undefined;
@@ -25,15 +27,17 @@ afterEach(async () => {
   active = undefined;
 });
 
-async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean; width?: number; height?: number; exitOnCtrlC?: boolean } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
+async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean; width?: number; height?: number; exitOnCtrlC?: boolean; readTasks?: TaskReader } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
   const bridge = new FakeBridge();
-  const controller = new SessionController(bridge, undefined, cli);
+  // Never the real task store: the sidebar would read ~/.crewcoder and the cwd.
+  const { readTasks = async () => DISABLED_TASKS, ...renderOptions } = options;
+  const controller = new SessionController(bridge, undefined, cli, undefined, undefined, undefined, readTasks);
   const onQuit = vi.fn();
   const setup = await testRender(
     <ThemeProvider theme={slateTheme}>
       <App controller={controller} onQuit={onQuit} />
     </ThemeProvider>,
-    { width: 80, height: 24, ...options }
+    { width: 80, height: 24, ...renderOptions }
   );
   active = setup;
   await setup.renderOnce();
@@ -41,7 +45,7 @@ async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean
 }
 
 /** Send a prompt and wait until the conversation (not the welcome screen) shows. */
-async function inConversation(options: { kittyKeyboard?: boolean; height?: number } = {}, prompt = "hi") {
+async function inConversation(options: { kittyKeyboard?: boolean; width?: number; height?: number } = {}, prompt = "hi") {
   const rendered = await renderApp(new FakeCli(), options);
   await rendered.setup.mockInput.typeText(prompt);
   rendered.setup.mockInput.pressEnter();
@@ -467,6 +471,29 @@ describe("pickers", () => {
     expect(bridge.stops).toBe(0);
   });
 
+  it("/sessions shows Tab branch; letters still search, and Tab opens a branch of the highlighted session", async () => {
+    const cli = new FakeCli();
+    cli.sessionList = [
+      { id: "s-1", startedAt: "2026-11-15T10:00:00Z", cwd: "/r", requestedMode: "general", resolvedMode: "general", prompt: "alpha work" },
+      { id: "s-2", startedAt: "2026-11-15T11:00:00Z", cwd: "/r", requestedMode: "general", resolvedMode: "general", prompt: "beta work" }
+    ];
+    cli.branchResult = "s-2-fork";
+    const { setup, bridge, controller } = await renderApp(cli);
+    await setup.mockInput.typeText("/sessions");
+    setup.mockInput.pressEnter();
+    await flush();
+    await setup.waitForFrame((text) => text.includes("Tab branch") && text.includes("beta work"));
+    // "b" searches; it does not branch (legacy used a bare b).
+    await setup.mockInput.typeText("beta");
+    await vi.waitFor(() => expect(controller.pickerQuery).toBe("beta"));
+    expect(cli.branches).toEqual([]);
+    setup.mockInput.pressTab();
+    await flush();
+    await vi.waitFor(() => expect(bridge.resumes).toEqual([expect.objectContaining({ sessionId: "s-2-fork" })]));
+    expect(cli.branches).toEqual(["s-2"]);
+    expect(controller.picker).toBeUndefined();
+  });
+
   it("puts a chosen prompt command into the composer", async () => {
     const cli = new FakeCli()
       .json("command list --json", [{ name: "review", path: "/x/review.md" }])
@@ -865,6 +892,83 @@ describe("extension questions", () => {
     await setup.mockMouse.click(rows[row]!.indexOf("Bravo"), row);
     await setup.renderOnce();
     expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: "b" }]);
+  });
+});
+
+describe("right sidebar", () => {
+  const sidebarText = (frame: string, width: number): string[] => frame.split("\n").map((row) => row.slice(-width).trimEnd());
+
+  it("Ctrl+B opens it beside the conversation; Ctrl+B closes it and the transcript gets the width back", async () => {
+    const { setup, bridge, controller } = await inConversation({ width: 100 }, "hello");
+    Object.assign(controller.state, { cwd: "/work/app", gitLabel: "main*" });
+    bridge.emit({ type: "file_changed", path: "/work/app/src/app.ts" });
+    setup.mockInput.pressKey("b", { ctrl: true });
+    const open = await setup.waitForFrame((text) => text.includes("MODIFIED FILES"));
+    const side = sidebarText(open, 26);
+    expect(side[0]).toBe("  MODIFIED FILES 1");
+    expect(side[1]).toBe("  ● src/app.ts");
+    expect(side.at(-2)).toBe("  • CrewCoder");
+    expect(side).toContain("  /work/app:main*");
+    // The divider sits just left of the sidebar; the composer ends before it.
+    const rows = open.split("\n");
+    expect(rows.filter(Boolean).every((row) => row[100 - 27] === "│")).toBe(true);
+    expect(rows.find((row) => row.includes("╰"))?.lastIndexOf("╯")).toBeLessThan(100 - 27);
+    expect(controller.state.blocks.filter((block) => block.type === "user")).toHaveLength(1);
+
+    setup.mockInput.pressKey("b", { ctrl: true });
+    const closed = await setup.waitForFrame((text) => !text.includes("MODIFIED FILES"));
+    expect(closed.split("\n").find((row) => row.includes("╰"))?.lastIndexOf("╯")).toBeGreaterThan(100 - 27);
+  });
+
+  it("shows this session's crew tasks and live crew agents", async () => {
+    const readTasks: TaskReader = async () => ({ enabled: true, tasks: [
+      { id: "1", subject: "Plan", status: "completed", sessionId: "s-1" },
+      { id: "2", subject: "Build", status: "in_progress", activeForm: "Building the sidebar", sessionId: "s-1" }
+    ] });
+    const { setup, bridge, controller } = await renderApp(new FakeCli(), { width: 120, readTasks });
+    await setup.mockInput.typeText("go");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "agent_start", sessionId: "s-1" });
+    bridge.emit({ type: "crew_start", workers: ["builder", "tester"] });
+    bridge.emit({ type: "crew_worker_start", worker: "builder" });
+    controller.sidebar.setOpen(true);
+    const frame = await setup.waitForFrame((text) => text.includes("CREW TASKS") && text.includes("AGENTS: builder"));
+    const side = sidebarText(frame, 31);
+    expect(side).toContain("  CREW TASKS — 1/2 completed");
+    expect(side).toContain("  ◉ 2. Building the sidebar");
+    expect(side).toContain("  ✓ 1. Plan");
+    expect(side.some((row) => /^ {2}\S builder running$/.test(row))).toBe(true);
+    expect(side).toContain("  □ tester queued");
+  });
+
+  it("stays hidden below 60 columns and on the welcome screen keeps the logo when there is room", async () => {
+    const narrow = await renderApp(new FakeCli(), { width: 58 });
+    narrow.setup.mockInput.pressKey("b", { ctrl: true });
+    await narrow.setup.renderOnce();
+    expect(narrow.controller.sidebar.open).toBe(true);
+    expect(narrow.setup.captureCharFrame()).not.toContain("MODIFIED FILES");
+    await narrow.setup.dispose();
+
+    const wide = await renderApp(new FakeCli(), { width: 130, height: 30 });
+    wide.controller.sidebar.setOpen(true);
+    const frame = await wide.setup.waitForFrame((text) => text.includes("MODIFIED FILES"));
+    expect(frame).toContain("██");
+    expect(frame).toContain("Ask CrewCoder");
+    active = wide.setup;
+  });
+
+  it("dragging the divider resizes it within bounds", async () => {
+    const { setup, controller } = await inConversation({ width: 100 }, "hello");
+    controller.sidebar.setOpen(true);
+    await setup.waitForFrame((text) => text.includes("MODIFIED FILES"));
+    const divider = 100 - 27;
+    await setup.mockMouse.drag(divider, 5, divider - 14, 5);
+    await setup.waitForFrame((text) => text.split("\n").filter(Boolean).every((row) => row[100 - 41] === "│"));
+    expect(controller.sidebar.columns(100)).toBe(40);
+    await setup.mockMouse.drag(100 - 41, 5, 2, 5);
+    // Capped at 60 columns (and never leaving the conversation under 32).
+    await setup.waitForFrame((text) => text.split("\n").filter(Boolean).every((row) => row[100 - 61] === "│"));
+    expect(controller.sidebar.columns(100)).toBe(60);
   });
 });
 

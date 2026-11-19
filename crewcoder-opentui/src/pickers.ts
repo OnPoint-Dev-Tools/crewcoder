@@ -17,6 +17,8 @@ export type Picker = {
   emptyText: string;
   items: PaletteCommand[];
   loading: boolean;
+  /** Replaces the default `↑↓ navigate · Enter select · Esc close` row (pickers with extra keys). */
+  hint?: string;
 };
 
 /** Typed names (including legacy aliases) that open a picker. */

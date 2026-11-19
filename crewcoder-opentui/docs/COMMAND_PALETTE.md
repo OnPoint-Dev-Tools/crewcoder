@@ -33,12 +33,13 @@ alert; bad values report what is accepted.
 | `/profile crewcode`, `/tool-mode native|crewcoder|status` | Save the profile; save or show Tool mode. |
 | `/remove-dir <path>` | Revoke that grant. |
 | `/sessions <id>` (`/resume <id>`) | Resume by exact id or a unique prefix. |
+| `/branch <id>` | Branch a saved session (exact id or unique prefix) and open the branch, like Tab in `/sessions`. |
 | `/rewind latest|<id>` | Preview and restore that checkpoint (confirm if it deletes files). |
 | `/handoff worker:<name> [prompt]` | Hand off with an optional continuation prompt. |
 
 | Command | Picker | On select |
 |---|---|---|
-| `/sessions` (`/resume`) | Saved sessions, grouped by day | Resume with the session's saved provider, model, mode, and external directories. A saved effort the model does not support is clamped. |
+| `/sessions` (`/resume`) | Saved sessions, grouped by day | Enter resumes with the session's saved provider, model, mode, and external directories; a saved effort the model does not support is clamped. **Tab branches** the highlighted session (`session branch`) and opens the branch the same way, so the screen and new messages both belong to the branch and the original is unchanged. Branching is refused during a run (loading a session stops the bridge). Letters search, so legacy's bare `b` is not used, and Ctrl+B stays the sidebar. |
 | `/rewind` | Checkpoints, newest first | Preview, then restore. If the restore deletes files, a confirm opens on **Cancel**. |
 | `/provider` → `/model` → `/effort` | Providers (built-in catalog when offline), models, effort levels | Chained. Changing the model clamps effort. |
 | `/modes` (`/workers`, `/mode`, `/worker`) | Built-in modes, then saved workers | A mode clears the worker; a worker applies to this session only. `plugin` only under the `crewcode` profile. |
@@ -67,7 +68,7 @@ alert; bad values report what is accepted.
 
 | Command | What it does |
 |---|---|
-| `/branch` | Fork the saved session; new messages go to the branch. |
+| `/branch` | Fork the current saved session; new messages go to the branch. Refused during a run (the copy would miss the rest of the turn and any follow-ups, which keep going to the original). `/branch <id>` branches another saved session and opens it. |
 | `/compact` | Compact the saved session now; alert shows the message counts. |
 | `/compact preview` (`/compact edit`) | Open the **summary editor** in the footer. Ctrl+S applies, Ctrl+R resets, Escape cancels. During a run, the live loop pauses and sends its proposed summary; when idle, the CLI proposes it and the edit is applied from a temp file (removed after; not available in remote SSH mode). |
 | `/export [path]` | Export the session to HTML (default `<session>.html`). |
@@ -95,8 +96,10 @@ the granted directories.
 palette only under the `crewcode` integration profile; typed in standalone, it says how to
 enable it.
 
-Not in OpenTUI: `/crew` (skipped), `/sidebar` and `/file-changes` (wait for the right
-sidebar); they report that they are unavailable.
+`/sidebar` and `/file-changes` toggle when bare and take `on|off|status`; their results
+are alerts (`docs/SIDEBAR.md`).
+
+Not in OpenTUI: `/crew` (skipped by owner decision); it reports that it is unavailable.
 
 ## Composer
 

@@ -1,9 +1,9 @@
 export type AppAction =
   | "abort" | "quit" | "approve" | "deny"
-  | "paletteClose" | "paletteUp" | "paletteDown" | "paletteSelect" | "paletteBackspace"
+  | "paletteClose" | "paletteUp" | "paletteDown" | "paletteSelect" | "paletteBackspace" | "sessionBranch"
   | "composerSubmit" | "composerNewline" | "composerHistoryPrev" | "composerHistoryNext"
   | "mentionUp" | "mentionDown" | "mentionSelect" | "mentionClose"
-  | "pasteClipboard" | "clearAttachments" | "togglePalette" | "openModes"
+  | "pasteClipboard" | "clearAttachments" | "togglePalette" | "openModes" | "toggleSidebar"
   | "summaryApply" | "summaryReset" | "summaryCancel"
   | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
   | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown"
@@ -32,6 +32,9 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   paletteDown: ["down"],
   paletteSelect: ["return"],
   paletteBackspace: ["backspace", "delete"],
+  // In /sessions: branch the highlighted session instead of resuming it. Not a
+  // letter (typed letters search) and not Ctrl+B (the sidebar).
+  sessionBranch: ["tab"],
   // Shift+Enter needs the kitty keyboard protocol (on by default). Ctrl+J works
   // everywhere: kitty reports it as ctrl+j, legacy terminals as "linefeed".
   composerSubmit: ["return", "kpenter"],
@@ -51,6 +54,8 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   togglePalette: ["ctrl+p"],
   // Legacy terminals send Tab and Ctrl+I as the same byte; kitty tells them apart.
   openModes: ["tab", "ctrl+i"],
+  // The right sidebar (legacy Ctrl+B); /sidebar does the same.
+  toggleSidebar: ["ctrl+b"],
   summaryApply: ["ctrl+s"],
   summaryReset: ["ctrl+r"],
   summaryCancel: ["escape"],
@@ -113,7 +118,7 @@ export function actionLabel(
 }
 
 const MODIFIER_LABELS: Readonly<Record<string, string>> = { ctrl: "^", meta: "M-", shift: "S-" };
-const KEY_LABELS: Readonly<Record<string, string>> = { return: "Enter", escape: "Esc", pageup: "PgUp", pagedown: "PgDn" };
+const KEY_LABELS: Readonly<Record<string, string>> = { return: "Enter", escape: "Esc", pageup: "PgUp", pagedown: "PgDn", tab: "Tab" };
 
 function matchesChord(key: KeyLike, chord: string): boolean {
   const parts = chord.toLowerCase().split("+");
