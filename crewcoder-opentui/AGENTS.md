@@ -36,7 +36,7 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
 (`components/Transcript.tsx`) above a footer. See `docs/TRANSCRIPT.md`.
 
 - The footer holds only the working spinner, alerts (errors and command results), the
-  pending approval card, the composer, and the status line. Never put agent output
+  pending approval card, pending images, the composer, its `@` path suggestions, and the status line. Never put agent output
   (running tools, streaming text, other live blocks) in the footer; it belongs in the
   transcript. An open picker, summary editor, or extension question replaces the footer.
 - A turn reads as sections in event order (`transcriptSections`): reasoning panel, then
@@ -60,6 +60,16 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   `<diff>` with fake numbers. Diffs hide per edit (header click) or all at once
   (`toggleDiffs`, Ctrl+T). Hunk stays an optional external install for `/diff`; ask the owner
   before making it a dependency (its binary is about 185 MB).
+- Syntax highlighting (`docs/SYNTAX.md`): fenced code (`codeFence` wraps `<markdown>`'s
+  default code block in a rail), `<diff>` with real line numbers, and `read` output
+  (`<code>`) use OpenTUI's Tree-sitter client. Grammars beyond OpenTUI's own are bundled
+  in `grammars/` by owner decision (no runtime downloads); `registerBundledGrammars()`
+  runs in `cli.tsx` before the first render with absolute local paths. Never point a
+  parser at a URL or a cwd-relative path. Each grammar is pinned in `BUNDLED_GRAMMARS`
+  (package, exact version, SHA-256) and comes with its own `queries/highlights.scm`;
+  update through `scripts/update-grammars.mjs` and `THIRD_PARTY_NOTICES.md`. Languages
+  without a parser and line-numbered read output stay plain text (`codeFiletype`,
+  `readOutputFiletype`); highlighting must never fail a render.
 - Replies and reasoning render through OpenTUI's native `<markdown>` with styles from
   `markdown-style.ts` (owner decision over termcn `markdown`). Reasoning follows termcn's
   `thinking-block` design and stays expanded (summaries must stay visible).
@@ -157,6 +167,22 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   the first/last row. History comes from `state.blocks` user entries
   (`prompt-history.ts`), so it is session-scoped and resumed sessions recall their own
   messages; `SessionController.recallPrompt` holds the recall state and `submit` resets it.
+- `@` path suggestions (`docs/MENTIONS.md`): the list renders under the composer (composer
+  autocomplete, not agent output) and the composer keeps focus. `App.handleMentionKey`
+  (`mentionUp/Down/Select/Close`) runs before transcript keys, history, and abort; Esc
+  closes the list and never aborts. The lister is injectable (`PathLister`, fifth
+  `SessionController` argument; `null` disables it, since an explicit `undefined` would
+  take the default) and is `null` in remote mode: never list the local disk for an SSH
+  workspace. Textarea `cursorOffset` counts display cells; convert with `text-offset.ts`
+  before slicing strings.
+- Images and composer shortcuts (`docs/ATTACHMENTS.md`): `pasteClipboard` (Ctrl+V),
+  `clearAttachments` (Ctrl+X, only when images are pending), `togglePalette` (Ctrl+P),
+  `openModes` (Tab, Ctrl+I) run in `App.handleComposerShortcut` after the `@` list.
+  Clipboard access is injectable (`ClipboardSource`, sixth `SessionController` argument);
+  tests never touch the real clipboard and isolate `CREWCODER_HOME`. Images go out only
+  with a new run or resume as `--image`; follow-ups are text only. Remote mode attaches
+  nothing. Clipboard and image-path helpers live in tui-core (`state/clipboard`,
+  `state/image-attachment`); do not copy them here.
 - Extension questions (`extension_ui_request`) are live control-channel state, like
   approvals: a focused `ExtensionQuestion` card replaces the footer while the run is live,
   and answers go back through `bridge.resolveUiRequest` (`ui_response`). Esc cancels the
@@ -183,7 +209,18 @@ Tests that protect current behavior:
 src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, unported commands
 src/tests/transcript.test.ts          row mapping, control stripping
 src/tests/transcript.test.ts          turn sections (tools + approvals grouped, event order), streaming flag
-src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, full output, clamping, diff tones, text icons
+src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, full output, clamping, diff tones, text icons,
+                                      read filetype (never failures or line-numbered output)
+src/tests/grammars.test.ts            bundled grammar hashes + licenses, absolute local paths, missing grammars skipped,
+                                      filetype rules, every grammar highlights in OpenTUI's real worker
+src/tests/app.test.tsx (syntax)       fenced block colored behind its rail, read output and <diff> colored by path, unknown language plain
+src/tests/path-suggestions.test.ts    @ token parsing (no emails), file vs directory insert, list window, walker order/ignores/matching
+src/tests/attachments.test.ts         clipboard image -> cache, clipboard text naming images, plain text passthrough, source dedupe
+src/tests/app.test.tsx (shortcuts)    Ctrl+V image row + send alone with --image, Ctrl+X clear, Ctrl+V text, dropped path attaches,
+                                      Ctrl+P toggle keeps the draft, Tab opens the modes picker
+src/tests/text-offset.test.ts         textarea cursor cells <-> JS index, checked against a real OpenTUI textarea
+src/tests/app.test.tsx (@ paths)      list under the composer, pick with Enter/Tab without sending, directory drill-in,
+                                      Esc closes without abort, no-match Enter sends, emoji/CJK before the token, remote off
 src/tests/glyphs.test.ts              emoji only for Unicode-width terminals without a multiplexer; CREWCODER_TUI_ICONS override
 src/tests/prompt-history.test.ts      sent messages newest first, Up/Down walk, draft restore, edit restarts recall
 src/tests/app.test.tsx (history)      Up/Down recall in the composer, multi-line drafts move lines before recalling

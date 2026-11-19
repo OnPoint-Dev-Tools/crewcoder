@@ -9,6 +9,10 @@ import type { CrewCoderJsonEvent } from "@onpoint-dev-tools/crewcoder-tui-core/b
 import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
 import { createInitialState, normalizeTuiMode, type TuiEventBlock, type TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { IDLE_RECALL, sentMessages, stepRecall, type HistoryRecall } from "./prompt-history.js";
+import { attachImagePaths, pasteFromClipboard, systemClipboard, type ClipboardSource } from "./attachments.js";
+import { actionLabel } from "./keybindings.js";
+import { listPathSuggestions, mentionRows, type PathLister } from "./path-suggestions.js";
+import { Mentions, type MentionState } from "./mentions.js";
 import { alertRows, type FooterAlert } from "./alert-model.js";
 import { CommandRunner, type CommandHost, type SummaryEditorState } from "./command-runner.js";
 import { DRAFT_PREFIX, paletteCommands } from "./commands.js";
@@ -92,12 +96,29 @@ export class SessionController implements CommandHost {
   private composerText = "";
   /** Cursor and scroll for the open question; reset when another request opens. */
   private questionNav = { requestId: "", cursor: 0, offset: 0 };
+  /** `@` path suggestions under the composer (`mentions.ts`). */
+  readonly mentions: Mentions;
+  private readonly clipboard: ClipboardSource;
 
-  constructor(bridge: SessionBridge, state: TuiState = createInitialState(), cli: CrewCoderCli = processCli, readFile: FileReader = readLocalFile) {
+  constructor(
+    bridge: SessionBridge,
+    state: TuiState = createInitialState(),
+    cli: CrewCoderCli = processCli,
+    readFile: FileReader = readLocalFile,
+    // null, not undefined: an explicit undefined would take this default.
+    listPaths: PathLister | null = isCrewCoderRemote() ? null : listPathSuggestions,
+    clipboard: ClipboardSource = systemClipboard
+  ) {
+    this.clipboard = clipboard;
     this.bridge = bridge;
     this.state = state;
     this.cli = cli;
     this.readFile = readFile;
+    this.mentions = new Mentions(listPaths, {
+      cwd: () => this.state.cwd,
+      changed: () => this.notify(),
+      failed: (error) => this.alert({ variant: "error", title: "Could not list workspace paths", body: errorMessage(error) })
+    });
     this.flows = new PickerFlows(this);
     this.commands = new CommandRunner(this, this.flows);
     // The legacy help tip refers to slash commands this preview does not ship yet.
@@ -111,11 +132,29 @@ export class SessionController implements CommandHost {
 
   getVersion = (): number => this.version;
 
+  /** The open `@` list, when the composer cursor is in an `@token`. */
+  get mention(): MentionState | undefined {
+    return this.mentions.current;
+  }
+
   get bridgeRunning(): boolean {
     return this.bridge.running;
   }
 
   // ── Pickers ────────────────────────────────────────────────────────────────
+
+  /** Ctrl+P: open the command palette, or close it when open. The composer draft survives. */
+  togglePalette(): void {
+    if (this.picker?.kind === "commands") return this.closePicker();
+    this.preserveComposerDraft();
+    this.openCommandPalette();
+  }
+
+  /** Tab / Ctrl+I: the modes and saved workers picker (the legacy agents overlay). */
+  openModesPicker(): void {
+    this.preserveComposerDraft();
+    this.flows.open("mode");
+  }
 
   openCommandPalette(): void {
     this.openPicker({ kind: "commands", placeholder: "Search commands…", emptyText: "No commands found", items: paletteCommands(this.state.integrationProfile), loading: false });
@@ -186,7 +225,47 @@ export class SessionController implements CommandHost {
 
   /** Rows the alert and composer take; the welcome screen hides the logo when they do not fit. */
   footerExtras(): FooterExtras {
-    return { alertRows: alertRows(this.currentAlert), composerRows: composerRows(this.composerLines) };
+    return {
+      alertRows: alertRows(this.currentAlert),
+      composerRows: composerRows(this.composerLines),
+      mentionRows: this.mention ? mentionRows(this.mention.items.length) : 0,
+      attachmentRows: this.state.attachments.length > 0 ? 1 : 0
+    };
+  }
+
+  // ── Image attachments ────────────────────────────────────────────────────────────
+
+  /**
+   * Ctrl+V: attach a clipboard image (or image files the clipboard text names)
+   * and return undefined, or return clipboard text for the composer. Remote
+   * mode attaches nothing: local files cannot reach the SSH host yet.
+   */
+  pasteClipboard(): string | undefined {
+    if (isCrewCoderRemote()) {
+      const text = this.clipboard.text();
+      if (!text && this.clipboard.image()) this.alert({ variant: "warning", title: "Images are not available in remote SSH mode" });
+      return text;
+    }
+    let result: ReturnType<typeof pasteFromClipboard>;
+    try {
+      result = pasteFromClipboard(this.clipboard, this.state.attachments);
+    } catch (error) {
+      this.alert({ variant: "error", title: "Could not attach the clipboard image", body: errorMessage(error) });
+      return undefined;
+    }
+    if (result.attached.length > 0) {
+      this.state.attachments = [...this.state.attachments, ...result.attached];
+      this.notify();
+    }
+    return result.text;
+  }
+
+  /** Ctrl+X: drop the pending images; false when there were none. */
+  clearAttachments(): boolean {
+    if (this.state.attachments.length === 0) return false;
+    this.state.attachments = [];
+    this.notify();
+    return true;
   }
 
   // ── Tool output ───────────────────────────────────────────────────────────────
@@ -405,16 +484,21 @@ export class SessionController implements CommandHost {
     // A sent message ends any recall; the next Up starts from the newest again.
     this.historyRecall = IDLE_RECALL;
     const text = input.trim();
-    if (!text) return;
+    // A pasted screenshot can be sent on its own.
+    if (!text && this.state.attachments.length === 0) return;
     if (text.startsWith("/")) {
       this.runCommand(text);
       this.notify();
       return;
     }
     if (this.bridge.running) {
+      // The control channel carries text only; pending images wait for the next prompt.
+      if (!text) return this.alert({ variant: "info", title: "Images are sent with the next prompt, after this turn" });
       if (!this.queueFollowUp(text)) this.alert({ variant: "error", title: "Could not queue the follow-up for the active run" });
       return;
     }
+    // Image paths in the prompt (a file dropped on the terminal) attach too; the text keeps them.
+    if (!isCrewCoderRemote()) this.state.attachments = [...this.state.attachments, ...attachImagePaths(text, this.state.attachments)];
     this.startRun(text);
   }
 
@@ -556,15 +640,24 @@ export class SessionController implements CommandHost {
   }
 
   private startRun(text: string): void {
-    this.state.blocks.push({ type: "user", text });
-    this.state.running = true;
-    const prompt = this.withPendingSkills(text);
-    this.notify();
-    if (this.state.sessionId && this.state.sessionId !== "new") {
-      this.bridge.resume({ ...this.runOptions(), prompt, sessionId: this.state.sessionId }, this.onEvent);
+    const attachments = this.state.attachments;
+    if (attachments.length > 0 && isCrewCoderRemote()) {
+      this.alert({ variant: "error", title: "Local images cannot be sent in remote SSH mode", body: `Clear them with ${actionLabel("clearAttachments")} and send the prompt again.` });
       return;
     }
-    this.bridge.run({ ...this.runOptions(), prompt }, this.onEvent);
+    this.state.blocks.push({ type: "user", text: text || "(image attached)" });
+    // Each image shows under the user turn; the agent gets the files as --image.
+    for (const attachment of attachments) this.state.blocks.push({ type: "image", attachment });
+    this.state.attachments = [];
+    this.state.running = true;
+    const prompt = this.withPendingSkills(text);
+    const images = attachments.map((attachment) => attachment.path);
+    this.notify();
+    if (this.state.sessionId && this.state.sessionId !== "new") {
+      this.bridge.resume({ ...this.runOptions(), prompt, images, sessionId: this.state.sessionId }, this.onEvent);
+      return;
+    }
+    this.bridge.run({ ...this.runOptions(), prompt, images }, this.onEvent);
   }
 
   /** Skills from /skills ride ahead of the next prompt once; the transcript shows only the typed text. */
@@ -612,6 +705,7 @@ export class SessionController implements CommandHost {
     this.state.externalDirectories = [];
     this.state.tokenBudget = undefined;
     this.state.fullAccess = false;
+    this.state.attachments = [];
     this.pendingSkills = [];
     this.editor = undefined;
     this.currentAlert = undefined;

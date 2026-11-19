@@ -1,8 +1,9 @@
 import type { TextareaRenderable } from "@opentui/core";
-import type { ReactNode, RefObject } from "react";
+import { useEffect, type ReactNode, type RefObject } from "react";
 import { composerRows, wrappedLineCount } from "../footer-layout.js";
 import { useTheme } from "../hooks/use-theme.js";
 import { textareaBindings } from "../keybindings.js";
+import { offsetToIndex } from "../text-offset.js";
 
 /** Enter submits; Shift+Enter / Ctrl+J insert a newline (DEFAULT_APP_KEYBINDINGS). */
 const COMPOSER_BINDINGS = textareaBindings({ composerSubmit: "submit", composerNewline: "newline" } as const);
@@ -17,6 +18,8 @@ export type ComposerProps = {
   onText: (text: string) => void;
   /** "/" typed into an empty composer. */
   onSlash: () => void;
+  /** Text or cursor changed: drives `@` path suggestions. `cursor` is a JS index into `text`. */
+  onCursor: (text: string, cursor: number) => void;
   onSubmit: (text: string) => void;
 };
 
@@ -25,9 +28,18 @@ export type ComposerProps = {
  * clear it through `inputRef`. It grows with its wrapped content up to
  * MAX_COMPOSER_LINES, then scrolls.
  */
-export function Composer({ inputRef, lines, placeholder, onLines, onText, onSlash, onSubmit }: ComposerProps): ReactNode {
+export function Composer({ inputRef, lines, placeholder, onLines, onText, onSlash, onCursor, onSubmit }: ComposerProps): ReactNode {
   const theme = useTheme();
   const rows = composerRows(lines);
+  // cursorOffset counts display cells; the controller slices strings by JS index.
+  const reportCursor = (): void => {
+    const input = inputRef.current;
+    if (input) onCursor(input.plainText, offsetToIndex(input.plainText, input.cursorOffset));
+  };
+  // The composer remounts when the welcome screen gives way to the transcript
+  // and after overlays; re-sync so no `@` list outlives the text it answered.
+  // Mount only: later changes arrive through onContentChange/onCursorChange.
+  useEffect(reportCursor, []);
   return (
     <box border borderStyle="rounded" borderColor={theme.border.color} height={rows} flexShrink={0} paddingLeft={1} paddingRight={1}>
       <textarea
@@ -50,7 +62,9 @@ export function Composer({ inputRef, lines, placeholder, onLines, onText, onSlas
           }
           onText(input.plainText);
           onLines(wrappedLineCount(input.plainText, input.width));
+          reportCursor();
         }}
+        onCursorChange={reportCursor}
         onSubmit={() => {
           const input = inputRef.current;
           if (input) onSubmit(input.plainText);

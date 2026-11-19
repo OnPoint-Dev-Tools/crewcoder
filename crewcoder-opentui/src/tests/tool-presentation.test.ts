@@ -55,6 +55,14 @@ describe("toolPresentation", () => {
     expect(view.output).toBe("file contents...");
   });
 
+  it("highlights a read's contents by the read path, never failures or line-numbered output", () => {
+    expect(toolPresentation(tool("Read", { file_path: "/repo/src/App.tsx" }, { text: "export {};" }), "/repo").filetype).toBe("typescriptreact");
+    expect(toolPresentation(tool("read", { path: "a.ts" }, { status: "error", text: "ENOENT" })).filetype).toBeUndefined();
+    expect(toolPresentation(tool("Read", { file_path: "a.ts" }, { text: "     1→export {};" })).filetype).toBeUndefined();
+    expect(toolPresentation(tool("Read", { file_path: "notes.rb" }, { text: "puts 1" })).filetype).toBeUndefined();
+    expect(toolPresentation(tool("Bash", { command: "cat a.ts" }, { text: "export {};" })).filetype).toBeUndefined();
+  });
+
   it("marks edit and write output as a diff", () => {
     expect(toolPresentation(tool("Edit", { file_path: "a.ts" }, { text: "-old\n+new" })).diff).toBe(true);
     expect(toolPresentation(tool("Write", { file_path: "a.ts" })).diff).toBe(true);

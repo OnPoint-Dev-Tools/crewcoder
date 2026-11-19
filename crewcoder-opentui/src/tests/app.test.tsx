@@ -1,12 +1,18 @@
+import { RGBA } from "@opentui/core";
 import { setRendererCapabilities } from "@opentui/core/testing";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, riskLevel } from "../App.js";
+import { MENTION_EMPTY_TEXT } from "../components/MentionList.js";
 import { AGENT_WORK_TITLE } from "../components/Transcript.js";
+import type { PathLister, PathSuggestion } from "../path-suggestions.js";
+import type { ClipboardSource } from "../attachments.js";
+import { fakeClipboard, isolateImageCache, pngBytes, pngFile } from "./fake-images.js";
 import { ThemeProvider } from "../providers/theme-provider.js";
 import { SessionController } from "../session-controller.js";
-import { slateTheme } from "../theme.js";
+import { registerBundledGrammars } from "../syntax/grammars.js";
+import { slateTheme, SYNTAX_COLORS } from "../theme.js";
 import { COLLAPSED_OUTPUT_LINES } from "../tool-presentation.js";
 import { FakeBridge } from "./fake-bridge.js";
 import { FakeCli, flush } from "./fake-cli.js";
@@ -190,6 +196,61 @@ describe("Agent work", () => {
     const toggleRow = rows.findIndex((row) => row.includes("Show 18 more lines"));
     await setup.mockMouse.click(rows[toggleRow]!.indexOf("Show"), toggleRow);
     await setup.waitForFrame((text) => text.includes("src 29") && text.includes("Show less"));
+  });
+});
+
+describe("syntax highlighting", () => {
+  /** Waits until `word` is drawn in `hex`; Tree-sitter answers from a worker, after the first frame. */
+  async function waitForColor(setup: Setup, word: string, hex: string): Promise<void> {
+    const color = RGBA.fromHex(hex);
+    const deadline = Date.now() + 8_000;
+    for (;;) {
+      await setup.renderOnce();
+      const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+      if (spans.some((span) => span.text.includes(word) && span.fg.equals(color))) return;
+      if (Date.now() > deadline) throw new Error(`"${word}" never drew in ${hex}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  it("highlights a fenced block in a bundled language behind its rail", async () => {
+    registerBundledGrammars();
+    const { setup, bridge } = await inConversation({ height: 30 });
+    bridge.emit({ type: "assistant_delta", text: "Try:\n\n```python\ndef greet():\n    return 'hi'\n```\n" });
+    bridge.emit({ type: "agent_end" });
+    const frame = await setup.waitForFrame((text) => text.includes("def greet():"));
+    expect(frame).toMatch(/│ def greet\(\):/);
+    await waitForColor(setup, "def", SYNTAX_COLORS.keyword);
+  });
+
+  it("highlights read output by the read path and edit diffs by the edited path", async () => {
+    registerBundledGrammars();
+    // A file reader anchors the edit, so it renders as OpenTUI's <diff> (unanchored edits are tinted lines).
+    const bridge = new FakeBridge();
+    const controller = new SessionController(bridge, undefined, new FakeCli(), async () => "import os\nx = 'two'\n");
+    const setup = await testRender(
+      <ThemeProvider theme={slateTheme}><App controller={controller} onQuit={() => {}} /></ThemeProvider>,
+      { width: 80, height: 40 }
+    );
+    active = setup;
+    await setup.mockInput.typeText("go");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "tool_execution_start", toolName: "read", toolCallId: "r1", args: { path: "main.go" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "read", toolCallId: "r1", result: toolResult("package main\n\nfunc main() {}") });
+    bridge.emit({ type: "tool_execution_start", toolName: "edit", toolCallId: "e1", args: { path: "app.py", find: "x = 1", replace: "x = 'two'" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "edit", toolCallId: "e1", result: toolResult("Edited app.py") });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("func main()") && text.includes("x = 'two'"));
+    await waitForColor(setup, "func", SYNTAX_COLORS.keyword);
+    await waitForColor(setup, "'two'", SYNTAX_COLORS.string);
+  });
+
+  it("leaves a language without a parser as plain text", async () => {
+    const { setup, bridge } = await inConversation({ height: 30 });
+    bridge.emit({ type: "assistant_delta", text: "```ruby\nputs 'hi'\n```\n" });
+    bridge.emit({ type: "agent_end" });
+    const frame = await setup.waitForFrame((text) => text.includes("puts 'hi'"));
+    expect(frame).toMatch(/│ puts 'hi'/);
   });
 });
 
@@ -505,6 +566,188 @@ describe("multi-line composer", () => {
     await setup.mockInput.typeText("b");
     setup.mockInput.pressEnter();
     expect(bridge.runs.at(-1)).toMatchObject({ prompt: "a\nb" });
+  });
+});
+
+describe("@ path suggestions", () => {
+  const PATHS: readonly PathSuggestion[] = [
+    { path: "src/", type: "directory" },
+    { path: "src/app.ts", type: "file" },
+    { path: "src/cli.tsx", type: "file" },
+    { path: "README.md", type: "file" }
+  ];
+
+  // Like the real walker: a directory is not suggested for its own path (`src/` for "src/").
+  const fakeLister: PathLister = async (_cwd, query) => PATHS.filter((entry) => entry.path !== query && entry.path.toLowerCase().startsWith(query.toLowerCase()));
+
+  async function withPaths(listPaths: PathLister | null = fakeLister) {
+    const bridge = new FakeBridge();
+    const controller = new SessionController(bridge, undefined, new FakeCli(), async () => "", listPaths);
+    const setup = await testRender(
+      <ThemeProvider theme={slateTheme}><App controller={controller} onQuit={() => {}} /></ThemeProvider>,
+      { width: 80, height: 30 }
+    );
+    active = setup;
+    await setup.renderOnce();
+    return { setup, bridge, controller };
+  }
+
+  it("lists matching paths under the composer and inserts the picked one", async () => {
+    const { setup, bridge } = await withPaths();
+    await setup.mockInput.typeText("look at @src");
+    const open = await setup.waitForFrame((text) => text.includes("src/cli.tsx"));
+    expect(open).toContain("▸ src/");
+    expect(open).not.toContain("README.md");
+    const rows = open.split("\n");
+    expect(rows.findIndex((row) => row.includes("src/cli.tsx"))).toBeGreaterThan(rows.findIndex((row) => row.includes("look at @src")));
+
+    setup.mockInput.pressArrow("down");
+    await setup.waitForFrame((text) => text.includes("▸ src/app.ts"));
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame((text) => text.includes("look at @src/app.ts") && !text.includes("src/cli.tsx"));
+    // Enter picked the path; it did not send the prompt.
+    expect(bridge.runs).toEqual([]);
+
+    await setup.mockInput.typeText("please");
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "look at @src/app.ts please" });
+  });
+
+  it("keeps a picked directory open for its contents, and Tab picks too", async () => {
+    const { setup, bridge } = await withPaths();
+    await setup.mockInput.typeText("@s");
+    await setup.waitForFrame((text) => text.includes("▸ src/"));
+    setup.mockInput.pressTab();
+    // "@src/" stays a token, so its files are suggested next.
+    await setup.waitForFrame((text) => text.includes("▸ src/app.ts"));
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("x");
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "@src/app.ts x" });
+  });
+
+  it("Esc closes the list without aborting, and Enter on no matches sends", async () => {
+    const { setup, bridge, controller } = await withPaths();
+    await setup.mockInput.typeText("go");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "agent_start", sessionId: "s1" });
+    await setup.waitForFrame((text) => text.includes("Send a follow-up"));
+    await setup.mockInput.typeText("@READ");
+    await setup.waitForFrame((text) => text.includes("▸ README.md"));
+    setup.mockInput.pressEscape();
+    // A lone ESC is delivered after the parser's escape-sequence timeout.
+    await vi.waitFor(() => expect(controller.mention).toBeUndefined(), { timeout: 2_000 });
+    await setup.waitForFrame((text) => !text.includes("▸ README.md"));
+    expect(bridge.stops).toBe(0);
+    expect(controller.state.running).toBe(true);
+
+    await setup.mockInput.typeText("zz");
+    await setup.waitForFrame((text) => text.includes(MENTION_EMPTY_TEXT));
+    setup.mockInput.pressEnter();
+    expect(bridge.followUps.at(-1)).toBe("@READzz");
+  });
+
+  // Wide (CJK) characters before the token. The mock keyboard types one UTF-16
+  // unit at a time, so it cannot type an emoji; a paste delivers it whole.
+  it("finds the token after wide characters and pasted emoji", async () => {
+    const { setup, bridge } = await withPaths();
+    await setup.mockInput.typeText("é中文");
+    await setup.mockInput.pasteBracketedText("😀");
+    await setup.mockInput.typeText(" see @READ");
+    await setup.waitForFrame((text) => text.includes("▸ README.md"));
+    setup.mockInput.pressEnter();
+    await setup.mockInput.typeText("now");
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: "é中文😀 see @README.md now" });
+  });
+
+  it("never lists paths in remote mode or for an email address", async () => {
+    const lister = vi.fn<PathLister>(async () => [...PATHS]);
+    const remote = await withPaths(null);
+    await remote.setup.mockInput.typeText("@src");
+    await remote.setup.renderOnce();
+    expect(remote.controller.mention).toBeUndefined();
+    await remote.setup.dispose();
+
+    const local = await withPaths(lister);
+    await local.setup.mockInput.typeText("mail me@src");
+    await local.setup.renderOnce();
+    expect(lister).not.toHaveBeenCalled();
+  });
+});
+
+describe("composer shortcuts", () => {
+  let restoreCache: () => void;
+  beforeEach(() => {
+    restoreCache = isolateImageCache();
+  });
+  afterEach(() => restoreCache());
+
+  async function withClipboard(clipboard: ClipboardSource) {
+    const bridge = new FakeBridge();
+    const controller = new SessionController(bridge, undefined, new FakeCli(), async () => "", null, clipboard);
+    const setup = await testRender(
+      <ThemeProvider theme={slateTheme}><App controller={controller} onQuit={() => {}} /></ThemeProvider>,
+      { width: 80, height: 30 }
+    );
+    active = setup;
+    await setup.renderOnce();
+    return { setup, bridge, controller };
+  }
+
+  it("Ctrl+V attaches a clipboard image, Enter sends it alone, and the transcript shows it", async () => {
+    const { setup, bridge } = await withClipboard(fakeClipboard({ image: pngBytes(800, 600) }));
+    setup.mockInput.pressKey("v", { ctrl: true });
+    const attached = await setup.waitForFrame((text) => text.includes("IMG 1"));
+    expect(attached).toContain("800×600");
+    expect(attached).toContain("^X clear");
+
+    setup.mockInput.pressEnter();
+    expect(bridge.runs).toHaveLength(1);
+    expect(bridge.runs[0]!.images).toHaveLength(1);
+    expect(bridge.runs[0]!.images![0]!.startsWith(process.env.CREWCODER_HOME!)).toBe(true);
+    const sent = await setup.waitForFrame((text) => text.includes("(image attached)"));
+    expect(sent).toContain("IMAGE");
+    expect(sent).not.toContain("IMG 1");
+  });
+
+  it("Ctrl+X clears pending images; Ctrl+V pastes clipboard text when there is no image", async () => {
+    const { setup, bridge, controller } = await withClipboard(fakeClipboard({ image: pngBytes() }));
+    setup.mockInput.pressKey("v", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("IMG 1"));
+    setup.mockInput.pressKey("x", { ctrl: true });
+    await setup.waitForFrame((text) => !text.includes("IMG 1"));
+    expect(controller.state.attachments).toEqual([]);
+
+    const text = await withClipboard(fakeClipboard({ text: "from clipboard" }));
+    text.setup.mockInput.pressKey("v", { ctrl: true });
+    await text.setup.waitForFrame((frame) => frame.includes("from clipboard"));
+    text.setup.mockInput.pressEnter();
+    expect(text.bridge.runs.at(-1)).toMatchObject({ prompt: "from clipboard", images: [] });
+    expect(bridge.runs).toEqual([]);
+  });
+
+  it("attaches an image path typed or dropped into the prompt and keeps the text", async () => {
+    const file = pngFile("drop.png");
+    const { setup, bridge } = await withClipboard(fakeClipboard());
+    await setup.mockInput.pasteBracketedText(`what is in ${file}`);
+    setup.mockInput.pressEnter();
+    expect(bridge.runs.at(-1)).toMatchObject({ prompt: `what is in ${file}` });
+    expect(bridge.runs.at(-1)!.images).toHaveLength(1);
+  });
+
+  it("Ctrl+P toggles the palette and keeps the draft; Tab opens the modes picker", async () => {
+    const { setup, controller } = await withClipboard(fakeClipboard());
+    await setup.mockInput.typeText("half typed");
+    setup.mockInput.pressKey("p", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("Search commands"));
+    expect(controller.picker?.kind).toBe("commands");
+    setup.mockInput.pressKey("p", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("half typed") && !text.includes("Search commands"));
+
+    setup.mockInput.pressTab();
+    await setup.waitForFrame((text) => text.includes("Mode or worker"));
+    expect(controller.picker?.kind).toBe("mode");
   });
 });
 

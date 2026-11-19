@@ -30,3 +30,22 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Tree-sitter grammars
+
+Files under `grammars/<filetype>/` are copied unmodified from each grammar's npm package
+at the exact version below: the compiled `tree-sitter-*.wasm`, `queries/highlights.scm`
+(saved as `highlights.scm`), and the package's `LICENSE`, which ships next to them.
+`scripts/update-grammars.mjs` reproduces them; `src/syntax/grammars.ts` pins their
+SHA-256 hashes. All are distributed under the MIT License.
+
+| Filetype | Package | Version | Copyright |
+| --- | --- | --- | --- |
+| python | `tree-sitter-python` | 0.25.0 | (c) 2016 Max Brunsfeld |
+| bash | `tree-sitter-bash` | 0.25.1 | (c) 2017 Max Brunsfeld |
+| json | `tree-sitter-json` | 0.24.8 | (c) 2014 Max Brunsfeld |
+| rust | `tree-sitter-rust` | 0.24.0 | (c) 2017 Maxim Sokolov |
+| go | `tree-sitter-go` | 0.25.0 | (c) 2014 Max Brunsfeld |
+| yaml | `@tree-sitter-grammars/tree-sitter-yaml` | 0.7.1 | (c) 2024 tree-sitter-grammars contributors |
+| css | `tree-sitter-css` | 0.25.0 | (c) 2018 Max Brunsfeld |
+| html | `tree-sitter-html` | 0.23.2 | (c) 2014 Max Brunsfeld |

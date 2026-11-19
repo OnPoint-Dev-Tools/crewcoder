@@ -1,3 +1,4 @@
+import { describeAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 export type TranscriptTone = "user" | "assistant" | "thinking" | "tool" | "approval" | "error" | "system" | "muted";
@@ -90,7 +91,14 @@ export function blockToRow(block: TuiEventBlock): TranscriptRow {
     case "compaction":
       return { label: `COMPACTION · ${block.status}`, tone: "system", text: normalize(block.message) };
     case "image":
-      return { label: "IMAGE", tone: "muted", text: block.attachment.path };
+      // Tool-result images are labelled apart so they never read as the user's attachment.
+      // Pixels (terminal graphics) are not drawn yet; the row names the file and its size.
+      return {
+        label: block.attachment.source === "tool" ? "TOOL IMAGE" : "IMAGE",
+        tone: "muted",
+        text: `${block.attachment.name} · ${describeAttachment(block.attachment)}`,
+        detail: block.attachment.path
+      };
     case "extension_ui":
       // The question and its outcome only; extension and request ids stay internal.
       return {

@@ -2,6 +2,8 @@ export type AppAction =
   | "abort" | "quit" | "approve" | "deny"
   | "paletteClose" | "paletteUp" | "paletteDown" | "paletteSelect" | "paletteBackspace"
   | "composerSubmit" | "composerNewline" | "composerHistoryPrev" | "composerHistoryNext"
+  | "mentionUp" | "mentionDown" | "mentionSelect" | "mentionClose"
+  | "pasteClipboard" | "clearAttachments" | "togglePalette" | "openModes"
   | "summaryApply" | "summaryReset" | "summaryCancel"
   | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
   | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown"
@@ -37,6 +39,18 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   // Move between wrapped lines; on the first/last line, recall sent messages.
   composerHistoryPrev: ["up"],
   composerHistoryNext: ["down"],
+  // `@` path suggestions under the composer, while the list is open.
+  mentionUp: ["up"],
+  mentionDown: ["down"],
+  mentionSelect: ["return", "tab"],
+  mentionClose: ["escape"],
+  // Composer shortcuts (legacy). Ctrl+V attaches a clipboard image, else pastes
+  // clipboard text; terminal paste (Ctrl+Shift+V) still pastes text directly.
+  pasteClipboard: ["ctrl+v", "meta+v"],
+  clearAttachments: ["ctrl+x"],
+  togglePalette: ["ctrl+p"],
+  // Legacy terminals send Tab and Ctrl+I as the same byte; kitty tells them apart.
+  openModes: ["tab", "ctrl+i"],
   summaryApply: ["ctrl+s"],
   summaryReset: ["ctrl+r"],
   summaryCancel: ["escape"],

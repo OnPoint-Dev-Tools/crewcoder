@@ -5,7 +5,8 @@ import type { ReactNode, Ref } from "react";
 import { reasoningIcon, type GlyphSet } from "../glyphs.js";
 import { useGlyphSet } from "../hooks/use-glyph-set.js";
 import { useTheme } from "../hooks/use-theme.js";
-import { codeBlock, useMarkdownStyle, type MarkdownColors } from "../markdown-style.js";
+import { codeFence, useCodeStyle, useMarkdownStyle, type MarkdownColors } from "../markdown-style.js";
+import { codeFiletype } from "../syntax/filetype.js";
 import { bodyColor, DIFF_COLORS, toneColor } from "../theme.js";
 import { toolDiffs, type FileDiff } from "../tool-diff.js";
 import { clampOutput, COLLAPSED_OUTPUT_LINES, diffLineTone, toolPresentation, type DiffLineTone } from "../tool-presentation.js";
@@ -119,7 +120,7 @@ function MarkdownText({ text, streaming, colors }: { text: string; streaming: bo
       streaming={streaming}
       conceal
       tableOptions={{ borderColor: theme.colors.border, wrapMode: "word", widthMode: "content", cellPaddingX: 1 }}
-      renderBlock={(block) => (block.kind === "code" ? codeBlock(renderer, theme, block) : undefined)}
+      renderBlock={(block, context) => (block.kind === "code" ? codeFence(renderer, theme, context) : undefined)}
     />
   );
 }
@@ -202,7 +203,7 @@ function ToolEntry({ block, cwd, expansion, glyphs }: { block: ToolBlock; cwd: s
       {tool.layout === "stacked" && tool.target
         ? <text fg={theme.colors.accent} wrapMode="word" width="100%" paddingLeft={OUTPUT_INDENT}>{tool.target}</text>
         : null}
-      {output ? <ToolOutput lines={output.lines} diff={tool.diff} failed={tool.failed} theme={theme} /> : null}
+      {output ? <ToolOutput lines={output.lines} diff={tool.diff} failed={tool.failed} filetype={tool.filetype} theme={theme} /> : null}
       {output ? <ExpandRow hidden={output.hidden} canCollapse={canCollapse} onToggle={onToggle} theme={theme} /> : null}
       {diffs.length > 0
         ? <DiffSection diffs={diffs} shown={expansion.isDiffShown(block)} onToggleShown={() => expansion.toggleDiff(block)} expanded={expanded} onToggle={onToggle} theme={theme} />
@@ -271,9 +272,17 @@ function fileLabel(diff: FileDiff): string {
 function FileDiffView({ diff, theme }: { diff: FileDiff; theme: Theme }): ReactNode {
   if (diff.note) return <text fg={theme.colors.mutedForeground} wrapMode="none" flexShrink={0}>{`(${diff.note})`}</text>;
   if (!diff.exactLines) return <DiffLines lines={diff.body} theme={theme} />;
+  return <HighlightedDiff diff={diff} theme={theme} />;
+}
+
+/** OpenTUI `<diff>`, highlighted by the edited file's language when a parser covers it. */
+function HighlightedDiff({ diff, theme }: { diff: FileDiff; theme: Theme }): ReactNode {
+  const style = useCodeStyle(theme);
+  const filetype = codeFiletype(diff.path);
   return (
     <diff
       diff={diff.patch}
+      {...(filetype ? { filetype, syntaxStyle: style } : {})}
       view="unified"
       width="100%"
       wrapMode="word"
@@ -316,7 +325,8 @@ function DiffLines({ lines, theme }: { lines: readonly string[]; theme: Theme })
   );
 }
 
-function ToolOutput({ lines, diff, failed, theme }: { lines: readonly string[]; diff: boolean; failed: boolean; theme: Theme }): ReactNode {
+function ToolOutput({ lines, diff, failed, filetype, theme }: { lines: readonly string[]; diff: boolean; failed: boolean; filetype?: string; theme: Theme }): ReactNode {
+  if (filetype && !failed) return <CodeOutput text={lines.join("\n")} filetype={filetype} theme={theme} />;
   if (!diff || failed) {
     return <text fg={failed ? theme.colors.error : theme.colors.mutedForeground} wrapMode="word" width="100%" paddingLeft={OUTPUT_INDENT}>{lines.join("\n")}</text>;
   }
@@ -326,6 +336,17 @@ function ToolOutput({ lines, diff, failed, theme }: { lines: readonly string[]; 
         <span key={index} fg={LINE_TONE_COLORS[diffLineTone(line)](theme)}>{index === lines.length - 1 ? line : `${line}\n`}</span>
       ))}
     </text>
+  );
+}
+
+/** A read tool's file contents, highlighted by the read path's language. */
+function CodeOutput({ text, filetype, theme }: { text: string; filetype: string; theme: Theme }): ReactNode {
+  const style = useCodeStyle(theme);
+  // `<code>` draws its text buffer from its own left edge, so the indent comes from a box.
+  return (
+    <box width="100%" paddingLeft={OUTPUT_INDENT} flexShrink={0}>
+      <code content={text} filetype={filetype} syntaxStyle={style} fg={theme.colors.foreground} wrapMode="word" width="100%" />
+    </box>
   );
 }
 

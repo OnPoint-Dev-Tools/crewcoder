@@ -4,12 +4,14 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { alertLines } from "./alert-model.js";
 import { Alert } from "./components/ui/alert.js";
+import { AttachmentRow } from "./components/AttachmentRow.js";
 import { Spinner } from "./components/ui/spinner.js";
 import { ToolApproval, type RiskLevel } from "./components/ui/tool-approval.js";
 import { CommandPalette } from "./components/ui/command-palette.js";
 import { Composer } from "./components/Composer.js";
 import { ExtensionQuestion } from "./components/ExtensionQuestion.js";
 import { Home } from "./components/Home.js";
+import { MentionList } from "./components/MentionList.js";
 import { SummaryEditor } from "./components/SummaryEditor.js";
 import { Transcript } from "./components/Transcript.js";
 import { COMPOSER_ROWS, isHome, shortenPath } from "./footer-layout.js";
@@ -18,6 +20,7 @@ import { useTheme } from "./hooks/use-theme.js";
 import { actionLabel, matchesAction, type KeyLike } from "./keybindings.js";
 import { summaryEditorTextRows, type SessionController } from "./session-controller.js";
 import { splitGauge, statusLine, type StatusLine } from "./status-line.js";
+import { indexToOffset } from "./text-offset.js";
 
 export type AppProps = {
   controller: SessionController;
@@ -95,7 +98,8 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     // (the composer would otherwise submit its leftover text on Enter).
     if (controller.picker) {
       key.preventDefault?.();
-      if (matchesAction(key, "paletteClose")) controller.closePicker();
+      if (matchesAction(key, "togglePalette") && controller.picker.kind === "commands") controller.closePicker();
+      else if (matchesAction(key, "paletteClose")) controller.closePicker();
       else if (matchesAction(key, "paletteUp")) controller.movePickerCursor(-1);
       else if (matchesAction(key, "paletteDown")) controller.movePickerCursor(1);
       else if (matchesAction(key, "paletteSelect")) controller.selectPickerItem();
@@ -103,12 +107,53 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
       else if (!key.ctrl && !key.meta && key.name.length === 1) controller.setPickerQuery(controller.pickerQuery + key.name);
       return;
     }
+    if (handleMentionKey(key)) return;
+    if (handleComposerShortcut(key)) return;
     if (handleTranscriptKey(key)) return;
     if (handleHistoryKey(key)) return;
     if (approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
     else if (approval && matchesAction(key, "deny")) controller.resolvePendingApproval(false);
     else if (matchesAction(key, "abort")) controller.abort();
   });
+
+  /**
+   * The open `@` list takes Up/Down/Enter/Tab/Esc before history, submit, and
+   * abort. Enter with nothing to pick (an empty list) still submits. True when
+   * the key was used.
+   */
+  function handleMentionKey(key: KeyLike): boolean {
+    if (!controller.mention) return false;
+    if (matchesAction(key, "mentionUp")) controller.mentions.move(-1);
+    else if (matchesAction(key, "mentionDown")) controller.mentions.move(1);
+    else if (matchesAction(key, "mentionClose")) controller.mentions.dismiss();
+    else if (matchesAction(key, "mentionSelect")) {
+      const picked = controller.mentions.accept();
+      const input = inputRef.current;
+      if (!picked || !input) return false;
+      input.setText(picked.text);
+      input.cursorOffset = indexToOffset(picked.text, picked.cursor);
+    } else return false;
+    key.preventDefault?.();
+    return true;
+  }
+
+  /**
+   * Ctrl+V (clipboard image, else clipboard text), Ctrl+X (clear images, only
+   * when there are some), Ctrl+P (palette), Tab / Ctrl+I (modes). True when the
+   * key was used.
+   */
+  function handleComposerShortcut(key: KeyLike): boolean {
+    if (matchesAction(key, "pasteClipboard")) {
+      const text = controller.pasteClipboard();
+      if (text) inputRef.current?.insertText(text.replace(/\r\n?/g, "\n"));
+    } else if (matchesAction(key, "clearAttachments")) {
+      if (!controller.clearAttachments()) return false;
+    } else if (matchesAction(key, "togglePalette")) controller.togglePalette();
+    else if (matchesAction(key, "openModes")) controller.openModesPicker();
+    else return false;
+    key.preventDefault?.();
+    return true;
+  }
 
   /** Scrolling and Ctrl+O; true when the key was used. */
   function handleTranscriptKey(key: KeyLike): boolean {
@@ -205,9 +250,12 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
       onLines={(lines) => controller.setComposerLines(lines)}
       onText={(text) => controller.setComposerText(text)}
       onSlash={() => controller.openCommandPalette()}
+      onCursor={(text, cursor) => controller.mentions.update(text, cursor)}
       onSubmit={submit}
     />
   );
+  const mentionList = controller.mention ? <MentionList mention={controller.mention} /> : null;
+  const attachmentRow = state.attachments.length > 0 ? <AttachmentRow attachments={state.attachments} /> : null;
 
   const alert = controller.currentAlert
     ? <Alert variant={controller.currentAlert.variant} title={controller.currentAlert.title} lines={alertLines(controller.currentAlert)} />
@@ -241,9 +289,9 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
             width={width}
             height={height}
             info={homeInfo(state.provider, state.model, state.cwd, state.remoteTarget, width)}
-            composer={composer}
+            composer={<>{attachmentRow}{composer}{mentionList}</>}
             alert={alert}
-            extraRows={(extras.alertRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
+            extraRows={(extras.alertRows ?? 0) + (extras.mentionRows ?? 0) + (extras.attachmentRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
           />
         )}
       </box>
@@ -274,7 +322,9 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
               />
             ) : null}
             {alert}
+            {attachmentRow}
             {composer}
+            {mentionList}
             <StatusRow status={status} />
           </>
         )}

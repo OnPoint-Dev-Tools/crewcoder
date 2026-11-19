@@ -10,6 +10,10 @@ export type FooterExtras = {
   alertRows?: number;
   /** Composer height including its border; defaults to one line. */
   composerRows?: number;
+  /** `@` path suggestion rows under the composer. */
+  mentionRows?: number;
+  /** The pending-images row above the composer. */
+  attachmentRows?: number;
 };
 
 /**

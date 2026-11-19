@@ -42,6 +42,26 @@ export const DIFF_COLORS = {
   lineNumberBg: "#15181d"
 } as const;
 
+/**
+ * Tree-sitter scope colors, muted to sit on the slate background. Keys are
+ * base capture names; OpenTUI falls back from `function.method` to `function`.
+ */
+export const SYNTAX_COLORS = {
+  keyword: "#b7a6cf",
+  string: "#a9bf9c",
+  number: "#d0b48f",
+  constant: "#d0b48f",
+  comment: "#6f7682",
+  function: "#94b3d1",
+  type: "#89bdb5",
+  property: "#c0c5ce",
+  operator: "#a7adb7",
+  punctuation: "#858c97",
+  tag: "#c99295",
+  attribute: "#d0b48f",
+  escape: "#c4b99f"
+} as const;
+
 /** Muted slate for reasoning text; termcn has no dedicated token for it. */
 export const THINKING_COLOR = "#858c97";
 

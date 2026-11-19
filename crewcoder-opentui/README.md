@@ -80,6 +80,17 @@ Implemented now:
   `MarkdownRenderable` in slate styles. That covers headings, bold/italic/strikethrough,
   inline code, links, ordered and unordered lists, quotes, tables sized to content, and
   fenced code behind a rail. Replies stream in place as text arrives.
+- **Images and composer shortcuts**: Ctrl+V attaches a clipboard image (else pastes
+  clipboard text), image paths typed or dropped into the prompt attach on send, Ctrl+X
+  clears them, Ctrl+P toggles the palette, Tab/Ctrl+I opens the modes picker. Images reach
+  the agent as `--image`. See [`docs/ATTACHMENTS.md`](docs/ATTACHMENTS.md).
+- **`@` path suggestions**: `@` at the start of a word lists workspace files and folders
+  under the composer (Up/Down, Enter or Tab to pick, Esc to close). Not in remote mode.
+  See [`docs/MENTIONS.md`](docs/MENTIONS.md).
+- **Syntax highlighting** (Tree-sitter) for fenced code, inline diffs, and `read` output.
+  JS/TS/TSX, Markdown, and Zig come with OpenTUI; Python, Bash, JSON, Rust, Go, YAML, CSS,
+  and HTML grammars are bundled in `grammars/` (local files, no runtime downloads). Other
+  languages render as plain text. See [`docs/SYNTAX.md`](docs/SYNTAX.md).
 - **Turn sections**: a turn reads in event order as separate sections divided by a blank
   row. Reasoning comes first, then the agent's work, then the reply.
   - **Reasoning** is an amber bordered panel headed `💭 Reasoning`, with the reasoning as
@@ -147,21 +158,18 @@ Unported slash commands report that they are unavailable instead of being sent a
 New components should come from [termcn](https://www.termcn.dev/docs/components/opentui)
 when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 
-**Deferred by owner decision:** `/crew`, `/sidebar`, `/file-changes`, and the right
-sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
+**Deferred by owner decision:** `/crew`.
+
+**Next:** the right sidebar (modified files, live crew agents, crew tasks,
+`<cwd>:<branch>` footer) with `/sidebar`, `/file-changes`, and Ctrl+B.
 
 **Composer and status:**
 
-- `@` path suggestions.
-- Shortcuts: Ctrl+V image paste (and dropped image paths), Ctrl+X clear attachments,
-  Ctrl+P open the palette, Ctrl+I agents overlay.
+- Ctrl+B sidebar toggle (with the right sidebar).
 
 **Transcript rendering:**
 
 - Search inside the transcript (terminal search cannot see the alternate screen).
-- Tree-sitter syntax highlighting for fenced code, inline diffs, and read output (see
-  [`docs/PORT_LIST.md`](docs/PORT_LIST.md)). Inline diffs stay single-column by owner
-  decision.
 - Assistant throughput metadata.
 - Image attachments and terminal graphics, including tool-result images.
 - Dedicated goal, crew roster, and review-summary views (these show as one-line
@@ -190,6 +198,12 @@ src/command-runner.ts       every non-picker slash command (CommandHost)
 src/command-format.ts       goal / why / review-summary / CLI output as alert text
 src/alert-model.ts          footer alert type, clamping, and height
 src/components/Composer.tsx multi-line composer (textarea)
+src/components/MentionList.tsx  @ path suggestions under the composer
+src/mentions.ts             @ list state and request ordering (SessionController.mentions)
+src/attachments.ts          clipboard images, image paths in prompts (injectable ClipboardSource)
+src/components/AttachmentRow.tsx  pending images above the composer
+src/path-suggestions.ts     @ token parsing, replacement, windowing, workspace walker
+src/text-offset.ts          textarea cursor (display cells) <-> JS string index
 src/components/SummaryEditor.tsx  /compact preview summary editor
 src/components/ExtensionQuestion.tsx  extension question card (confirm / select / input / component)
 src/question-model.ts       pure question layout: wrapping, option rows, windowing, height, answers
@@ -200,7 +214,10 @@ src/glyphs.ts               emoji vs single-cell icon set from the terminal capa
 src/hooks/use-glyph-set.ts  follows the renderer's capabilities event and resolves the icon set
 src/tool-diff.ts            per-file unified diffs from edit/write tool arguments, all providers
 src/diff-anchors.ts         reads an edited file once to give snippet diffs real line numbers
-src/markdown-style.ts       slate markdown styles, SyntaxStyle hook, fenced-code renderer
+src/markdown-style.ts       slate markdown + code scope styles, SyntaxStyle hooks, fenced-code rail
+src/syntax/grammars.ts      bundled Tree-sitter grammars: pinned list, hashes, registration
+src/syntax/filetype.ts      path -> highlighted filetype; line-numbered read output stays plain
+grammars/                   bundled grammar .wasm + highlights.scm + LICENSE (scripts/update-grammars.mjs)
 src/hunk.ts                 /diff: hunk arguments and running a program on the real terminal
 src/footer-layout.ts        composer sizing, welcome-screen layout, path shortening
 src/session-controller.ts   owns TuiState + bridge + tool expansion; subscribe/getVersion for useSyncExternalStore

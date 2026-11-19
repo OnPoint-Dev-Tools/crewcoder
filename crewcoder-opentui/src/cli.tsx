@@ -8,6 +8,7 @@ import { mouseEnabled, parseArgs, USAGE } from "./args.js";
 import { spawnInTerminal } from "./hunk.js";
 import { ThemeProvider } from "./providers/theme-provider.js";
 import { SessionController } from "./session-controller.js";
+import { registerBundledGrammars } from "./syntax/grammars.js";
 import { slateTheme } from "./theme.js";
 
 async function main(): Promise<void> {
@@ -21,6 +22,9 @@ async function main(): Promise<void> {
   if (parsed.remoteCwd) process.env.CREWCODER_REMOTE_CWD = parsed.remoteCwd;
   if (parsed.remoteBin) process.env.CREWCODER_REMOTE_BIN = parsed.remoteBin;
 
+  // Bundled Tree-sitter grammars (local files only) must be registered before
+  // the first highlight starts OpenTUI's parser worker.
+  registerBundledGrammars();
   const controller = new SessionController(new CrewCoderProcessBridge());
   // The status line names the repo. Remote workspaces live on the SSH host, so
   // never inspect the local directory for them.

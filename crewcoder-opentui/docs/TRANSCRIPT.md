@@ -146,6 +146,9 @@ renders only the first file of a patch, so each file gets its own.
 - **Ctrl+T** (`toggleDiffs`) hides or shows every diff, resetting per-edit toggles.
 - Diffs over 12 rows collapse like other output (click `▸ Show N more lines`, or Ctrl+O).
 
+Diffs with real line numbers are syntax highlighted by the edited file's language, and
+`read` output by the read path's; see `docs/SYNTAX.md`.
+
 `/diff` (Hunk, `docs/DIFF.md`) stays available for reviewing the whole session in a
 dedicated full-screen viewer.
 

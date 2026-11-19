@@ -1,5 +1,6 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import type { GlyphSet } from "./glyphs.js";
+import { readOutputFiletype } from "./syntax/filetype.js";
 import { normalize } from "./transcript.js";
 
 type ToolBlock = Extract<TuiEventBlock, { type: "tool" }>;
@@ -22,6 +23,8 @@ export type ToolPresentation = {
   output?: string;
   /** Output lines read as a diff (`+`/`-`/`@@`), for edits and writes. */
   diff: boolean;
+  /** Tree-sitter filetype of a read tool's output (from the read path), when it highlights. */
+  filetype?: string;
   failed: boolean;
 };
 
@@ -81,6 +84,7 @@ export function toolPresentation(block: ToolBlock, cwd?: string, glyphs: GlyphSe
   const text = raw === `tool completed: ${block.name}` ? "" : raw;
   const title = kind === "other" ? block.name.replace(/^mcp__[^_]+(?:_[^_]+)*__/, "") : kind === "web" ? webTitle(block.name) : style.title;
   const target = toolTarget(kind, args, cwd);
+  const filetype = kind === "read" && !failed && text ? readOutputFiletype(argPaths(args)[0], text) : undefined;
   return {
     kind,
     icon: style.icons[glyphs],
@@ -89,6 +93,7 @@ export function toolPresentation(block: ToolBlock, cwd?: string, glyphs: GlyphSe
     layout: style.layout,
     output: text || undefined,
     diff: kind === "edit" || kind === "write",
+    ...(filetype ? { filetype } : {}),
     failed
   };
 }

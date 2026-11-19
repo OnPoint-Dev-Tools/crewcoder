@@ -20,35 +20,26 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 - `/quit`, and `/ext.<extension-id>.<command-id> [args]` through `crewcoder command run`.
 - Focus gate: keys and pastes are ignored while the terminal is unfocused.
 - `CREWCODER_TUI_MOUSE=0` turns mouse reporting off.
+- Tree-sitter highlighting for fenced code, inline diffs, and `read` output, with Python,
+  Bash, JSON, Rust, Go, YAML, CSS, and HTML grammars bundled in `grammars/` (local files,
+  pinned versions and hashes, no runtime downloads). Adds 0.48 MB packed / 3.5 MB
+  unpacked. The `/compact preview` editor stays plain (`<textarea>` has no Tree-sitter
+  hookup). See `docs/SYNTAX.md`.
+- `@` path suggestions under the composer (`docs/MENTIONS.md`). Remote mode lists nothing.
+- Composer shortcuts: Ctrl+V clipboard image (else text), dropped/typed image paths,
+  Ctrl+X clear images, Ctrl+P palette, Tab/Ctrl+I modes picker. Images go to the agent as
+  `--image`; the transcript shows an `IMAGE` row (pixels wait for item 11). See
+  `docs/ATTACHMENTS.md`.
 
 ## Open
 
 1. **Transcript search.** Terminal search cannot see the alternate screen.
 2. ~~**Prompt history.**~~ Done.
-3. **`@` path suggestions** in the composer (legacy `path-suggestions.ts`).
-4. **Composer shortcuts:** Ctrl+V image paste (and dropped image paths), Ctrl+X clear
-   attachments, Ctrl+P palette, Ctrl+I agents overlay, Ctrl+B sidebar.
+3. ~~**`@` path suggestions**~~ Done.
+4. ~~**Composer shortcuts**~~ Done, except Ctrl+B, which lands with the sidebar (8).
 5. ~~**Slash commands:** `/repaint`, `/redraw`, `/quit`, `/ext.<name>`.~~ Done.
 6. ~~**Terminal focus reporting** and **`CREWCODER_TUI_MOUSE`**.~~ Done.
-7. **Tree-sitter syntax highlighting.** OpenTUI has a Tree-sitter client (`<code>`,
-   `<markdown>`, and `<diff>` accept `treeSitterClient`/`filetype`/`syntaxStyle`) and
-   `pathToFiletype`/`infoStringToFiletype` helpers. Use it for:
-   - fenced code blocks in replies and reasoning (`infoStringToFiletype` on the fence);
-   - inline diffs (`filetype` from the edited path);
-   - `read` tool output (`pathToFiletype` on the read path);
-   - `/compact preview` summary and other markdown surfaces, for consistency.
-   OpenTUI ships grammars for JavaScript, TypeScript, TSX, Markdown, and Zig only.
-   **Owner decision (2026-11-18): bundle extra grammars in this package; no runtime
-   downloads.** Add Python, Bash, JSON, Rust, Go, YAML, CSS, and HTML (about 5-8 MB of
-   `.wasm` + highlight queries), registered with `addDefaultParsers` from local package
-   paths. Rationale: works offline, no network access or downloaded code at runtime, and
-   headless installs never pay for it (this package is an optional dependency).
-   Implementation notes:
-   - Pin each grammar to an exact source version and record it (with its license) in
-     `THIRD_PARTY_NOTICES.md`; include the files in the package `files` list.
-   - Never point a parser at a URL; OpenTUI's loader has no integrity check.
-   - Unknown or unbundled filetypes fall back to plain text and never fail the render.
-   - Measure the real package size increase and report it before publishing.
+7. ~~**Tree-sitter syntax highlighting.**~~ Done (`docs/SYNTAX.md`).
 8. **Right sidebar:** file changes, live crew agents, crew tasks, cwd:git footer; unblocks
    `/sidebar` and `/file-changes`.
 9. **Branching from `/sessions`.**
@@ -72,8 +63,8 @@ Skipped by owner decision: `/crew`.
 1. ~~Status line with context usage and cost.~~ Done.
 2. ~~Prompt history.~~ Done.
 3. ~~`/repaint`, `/quit`, `/ext.*`, focus reporting, `CREWCODER_TUI_MOUSE`.~~ Done.
-4. Tree-sitter highlighting.
-5. `@` paths and composer shortcuts.
+4. ~~Tree-sitter highlighting.~~ Done.
+5. ~~`@` paths and composer shortcuts.~~ Done.
 6. Right sidebar, then `/sessions` branching.
 7. Transcript search.
 8. Images, themes, Live UI, throughput, dedicated views, logo pulse.
