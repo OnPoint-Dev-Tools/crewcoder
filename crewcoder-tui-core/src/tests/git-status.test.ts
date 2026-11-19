@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readGitRepoName } from "../state/git-status.js";
+import { readGitLabel, readGitLabelAsync, readGitRepoName } from "../state/git-status.js";
 
 const roots: string[] = [];
 
@@ -21,6 +21,19 @@ function git(cwd: string, ...args: string[]): void {
   const result = spawnSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main", ...args], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
 }
+
+describe("readGitLabelAsync", () => {
+  it("matches readGitLabel: branch, a * once the tree is dirty, nothing outside git", async () => {
+    const repo = tempDir();
+    expect(await readGitLabelAsync(repo)).toBeUndefined();
+    git(repo, "init", "-q");
+    git(repo, "commit", "-q", "--allow-empty", "-m", "init");
+    expect(await readGitLabelAsync(repo)).toBe("main");
+    fs.writeFileSync(path.join(repo, "new.txt"), "x");
+    expect(await readGitLabelAsync(repo)).toBe("main*");
+    expect(await readGitLabelAsync(repo)).toBe(readGitLabel(repo));
+  });
+});
 
 describe("readGitRepoName", () => {
   it("names a normal clone by its folder, from any subdirectory", () => {
