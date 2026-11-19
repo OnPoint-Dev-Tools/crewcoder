@@ -1444,6 +1444,60 @@ describe("agent loop", () => {
     ]));
   });
 
+  it("emits a file_diff for edit and write tools, before their tool_execution_end, and none for shell commands", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    fs.writeFileSync(path.join(cwd, "notes.txt"), "keep\nold line\n", "utf8");
+    let turn = 0;
+    const modelClient: ModelClient = {
+      async complete() {
+        turn += 1;
+        if (turn > 1) return assistantText("done");
+        return {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "notes.txt", find: "old line", replace: "new line" } },
+            { type: "toolCall", id: "write-1", name: "write", arguments: { path: "created.txt", content: "hi\n" } },
+            { type: "toolCall", id: "sh-1", name: "bash", arguments: { command: "printf 'x\\n' > shell.txt" } }
+          ],
+          stopReason: "tool_calls",
+          timestamp: Date.now()
+        };
+      }
+    };
+    const events: AgentEvent[] = [];
+    await runAgentLoop({ prompt: "change files", requestedMode: "general", cwd }, { maxIterations: 2, approvalMode: "full-access", modelClient, emit: (event) => { events.push(event); } });
+
+    const diffs = events.filter((event): event is Extract<AgentEvent, { type: "file_diff" }> => event.type === "file_diff");
+    expect(diffs.map((diff) => [diff.toolCallId, diff.files.map((file) => [file.path, file.status, file.additions, file.deletions])])).toEqual([
+      ["edit-1", [["notes.txt", "modified", 1, 1]]],
+      ["write-1", [["created.txt", "added", 1, 0]]]
+    ]);
+    expect(diffs[0]?.files[0]?.patch).toContain("-old line\n+new line");
+    expect(fs.existsSync(path.join(cwd, "shell.txt"))).toBe(true);
+    const order = events.map((event) => event.type === "file_diff" ? `diff:${event.toolCallId}` : event.type === "tool_execution_end" ? `end:${event.toolCallId}` : "").filter(Boolean);
+    expect(order).toEqual(["diff:edit-1", "end:edit-1", "diff:write-1", "end:write-1", "end:sh-1"]);
+  });
+
+  it("emits a file_diff for a provider-native file change that writes before it is announced, and none for native commands", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const modelClient: ModelClient = {
+      async complete(_input, _signal, callbacks) {
+        fs.writeFileSync(path.join(cwd, "native.txt"), "from codex\n", "utf8");
+        await callbacks?.onProviderToolStart?.({ type: "toolCall", id: "codex-1", name: "Codex file change", arguments: { changes: [] } });
+        await callbacks?.onProviderToolEnd?.({ toolCallId: "codex-1", toolName: "Codex file change", text: "[]", isError: false });
+        await callbacks?.onProviderToolStart?.({ type: "toolCall", id: "codex-2", name: "Codex command", arguments: { command: "touch other.txt" } });
+        fs.writeFileSync(path.join(cwd, "other.txt"), "from a command\n", "utf8");
+        await callbacks?.onProviderToolEnd?.({ toolCallId: "codex-2", toolName: "Codex command", text: "", isError: false });
+        return assistantText("done");
+      }
+    };
+    const events: AgentEvent[] = [];
+    await runAgentLoop({ prompt: "native write", requestedMode: "general", cwd }, { maxIterations: 1, modelClient, emit: (event) => { events.push(event); } });
+
+    const diffs = events.filter((event): event is Extract<AgentEvent, { type: "file_diff" }> => event.type === "file_diff");
+    expect(diffs).toEqual([expect.objectContaining({ toolCallId: "codex-1", toolName: "Codex file change", files: [expect.objectContaining({ path: "native.txt", status: "added" })] })]);
+  });
+
   it("emits file_changed with the actual tool name", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
     const result = await runAgentLoop({ prompt: "create a CrewCode plugin named file-change-test", requestedMode: "plugin", cwd }, { maxIterations: 2, integrationProfile: "crewcode" });

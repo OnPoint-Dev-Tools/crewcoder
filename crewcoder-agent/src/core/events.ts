@@ -2,6 +2,7 @@ import type { AgentMessage, AssistantMessage, ToolResultMessage } from "./messag
 import type { CrewCoderExtUiAction, CrewCoderExtUiComponent } from "../extensions/api.js";
 import type { BackendDebugEvent } from "./backend-debug-logger.js";
 import type { ModelUsage, UsageSummary } from "./usage.js";
+import type { WorkspaceFileDiff } from "./workspace-diffs.js";
 
 import type { ProviderProgressUpdate } from "../providers/codex-progress.js";
 
@@ -35,6 +36,8 @@ export type AgentEvent =
   | { type: "tool_delta"; toolCallId: string; toolName: string; text: string; metadata?: Record<string, unknown> }
   | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: ToolResultMessage; isError: boolean; metadata?: Record<string, unknown> }
   | { type: "file_changed"; path: string; toolName: string }
+  /** Files a tool call changed, from workspace snapshots before and after it (`workspace-diffs.ts`). Emitted before its `tool_execution_end`. */
+  | { type: "file_diff"; toolCallId: string; toolName: string; files: WorkspaceFileDiff[] }
   | { type: "background_job_start"; bgId: string; command: string; cwd: string; startedAt: string }
   | { type: "background_job_output"; bgId: string; text: string }
   | { type: "background_job_status"; bgId: string; command: string; status: "running" | "completed" | "failed" | "stopped"; output: string; exitCode?: number | null; startedAt: string; endedAt?: string }

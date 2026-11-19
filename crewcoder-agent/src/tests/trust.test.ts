@@ -28,6 +28,7 @@ function config(overrides: Partial<CrewCoderConfig> = {}): CrewCoderConfig {
     activeWorker: "Crew",
     workerIdentityEnabled: true,
     checkpointsEnabled: true,
+    fileDiffs: true,
     autoCompact: false,
     autoCompactThresholdTokens: 150000,
     compactionPreview: false,
