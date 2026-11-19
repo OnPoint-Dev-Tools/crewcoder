@@ -1,12 +1,13 @@
+import { setRendererCapabilities } from "@opentui/core/testing";
 import { testRender } from "@opentui/react/test-utils";
+import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, riskLevel } from "../App.js";
-import { footerModel } from "../footer-layout.js";
-import { applyFooterHeight, footerSettled, prepareFooterForWrites } from "../footer-sizer.js";
+import { AGENT_WORK_TITLE } from "../components/Transcript.js";
 import { ThemeProvider } from "../providers/theme-provider.js";
-import { attachScrollback, ScrollbackWriter } from "../scrollback-writer.js";
 import { SessionController } from "../session-controller.js";
 import { slateTheme } from "../theme.js";
+import { COLLAPSED_OUTPUT_LINES } from "../tool-presentation.js";
 import { FakeBridge } from "./fake-bridge.js";
 import { FakeCli, flush } from "./fake-cli.js";
 
@@ -18,71 +19,259 @@ afterEach(async () => {
   active = undefined;
 });
 
-async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn>; scrollbackText: () => Promise<string> }> {
+async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean; width?: number; height?: number } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
   const bridge = new FakeBridge();
   const controller = new SessionController(bridge, undefined, cli);
   const onQuit = vi.fn();
-  // The writer needs the renderer, which testRender creates; give it a late-bound host.
-  let setup: Setup | undefined;
-  const writer = new ScrollbackWriter({ createScrollbackSurface: (options) => setup!.renderer.createScrollbackSurface(options) }, slateTheme);
-  setup = await testRender(
+  const setup = await testRender(
     <ThemeProvider theme={slateTheme}>
-      <App controller={controller} scrollback={writer} onQuit={onQuit} />
+      <App controller={controller} onQuit={onQuit} />
     </ThemeProvider>,
-    { width: 80, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4, ...options }
+    { width: 80, height: 24, ...options }
   );
-  // Mirrors cli.tsx, including picker rows, so palette sizing is exercised end to end.
-  const footerState = () => ({ ...controller.state, extras: controller.footerExtras(setup!.renderer.terminalHeight, setup!.renderer.terminalWidth) });
-  attachScrollback(controller, writer, { prepare: () => prepareFooterForWrites(setup!.renderer, footerState()), size: () => applyFooterHeight(setup!.renderer, footerState(), writer), settled: () => footerSettled(setup!.renderer) });
   active = setup;
   await setup.renderOnce();
-  const scrollbackText = async (): Promise<string> => {
-    await setup!.renderOnce();
-    return setup!.externalOutput.takeText();
-  };
-  return { setup, bridge, controller, onQuit, scrollbackText };
+  return { setup, bridge, controller, onQuit };
 }
 
-describe("OpenTUI split-footer App", () => {
-  it("writes the conversation to native scrollback and keeps only the live tail in the footer", async () => {
-    const { setup, bridge, scrollbackText } = await renderApp();
+/** Send a prompt and wait until the conversation (not the welcome screen) shows. */
+async function inConversation(options: { kittyKeyboard?: boolean; height?: number } = {}, prompt = "hi") {
+  const rendered = await renderApp(new FakeCli(), options);
+  await rendered.setup.mockInput.typeText(prompt);
+  rendered.setup.mockInput.pressEnter();
+  return rendered;
+}
 
-    await setup.mockInput.typeText("hello crew");
-    setup.mockInput.pressEnter();
+const PAGE_UP = "\x1b[5~";
+const CTRL_END = "\x1b[1;5F";
+const toolResult = (text: string) => ({ content: [{ type: "text", text }] });
+const lines = (count: number, prefix = "line"): string => Array.from({ length: count }, (_, index) => `${prefix} ${index}`).join("\n");
+
+describe("full-screen transcript", () => {
+  it("shows the prompt, the Reasoning panel, and the reply, with the spinner only while running", async () => {
+    const { setup, bridge } = await inConversation({}, "hello crew");
     expect(bridge.runs).toEqual([expect.objectContaining({ prompt: "hello crew" })]);
 
     bridge.emit({ type: "agent_start", sessionId: "s-9" });
     bridge.emit({ type: "thinking_delta", text: "considering" });
     bridge.emit({ type: "assistant_delta", text: "hi there" });
-    const footer = await setup.waitForFrame((text) => text.includes("Working"));
-    expect(footer).toContain("hi there");
-    expect(footer).toContain("s-9");
+    const live = await setup.waitForFrame((text) => text.includes("Working") && text.includes("hi there"));
+    expect(live).toContain("YOU");
+    expect(live).toContain("hello crew");
+    expect(live).toContain("💭 Reasoning");
+    expect(live).toContain("considering");
+    expect(live).toContain("CREW CODER");
+    expect(live).toContain("s-9");
 
     bridge.emit({ type: "agent_end" });
-    const committed = await scrollbackText();
-    expect(committed).toContain("YOU");
-    expect(committed).toContain("hello crew");
-    expect(committed).toContain("💭 Reasoning");
-    expect(committed).toContain("considering");
-    expect(committed).toContain("CREW CODER");
-    expect(committed).toContain("hi there");
     const idle = await setup.waitForFrame((text) => !text.includes("Working"));
-    expect(idle).not.toContain("hi there");
+    expect(idle).toContain("hi there");
+    expect(idle).toContain("hello crew");
   });
 
-  it("shows a pending approval card and resolves it only with the configured chord", async () => {
-    const { setup, bridge } = await renderApp();
-    await setup.mockInput.typeText("clean");
+  it("switches to single-cell icons when the terminal turns out to be behind tmux", async () => {
+    const { setup, bridge } = await inConversation({}, "icons");
+    bridge.emit({ type: "thinking_delta", text: "pondering" });
+    bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "g1", args: { command: "ls" } });
+    await setup.waitForFrame((text) => text.includes("💭 Reasoning") && text.includes("💻 Run Command"));
+
+    // setRendererCapabilities only stores them; the real renderer also emits the probe's answer.
+    act(() => {
+      setup.renderer.emit("capabilities", setRendererCapabilities(setup.renderer, { unicode: "unicode", multiplexer: "tmux" }));
+    });
+    const text = await setup.waitForFrame((frame) => frame.includes("∴ Reasoning") && frame.includes("$ Run Command"));
+    expect(text).not.toContain("💭");
+    expect(text).not.toContain("💻");
+
+    act(() => {
+      setup.renderer.emit("capabilities", setRendererCapabilities(setup.renderer, { unicode: "unicode-wide", multiplexer: "none" }));
+    });
+    await setup.waitForFrame((frame) => frame.includes("💭 Reasoning") && frame.includes("💻 Run Command"));
+  });
+
+  it("keeps the composer and status line at the bottom", async () => {
+    const { setup, bridge } = await inConversation();
+    bridge.emit({ type: "agent_end" });
+    const frame = await setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request") && !text.includes("Working"));
+    const rows = frame.split("\n").slice(0, 24);
+    expect(rows[23]).toContain("claude");
+    expect(rows[21]).toContain("Ask CrewCoder");
+  });
+
+  it("scrolls with PageUp and returns to the newest output with Ctrl+End", async () => {
+    const { setup, bridge } = await inConversation();
+    bridge.emit({ type: "assistant_delta", text: lines(60, "row") });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("row 59"));
+
+    // The mock has no PageUp/Ctrl+End codes; send the xterm sequences.
+    setup.mockInput.pressKey(PAGE_UP);
+    setup.mockInput.pressKey(PAGE_UP);
+    const scrolled = await setup.waitForFrame((text) => !text.includes("row 59"));
+    expect(scrolled).toContain("row ");
+
+    setup.mockInput.pressKey(CTRL_END);
+    await setup.waitForFrame((text) => text.includes("row 59"));
+  });
+});
+
+describe("Agent work", () => {
+  it("shows a running tool live in the dashed Agent work box, not in the footer", async () => {
+    const { setup, bridge } = await inConversation({}, "test");
+    bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "t1", args: { command: "npm test" } });
+
+    const running = await setup.waitForFrame((text) => text.includes("Run Command") && text.includes("running…"));
+    expect(running).toContain(AGENT_WORK_TITLE);
+    expect(running).toContain("╌");
+    expect(running).toContain("╎");
+    expect(running).toContain("npm test");
+    // The footer holds only the spinner, composer, and status: the tool shows once.
+    expect(running.split("Run Command")).toHaveLength(2);
+
+    bridge.emit({ type: "tool_execution_end", toolName: "bash", toolCallId: "t1", result: toolResult("all green") });
+    const done = await setup.waitForFrame((text) => text.includes("all green"));
+    expect(done).toContain("✓");
+    expect(done).not.toContain("running…");
+  });
+
+  it("stacks consecutive tools in one box and shows read contents", async () => {
+    const { setup, bridge } = await inConversation();
+    bridge.emit({ type: "tool_execution_start", toolName: "read", toolCallId: "r1", args: { path: "src/a.ts" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "read", toolCallId: "r1", result: toolResult("export const a = 1;") });
+    bridge.emit({ type: "tool_execution_start", toolName: "grep", toolCallId: "g1", args: { pattern: "TODO" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "grep", toolCallId: "g1", result: toolResult("src/a.ts:3: TODO") });
+    bridge.emit({ type: "agent_end" });
+
+    const frame = await setup.waitForFrame((text) => text.includes("src/a.ts:3: TODO"));
+    expect(frame).toContain("Read File");
+    expect(frame).toContain("export const a = 1;");
+    expect(frame).toContain("Search");
+    expect(frame.split(AGENT_WORK_TITLE)).toHaveLength(2);
+  });
+
+  it("collapses long output to its first lines, and expands it with Ctrl+O or a click", async () => {
+    const { setup, bridge } = await inConversation({ height: 60 });
+    const hidden = 30 - COLLAPSED_OUTPUT_LINES;
+    bridge.emit({ type: "tool_execution_start", toolName: "read", toolCallId: "r1", args: { path: "big.ts" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "read", toolCallId: "r1", result: toolResult(lines(30, "src")) });
+    bridge.emit({ type: "agent_end" });
+
+    const collapsed = await setup.waitForFrame((text) => text.includes(`Show ${hidden} more lines`));
+    expect(collapsed).toContain(`src ${COLLAPSED_OUTPUT_LINES - 1}`);
+    expect(collapsed).not.toContain(`src ${COLLAPSED_OUTPUT_LINES}\n`);
+    expect(collapsed).not.toContain("src 29");
+
+    setup.mockInput.pressKey("o", { ctrl: true });
+    const expanded = await setup.waitForFrame((text) => text.includes("src 29"));
+    expect(expanded).toContain("Show less");
+
+    setup.mockInput.pressKey("o", { ctrl: true });
+    const again = await setup.waitForFrame((text) => !text.includes("src 29"));
+    const rows = again.split("\n");
+    const toggleRow = rows.findIndex((row) => row.includes("Show 18 more lines"));
+    await setup.mockMouse.click(rows[toggleRow]!.indexOf("Show"), toggleRow);
+    await setup.waitForFrame((text) => text.includes("src 29") && text.includes("Show less"));
+  });
+});
+
+describe("inline diffs", () => {
+  async function edited() {
+    const rendered = await inConversation({ height: 40 });
+    rendered.bridge.emit({ type: "tool_execution_start", toolName: "edit", toolCallId: "e1", args: { path: "src/app.ts", find: "const value0 = 0;", replace: "const value0 = 42;" } });
+    rendered.bridge.emit({ type: "tool_execution_end", toolName: "edit", toolCallId: "e1", result: toolResult("Edited src/app.ts") });
+    rendered.bridge.emit({ type: "agent_end" });
+    return rendered;
+  }
+
+  it("shows an edit's diff in the Agent work box instead of its output", async () => {
+    const { setup } = await edited();
+    const frame = await setup.waitForFrame((text) => text.includes("const value0 = 42;"));
+    expect(frame).toContain("▾ Diff  +1 -1  src/app.ts");
+    expect(frame).toContain("const value0 = 0;");
+    expect(frame).not.toContain("Edited src/app.ts");
+  });
+
+  it("hides and shows diffs with a click on the header and with Ctrl+T", async () => {
+    const { setup } = await edited();
+    const frame = await setup.waitForFrame((text) => text.includes("▾ Diff"));
+    const rows = frame.split("\n");
+    const header = rows.findIndex((row) => row.includes("▾ Diff"));
+    await setup.mockMouse.click(rows[header]!.indexOf("▾ Diff"), header);
+    const hidden = await setup.waitForFrame((text) => text.includes("▸ Diff"));
+    expect(hidden).not.toContain("const value0 = 42;");
+
+    // Ctrl+T hides every diff (this one stays hidden), then shows every diff.
+    setup.mockInput.pressKey("t", { ctrl: true });
+    await setup.renderOnce();
+    expect(await setup.waitForFrame((text) => text.includes("▸ Diff"))).not.toContain("const value0 = 42;");
+    setup.mockInput.pressKey("t", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("▾ Diff") && text.includes("const value0 = 42;"));
+  });
+
+  it("numbers a finished edit with the file's real lines", async () => {
+    const bridge = new FakeBridge();
+    const file = "line 1\nline 2\nconst value0 = 42;\nline 4\n";
+    const controller = new SessionController(bridge, undefined, new FakeCli(), async () => file);
+    const setup = await testRender(
+      <ThemeProvider theme={slateTheme}><App controller={controller} onQuit={() => {}} /></ThemeProvider>,
+      { width: 80, height: 30 }
+    );
+    active = setup;
+    await setup.mockInput.typeText("go");
     setup.mockInput.pressEnter();
+    bridge.emit({ type: "tool_execution_start", toolName: "edit", toolCallId: "e1", args: { path: "src/app.ts", find: "const value0 = 0;", replace: "const value0 = 42;" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "edit", toolCallId: "e1", result: toolResult("Edited src/app.ts") });
+    bridge.emit({ type: "agent_end" });
+
+    const frame = await setup.waitForFrame((text) => /3 \+ const value0 = 42;/.test(text));
+    expect(frame).toMatch(/3 - const value0 = 0;/);
+  });
+
+  it("shows a created file's diff from the agent's file_diff, with real line numbers", async () => {
+    const { setup, bridge } = await inConversation({ height: 40 });
+    bridge.emit({ type: "tool_execution_start", toolName: "Codex file change", toolCallId: "c1", args: { changes: [{ path: "test", kind: { type: "add" }, diff: "Hi from crewcoder\n" }] } });
+    bridge.emit({ type: "file_diff", toolName: "Codex file change", toolCallId: "c1", files: [{ path: "test", status: "added", additions: 1, deletions: 0, binary: false, truncated: false, patch: "diff --git a/test b/test\nnew file mode 100644\n--- /dev/null\n+++ b/test\n@@ -0,0 +1 @@\n+Hi from crewcoder\n" }] });
+    bridge.emit({ type: "tool_execution_end", toolName: "Codex file change", toolCallId: "c1", result: toolResult("[]") });
+    bridge.emit({ type: "agent_end" });
+
+    const frame = await setup.waitForFrame((text) => text.includes("▾ Diff  +1 -0  test (new)"));
+    expect(frame).toMatch(/1 \+ Hi from crewcoder/);
+  });
+
+  it("shows a shell command's output and no diff", async () => {
+    const { setup, bridge } = await inConversation({ height: 40 });
+    bridge.emit({ type: "tool_execution_start", toolName: "Codex command", toolCallId: "c2", args: { command: "printf 'Hi' > test && cat test" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "Codex command", toolCallId: "c2", result: toolResult("Hi from crewcoder") });
+    bridge.emit({ type: "agent_end" });
+
+    const frame = await setup.waitForFrame((text) => text.includes("Hi from crewcoder") && text.includes("Run Command"));
+    expect(frame).not.toContain("Diff");
+  });
+
+  it("collapses a long diff and expands it with Ctrl+O", async () => {
+    const { setup, bridge } = await inConversation({ height: 60 });
+    bridge.emit({ type: "tool_execution_start", toolName: "write", toolCallId: "w1", args: { path: "big.ts", content: lines(30, "added") } });
+    bridge.emit({ type: "tool_execution_end", toolName: "write", toolCallId: "w1", result: toolResult("Wrote big.ts") });
+    bridge.emit({ type: "agent_end" });
+
+    const collapsed = await setup.waitForFrame((text) => text.includes(`Show ${30 - COLLAPSED_OUTPUT_LINES} more lines`));
+    expect(collapsed).toContain("added 0");
+    expect(collapsed).not.toContain("added 29");
+    setup.mockInput.pressKey("o", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("added 29") && text.includes("Show less"));
+  });
+});
+
+describe("approvals", () => {
+  it("shows a pending approval card and resolves it only with the configured chord", async () => {
+    const { setup, bridge } = await inConversation({}, "clean");
     bridge.emit({ type: "approval_required", approvalId: "a-1", toolName: "bash", risk: "dangerous", reason: "rm -r build", args: { command: "rm -r build" } });
 
     const frame = await setup.waitForFrame((text) => text.includes("Tool Approval Required"));
     expect(frame).toContain("[HIGH RISK]");
-    expect(frame).toContain("bash");
+    expect(frame).toContain("waiting for approval");
     expect(frame).toContain("Approve");
     expect(frame).toContain("Deny");
-    expect(frame).not.toContain("^Y");
-    expect(frame).not.toContain("^N");
 
     // Upstream termcn approved on a bare "y"; typing it in the composer must not approve.
     await setup.mockInput.typeText("yes y");
@@ -93,26 +282,11 @@ describe("OpenTUI split-footer App", () => {
     await setup.renderOnce();
     expect(bridge.approvals).toEqual([{ id: "a-1", approved: true }]);
   });
+});
 
-  it("shows running tools in the footer and commits them once they finish", async () => {
-    const { setup, bridge, scrollbackText } = await renderApp();
-    await setup.mockInput.typeText("test");
-    setup.mockInput.pressEnter();
-    bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "t1", args: { command: "npm test" } });
-
-    const frame = await setup.waitForFrame((text) => text.includes("💻 Run Command · npm test"));
-    expect(frame).toContain("Working");
-    expect(await scrollbackText()).not.toContain("Run Command");
-
-    bridge.emit({ type: "tool_execution_end", toolName: "bash", toolCallId: "t1", result: "all green" });
-    bridge.emit({ type: "agent_end" });
-    expect(await scrollbackText()).toContain("💻 Run Command");
-  });
-
+describe("keys", () => {
   it("aborts the running request on escape and quits on ctrl+c", async () => {
-    const { setup, bridge, onQuit } = await renderApp();
-    await setup.mockInput.typeText("long");
-    setup.mockInput.pressEnter();
+    const { setup, bridge, onQuit } = await inConversation({}, "long");
     await setup.renderOnce();
 
     setup.mockInput.pressEscape();
@@ -128,19 +302,18 @@ describe("welcome screen", () => {
   it("centers the logo with the composer on a fresh session and leaves on the first prompt", async () => {
     const { setup, bridge } = await renderApp();
     const frame = await setup.waitForFrame((text) => text.includes("Type your first request"));
-    const lines = frame.split("\n");
-    const logoRow = lines.findIndex((line) => line.includes("██████"));
+    const rows = frame.split("\n");
+    const logoRow = rows.findIndex((line) => line.includes("██████"));
 
     expect(logoRow).toBeGreaterThan(0);
     // Centered horizontally: equal margins within one column.
-    const logoLine = lines[logoRow] ?? "";
+    const logoLine = rows[logoRow] ?? "";
     const left = logoLine.length - logoLine.trimStart().length;
     const right = logoLine.length - logoLine.trimEnd().length;
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
     // Centered vertically: blank rows above the logo.
-    expect(lines.slice(0, logoRow).every((line) => line.trim() === "")).toBe(true);
+    expect(rows.slice(0, logoRow).every((line) => line.trim() === "")).toBe(true);
     expect(frame).toContain("Ask CrewCoder");
-    expect(frame).not.toContain("quit");
 
     await setup.mockInput.typeText("hello");
     setup.mockInput.pressEnter();
@@ -150,45 +323,15 @@ describe("welcome screen", () => {
   });
 
   it("shows only the composer, no logo, on a small window", async () => {
-    const bridge = new FakeBridge();
-    const controller = new SessionController(bridge);
-    let setup: Setup | undefined;
-    const writer = new ScrollbackWriter({ createScrollbackSurface: (options) => setup!.renderer.createScrollbackSurface(options) }, slateTheme);
-    setup = await testRender(
-      <ThemeProvider theme={slateTheme}>
-        <App controller={controller} scrollback={writer} onQuit={() => {}} />
-      </ThemeProvider>,
-      { width: 60, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 4 }
-    );
-    attachScrollback(controller, writer, { prepare: () => prepareFooterForWrites(setup!.renderer, controller.state), size: () => applyFooterHeight(setup!.renderer, controller.state, writer), settled: () => footerSettled(setup!.renderer) });
-    active = setup;
+    const { setup } = await renderApp(new FakeCli(), { width: 60 });
     const frame = await setup.waitForFrame((text) => text.includes("Type your first request"));
-
     expect(frame).not.toContain("█");
-    expect(frame).not.toContain("┏┓");
     expect(frame).not.toContain("CREW CODER");
     expect(frame).toContain("Ask CrewCoder");
   });
 
-  it("keeps the composer at the bottom of the terminal during a short conversation", async () => {
-    const { setup, bridge } = await renderApp();
-    await setup.mockInput.typeText("hi");
-    setup.mockInput.pressEnter();
-    bridge.emit({ type: "agent_end" });
-    // Require the composer: a frame captured mid-resize is unpainted and matches nothing.
-    const frame = await setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request") && !text.includes("Working"));
-    const lines = frame.split("\n").filter((line, index, all) => index < all.length - 1 || line.trim() !== "");
-
-    // The status line is the last row of the 24-row terminal, the composer just above it.
-    expect(setup.renderer.footerHeight).toBeGreaterThan(4);
-    expect(lines.at(-1)).toContain("claude");
-    expect(lines.at(-3)).toContain("Ask CrewCoder");
-  });
-
-  it("returns to the welcome screen after /new", async () => {
-    const { setup, bridge } = await renderApp();
-    await setup.mockInput.typeText("hi");
-    setup.mockInput.pressEnter();
+  it("returns after /new", async () => {
+    const { setup, bridge } = await inConversation();
     bridge.emit({ type: "agent_end" });
     await setup.waitForFrame((text) => !text.includes("Type your first request"));
 
@@ -199,21 +342,18 @@ describe("welcome screen", () => {
 });
 
 describe("pickers", () => {
-  it("sizes the footer to the whole palette in a conversation", async () => {
-    const { setup, bridge, controller } = await renderApp();
-    await setup.mockInput.typeText("hi");
-    setup.mockInput.pressEnter();
+  it("opens the palette below the conversation and closes it on escape", async () => {
+    const { setup, bridge, controller } = await inConversation({}, "first prompt");
     bridge.emit({ type: "agent_end" });
     await setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request"));
 
     await setup.mockInput.typeText("/");
     const frame = await setup.waitForFrame((text) => text.includes("Esc close") && text.includes("╰"));
-    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(setup.renderer.terminalHeight, setup.renderer.terminalWidth).overlayRows);
     expect(frame).toContain("/sessions");
+    expect(frame).toContain("first prompt");
     expect(frame).toMatch(/1\/\d+/);
 
     setup.mockInput.pressEscape();
-    // A lone ESC is delivered after the parser's escape-sequence timeout.
     await vi.waitFor(() => expect(controller.picker).toBeUndefined(), { timeout: 2_000 });
     await setup.waitForFrame((text) => text.includes("Ask CrewCoder"));
     expect(bridge.stops).toBe(0);
@@ -239,32 +379,29 @@ describe("pickers", () => {
 });
 
 describe("multi-line composer", () => {
-  async function inConversation(options: { kittyKeyboard?: boolean } = {}) {
-    const rendered = await renderApp(new FakeCli(), options);
-    await rendered.setup.mockInput.typeText("hi");
-    rendered.setup.mockInput.pressEnter();
+  async function idle(options: { kittyKeyboard?: boolean } = {}) {
+    const rendered = await inConversation(options);
     rendered.bridge.emit({ type: "agent_end" });
     await rendered.setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request"));
     return rendered;
   }
 
-  it("Shift+Enter adds a line, grows the footer, and Enter sends every line", async () => {
-    const { setup, bridge, controller } = await inConversation({ kittyKeyboard: true });
-    const before = setup.renderer.footerHeight;
+  it("Shift+Enter adds a line and Enter sends every line", async () => {
+    const { setup, bridge, controller } = await idle({ kittyKeyboard: true });
     await setup.mockInput.typeText("first line");
     setup.mockInput.pressEnter({ shift: true });
     await setup.mockInput.typeText("second line");
     await vi.waitFor(() => expect(controller.composerLines).toBe(2));
-    await setup.waitForFrame((text) => text.includes("second line"));
-    expect(setup.renderer.footerHeight).toBe(before + 1);
+    const frame = await setup.waitForFrame((text) => text.includes("second line"));
+    expect(frame).toContain("first line");
 
     setup.mockInput.pressEnter();
     expect(bridge.runs.at(-1)).toMatchObject({ prompt: "first line\nsecond line" });
-    await vi.waitFor(() => expect(setup.renderer.footerHeight).toBe(before));
+    await vi.waitFor(() => expect(controller.composerLines).toBe(1));
   });
 
   it("Ctrl+J adds a line without the kitty keyboard protocol", async () => {
-    const { setup, bridge } = await inConversation();
+    const { setup, bridge } = await idle();
     await setup.mockInput.typeText("a");
     setup.mockInput.pressKey("j", { ctrl: true });
     await setup.mockInput.typeText("b");
@@ -286,10 +423,8 @@ describe("alerts", () => {
     controller.submit("/thinking status");
     await flush();
     const frame = await setup.waitForFrame((text) => text.includes("Provider thinking: on"));
-    const lines = frame.split("\n");
-    expect(lines.findIndex((line) => line.includes("Provider thinking: on"))).toBeLessThan(lines.findIndex((line) => line.includes("CrewCoder") && line.includes("│")));
-    expect(controller.footerExtras(24, 80).alertRows).toBe(3);
-    expect(setup.renderer.footerHeight).toBe(footerModel([], false, controller.footerExtras(24, 80)).rows);
+    const rows = frame.split("\n");
+    expect(rows.findIndex((line) => line.includes("Provider thinking: on"))).toBeLessThan(rows.findIndex((line) => line.includes("Ask CrewCoder")));
 
     await setup.mockInput.typeText("x");
     await setup.waitForFrame((text) => !text.includes("Provider thinking: on"));
@@ -298,13 +433,10 @@ describe("alerts", () => {
 });
 
 describe("compaction summary editor", () => {
-  it("edits the summary in the footer and applies it with Ctrl+S", async () => {
-    const { setup, bridge, controller } = await renderApp();
-    await setup.mockInput.typeText("long task");
-    setup.mockInput.pressEnter();
+  it("edits the summary and applies it with Ctrl+S", async () => {
+    const { setup, bridge, controller } = await inConversation({}, "long task");
     bridge.emit({ type: "session_compaction_preview", previewId: "p-1", summary: "proposed summary" });
     await setup.waitForFrame((text) => text.includes("Edit compaction summary") && text.includes("proposed summary"));
-    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(24, 80).overlayRows);
 
     await setup.mockInput.typeText(" plus");
     setup.mockInput.pressKey("s", { ctrl: true });
@@ -318,16 +450,14 @@ describe("compaction summary editor", () => {
 
 describe("extension questions", () => {
   async function asked(event: Record<string, unknown>, draft = "") {
-    const rendered = await renderApp();
-    await rendered.setup.mockInput.typeText("go");
-    rendered.setup.mockInput.pressEnter();
+    const rendered = await inConversation({}, "go");
     if (draft) await rendered.setup.mockInput.typeText(draft);
     rendered.bridge.emit({ type: "extension_ui_request", requestId: "q-1", extensionId: "ext.secret-id", ...event });
     return rendered;
   }
 
-  it("answers a select with the original option value and commits the outcome", async () => {
-    const { setup, bridge, controller, scrollbackText } = await asked({
+  it("answers a select with the original option value and records the outcome", async () => {
+    const { setup, bridge, controller } = await asked({
       uiKind: "select",
       title: "Which cache strategy should the build use for this repository?",
       options: [
@@ -339,7 +469,6 @@ describe("extension questions", () => {
     expect(frame).toContain("Shared across CI runners");
     expect(frame).not.toContain("ext.secret-id");
     expect(frame).not.toContain("q-1");
-    expect(setup.renderer.footerHeight).toBe(controller.footerExtras(24, 80).overlayRows);
 
     setup.mockInput.pressArrow("down");
     await setup.renderOnce();
@@ -350,9 +479,8 @@ describe("extension questions", () => {
 
     bridge.emit({ type: "extension_ui_resolved", requestId: "q-1" });
     bridge.emit({ type: "agent_end" });
-    const committed = await scrollbackText();
-    expect(committed).toContain("QUESTION · answered");
-    expect(committed).toContain("Answer: remote-s3");
+    const after = await setup.waitForFrame((text) => text.includes("QUESTION · answered"));
+    expect(after).toContain("Answer: remote-s3");
   });
 
   it("answers a confirm with y, and its keys never reach the composer", async () => {
@@ -361,7 +489,7 @@ describe("extension questions", () => {
     setup.mockInput.pressKey("y");
     await setup.renderOnce();
     expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: true }]);
-    const frame = await setup.waitForFrame((text) => !text.includes("Overwrite the lockfile?"));
+    const frame = await setup.waitForFrame((text) => text.includes("Send a follow-up"));
     expect(frame).not.toMatch(/│\s*y\s/);
   });
 
@@ -374,8 +502,10 @@ describe("extension questions", () => {
     expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: "release/1.2" }]);
     expect(bridge.followUps).toEqual([]);
     expect(controller.question()).toBeUndefined();
+    // The card is gone (the transcript keeps the question as a record) and the draft is back.
     const frame = await setup.waitForFrame((text) => text.includes("half typed"));
-    expect(frame).not.toContain("Name the release branch");
+    expect(frame).toContain("QUESTION · answered");
+    expect(frame).not.toContain("Enter send · Esc cancel");
   });
 
   it("cancels with escape instead of aborting the run", async () => {
@@ -389,11 +519,9 @@ describe("extension questions", () => {
   it("chooses an option with a mouse click", async () => {
     const { setup, bridge } = await asked({ uiKind: "select", title: "Pick one", options: [{ label: "Alpha", value: "a" }, { label: "Bravo", value: "b" }] });
     const frame = await setup.waitForFrame((text) => text.includes("Bravo"));
-    const lines = frame.split("\n");
-    const row = lines.findIndex((line) => line.includes("Bravo"));
-    // Mouse rows are terminal rows; the split footer starts at the renderer's (private) render offset.
-    const offset = (setup.renderer as unknown as { renderOffset: number }).renderOffset;
-    await setup.mockMouse.click(lines[row]!.indexOf("Bravo"), offset + row);
+    const rows = frame.split("\n");
+    const row = rows.findIndex((line) => line.includes("Bravo"));
+    await setup.mockMouse.click(rows[row]!.indexOf("Bravo"), row);
     await setup.renderOnce();
     expect(bridge.uiResponses).toEqual([{ requestId: "q-1", value: "b" }]);
   });

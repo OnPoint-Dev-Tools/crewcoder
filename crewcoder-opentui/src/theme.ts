@@ -33,6 +33,15 @@ export const slateTheme: Theme = {
   }
 };
 
+/** Inline diff colors on the slate background: muted green/red row tints, success/error signs. */
+export const DIFF_COLORS = {
+  addedBg: "#18241c",
+  removedBg: "#2a1a1c",
+  addedLineNumberBg: "#1d2b21",
+  removedLineNumberBg: "#321f21",
+  lineNumberBg: "#15181d"
+} as const;
+
 /** Muted slate for reasoning text; termcn has no dedicated token for it. */
 export const THINKING_COLOR = "#858c97";
 

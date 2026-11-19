@@ -1,42 +1,11 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
-import { toolApprovalHeight } from "./components/ui/tool-approval.js";
 
-type ApprovalBlock = Extract<TuiEventBlock, { type: "approval" }>;
-type ToolBlock = Extract<TuiEventBlock, { type: "tool" }>;
-type StreamingBlock = Extract<TuiEventBlock, { type: "assistant" | "thinking" }>;
-
-export const MAX_FOOTER_TOOLS = 3;
-export const MAX_FOOTER_OTHER = 2;
 /** A one-line composer: border (2) + one text line. It grows to MAX_COMPOSER_LINES. */
 export const COMPOSER_ROWS = 3;
 export const MAX_COMPOSER_LINES = 8;
-export const STATUS_ROWS = 1;
-/**
- * Rows every conversation footer keeps: the streaming-tail row and the
- * working/empty row. Reserving them keeps the footer the same height whether a
- * turn is running or idle, because OpenTUI shrinks a split footer by keeping
- * its top row, which would leave blank rows under the status line.
- */
-export const RESERVED_ROWS = 2;
 
-/** What the split footer shows for the blocks not yet in scrollback. */
-export type FooterModel = {
-  approval?: ApprovalBlock;
-  tools: ToolBlock[];
-  hiddenTools: number;
-  streaming?: StreamingBlock;
-  other: TuiEventBlock[];
-  working: boolean;
-  rows: number;
-};
-
-/**
- * Footer parts sized outside the transcript, from `SessionController.footerExtras`.
- * App and the footer sizer must pass the same values.
- */
+/** Footer parts with a variable height, from `SessionController.footerExtras`. */
 export type FooterExtras = {
-  /** An open picker or summary editor; it replaces the whole conversation footer. */
-  overlayRows?: number;
   /** The status alert above the composer. */
   alertRows?: number;
   /** Composer height including its border; defaults to one line. */
@@ -81,44 +50,13 @@ export function composerRows(lines: number): number {
   return Math.max(1, Math.min(MAX_COMPOSER_LINES, lines)) + 2;
 }
 
-export function footerModel(pending: readonly TuiEventBlock[], running: boolean, extras: FooterExtras = {}): FooterModel {
-  const approval = pending.find((block): block is ApprovalBlock => block.type === "approval" && block.status === "pending");
-  const runningTools = pending.filter((block): block is ToolBlock => block.type === "tool" && block.status === "running");
-  const tools = runningTools.slice(0, MAX_FOOTER_TOOLS);
-  const hiddenTools = runningTools.length - tools.length;
-  const last = pending.at(-1);
-  const streaming = running && (last?.type === "assistant" || last?.type === "thinking") ? last : undefined;
-  const other = pending
-    .filter((block) => block !== approval && block !== streaming && !runningTools.includes(block as ToolBlock))
-    .slice(0, MAX_FOOTER_OTHER);
-  const overlayRows = extras.overlayRows ?? 0;
-  const rows = overlayRows > 0 ? overlayRows :
-    (approval ? toolApprovalHeight({ description: approval.text, args: approval.args }) : 0) +
-    tools.length + (hiddenTools > 0 ? 1 : 0) +
-    other.length +
-    RESERVED_ROWS +
-    (extras.alertRows ?? 0) +
-    (extras.composerRows ?? COMPOSER_ROWS) +
-    STATUS_ROWS;
-  return { approval, tools, hiddenTools, streaming, other, working: running, rows };
-}
-
 /**
- * The centered welcome screen shows while the session is empty and idle; the
- * footer then fills the terminal. Any block (even an error from an unported
- * command) ends it, so nothing written to scrollback is hidden behind it.
+ * The centered welcome screen shows while the session is empty and idle. Any
+ * block (even an error from an unported command) ends it, so nothing in the
+ * transcript is hidden behind it.
  */
 export function isHome(blocks: readonly TuiEventBlock[], running: boolean): boolean {
   return !running && blocks.length === 0;
-}
-
-/**
- * Footer height: the welcome screen fills the terminal; in a conversation the
- * footer is just its content (live region, composer, status); narrow terminals
- * use writer leading padding to keep recent output near the bottom.
- */
-export function footerHeight(options: { home: boolean; contentRows: number; terminalHeight: number }): number {
-  return options.home ? Math.max(options.contentRows, options.terminalHeight) : options.contentRows;
 }
 
 export const HOME_COMPOSER_MIN_WIDTH = 24;
@@ -153,11 +91,4 @@ export function shortenPath(path: string, max: number, home?: string): string {
   const local = home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
   if (local.length <= max) return local;
   return max <= 1 ? "…" : `…${local.slice(local.length - max + 1)}`;
-}
-
-/** The end of the last logical line, which always contains the not-yet-committed row. */
-export function streamingTail(text: string, width: number): string {
-  const tail = text.slice(text.lastIndexOf("\n") + 1);
-  const room = Math.max(1, width - 1);
-  return tail.length > room ? `…${tail.slice(tail.length - room + 1)}` : tail;
 }

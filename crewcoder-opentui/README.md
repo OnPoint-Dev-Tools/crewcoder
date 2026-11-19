@@ -49,20 +49,17 @@ Implemented now:
   composer. The logo text is shared with the legacy UI through
   `@onpoint-dev-tools/crewcoder-tui-core/theme/logo` and drawn with OpenTUI renderables in
   static bold primary (the legacy color pulse is not ported).
-- **Chat layout**: on terminals 70 columns and wider, the first submitted message starts at
-  the top of the viewport, with later transcript blocks written below it in order. Narrower
-  terminals keep recent messages near the composer. The window uses a minimal slate
-  background (OSC 11, restored on exit).
-  Approval cards include selectable Approve and Deny controls; the configured Ctrl+Y and
-  Ctrl+N shortcuts remain available.
-- **Native scrollback transcript** (OpenTUI `split-footer`): settled blocks are written to
-  the terminal's own scrollback, in order and exactly once, and streaming replies commit
-  each finished row as it arrives. Terminal scrolling, search, and copy work on it, and it
-  stays visible after quitting. A footer below holds only what is still changing. See
-  [`docs/SCROLLBACK.md`](docs/SCROLLBACK.md).
-- Footer components from [termcn](https://www.termcn.dev): running tools (`ToolCall`), the
-  pending approval card with risk level, arguments, and selectable decision controls
-  (`ToolApproval`), and the working spinner (`Spinner`), themed in slate. Several upstream
+- **Full-screen transcript** (OpenTUI alternate screen, mouse on): the UI draws the whole
+  conversation in a scrollbox that follows new output and stays put once you scroll up.
+  PgUp/PgDn and the mouse wheel scroll it, Ctrl+Home/Ctrl+End jump to either end, and a
+  mouse selection is copied over OSC 52. Blocks update in place, so running tools show
+  live and tool output expands and collapses. See [`docs/TRANSCRIPT.md`](docs/TRANSCRIPT.md).
+- **Footer**: only the working spinner, alerts (errors and command results), the pending
+  approval card (selectable Approve/Deny; Ctrl+Y and Ctrl+N also work), the composer, and
+  the status line. Agent output never goes to the footer.
+- Footer components from [termcn](https://www.termcn.dev): the pending approval card with
+  risk level, arguments, and selectable decision controls (`ToolApproval`), and the working
+  spinner (`Spinner`), themed in slate. Several upstream
   issues are fixed in our copies, including a global `y` key that approved tool calls while
   typing. See
   [`docs/TERMCN.md`](docs/TERMCN.md).
@@ -70,27 +67,33 @@ Implemented now:
   requests from trusted extensions open a focused card that replaces the footer. Long
   questions, option labels, and descriptions wrap. The answer goes back over the live
   `ui_response` channel, and Esc cancels the question without aborting the run. The
-  question and its answer are committed to scrollback. Built on vendored termcn `select`
+  question and its answer stay in the transcript. Built on vendored termcn `select`
   and `confirm`, plus OpenTUI's native `<input>`. See [`docs/QUESTIONS.md`](docs/QUESTIONS.md).
 - **Markdown replies**: assistant text renders through OpenTUI's native
   `MarkdownRenderable` in slate styles. That covers headings, bold/italic/strikethrough,
   inline code, links, ordered and unordered lists, quotes, tables sized to content, and
-  fenced code behind a rail. Replies still stream into scrollback: a block is committed as
-  soon as it is final, so a streamed reply ends up row-for-row identical to a one-shot
-  render.
+  fenced code behind a rail. Replies stream in place as text arrives.
 - **Turn sections**: a turn reads in event order as separate sections divided by a blank
   row. Reasoning comes first, then the agent's work, then the reply.
   - **Reasoning** is an amber bordered panel headed `💭 Reasoning`, with the reasoning as
     markdown, always expanded. It follows termcn's `thinking-block` design. While it
-    streams, the footer tail continues the panel's border and the spinner reads `Thinking`.
-  - **Agent work**: each tool call is one section row with an icon and a bold title, and
-    consecutive calls stack without blank rows. Reads, searches, commands, and listings put
-    their target on the next row (`📖 Read File` / `src/App.jsx`). Edits and writes keep it
-    inline (`± Edit File: src/App.jsx`). Paths under the workspace are shown relative.
-    Command and unknown-tool output follows, clamped to 8 lines; read/edit/search output is
-    hidden, and a failure always shows its output. Running tools use the same
-    icon and title in the footer. Names are mapped across CrewCoder, Claude Code, Codex, and
-    MCP-prefixed tools (`src/tool-presentation.ts`).
+    streams, the spinner reads `Thinking`.
+  - **Agent work**: consecutive tool calls and approvals sit in one dashed box titled
+    `Agent work`. Each tool shows a spinner while running (with its output streaming in),
+    then `✓` or `✗`, and a highlighted title chip (`📖 Read File`). Reads, searches,
+    commands, and listings put their target on the next row; edits and writes keep it
+    inline. Paths under the workspace are shown relative. Every tool's output is shown,
+    including file contents from reads; output over 12 lines collapses with a clickable
+    `▸ Show N more lines` toggle, and Ctrl+O expands or collapses all of them. Names are
+    mapped across CrewCoder, Claude Code, Codex, and MCP-prefixed tools
+    (`src/tool-presentation.ts`).
+  - **Inline diffs**: every edit and write shows its file diff in place, with real line
+    numbers and green/red rows (OpenTUI's native `<diff>`), for CrewCoder, Claude, and
+    Codex edits alike. Click a `▾ Diff` header to hide that diff, or press Ctrl+T to hide
+    or show all of them.
+- **`/diff`**: opens [Hunk](https://www.hunk.dev) on the files this session changed
+  (`hunk diff -- <files>`), handing it the terminal until you quit it. Hunk is installed
+  separately (`npm install -g hunkdiff`). See [`docs/DIFF.md`](docs/DIFF.md).
 - Transcript blocks for user (with muted `background` context), assistant, reasoning, tool,
   approval, extension question, compaction, image, error, and system. Text
   is normalized to `\n` and stripped of terminal control sequences.
@@ -104,7 +107,8 @@ Implemented now:
   `/rewind`, `/handoff`, ...), settings switches (`/thinking`, `/identity`, `/checkpoints`,
   `/full-access`, `/memory`, `/task`, `/compact auto`), session tools (`/branch`,
   `/compact`, `/compact preview` with a summary editor, `/export`, `/goal`, `/reload`,
-  `/clear`), and review tools (`/why`, `/review-summary`, `/extensions`, `/teams`, `/team`).
+  `/clear`), and review tools (`/diff`, `/why`, `/review-summary`, `/extensions`, `/teams`,
+  `/team`).
   Results show in a status alert above the composer. See
   [`docs/COMMAND_PALETTE.md`](docs/COMMAND_PALETTE.md).
 - Remote SSH mode, using the same bridge as the legacy UI.
@@ -128,17 +132,17 @@ sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
 - Prompt history: Up/Down recalls this session's sent messages.
 - `@` path suggestions.
 - Shortcuts: Ctrl+V image paste (and dropped image paths), Ctrl+X clear attachments,
-  Ctrl+O expand tool output, Ctrl+P open the palette, Ctrl+I agents overlay.
+  Ctrl+P open the palette, Ctrl+I agents overlay.
 
 **Transcript rendering:**
 
-- Syntax highlighting in fenced code blocks (OpenTUI's tree-sitter highlights
-  asynchronously; the scrollback writer must wait for it before committing a code block).
-- Inline side-by-side diffs for `edit` / `write` tool calls (termcn `diff-view`).
+- Search inside the transcript (terminal search cannot see the alternate screen).
+- Syntax highlighting in fenced code blocks (needs a tree-sitter client and scope styles).
+- Split (side-by-side) view and syntax highlighting for inline diffs.
 - Assistant throughput metadata.
 - Image attachments and terminal graphics, including tool-result images.
 - Dedicated goal, crew roster, and review-summary views (these show as one-line
-  placeholders while live and as labeled rows in scrollback).
+  labeled rows).
 - Live UI (sandboxed extension workers).
 
 **Commands and terminal behavior:**
@@ -154,8 +158,8 @@ sidebar (modified files, live crew agents, crew tasks, `<cwd>:<branch>` footer).
 ## Architecture
 
 ```txt
-src/cli.tsx                 argument parsing, split-footer renderer, React root
-src/App.tsx                 welcome screen, slash palette, live blocks, approval card, spinner, composer, status
+src/cli.tsx                 argument parsing, alternate-screen renderer, copy-on-select, /diff terminal hand-off, React root
+src/App.tsx                 welcome screen, transcript + footer layout, overlays, keys
 src/components/Home.tsx     the centered welcome screen
 src/components/ui/command-palette.tsx  termcn command picker presentation
 src/palette-model.ts        pure picker matching, grouped order, windowing, height
@@ -170,15 +174,17 @@ src/components/Composer.tsx multi-line composer (textarea)
 src/components/SummaryEditor.tsx  /compact preview summary editor
 src/components/ExtensionQuestion.tsx  extension question card (confirm / select / input / component)
 src/question-model.ts       pure question layout: wrapping, option rows, windowing, height, answers
-src/footer-sizer.ts         footer height and the welcome-screen transition, in step with commits
-src/terminal-background.ts  OSC 11 / OSC 111 theme background
-src/scrollback-writer.ts    commits settled blocks to native scrollback (OpenTUI surfaces)
-src/scrollback-blocks.ts    per-block scrollback layout (reply, Reasoning panel, tool rows, rows) and stable rows
-src/tool-presentation.ts    tool name -> icon, title, target, layout, and which output to show
-src/markdown-body.ts        OpenTUI MarkdownRenderable in slate styles, with streaming stable-row math
-src/footer-layout.ts        pure footer model and row count for renderer.footerHeight
-src/session-controller.ts   owns TuiState + bridge; subscribe/getVersion for useSyncExternalStore
-src/transcript.ts           pure block -> display row, and block lifecycle phase
+src/components/Transcript.tsx  scrollbox transcript: reply, Reasoning panel, Agent work box, tool entries, rows
+src/tool-presentation.ts    tool name -> icon, title, target, layout; output clamping and diff line tones
+src/glyphs.ts               emoji vs single-cell icon set from the terminal capability probe (CREWCODER_TUI_ICONS)
+src/hooks/use-glyph-set.ts  follows the renderer's capabilities event and resolves the icon set
+src/tool-diff.ts            per-file unified diffs from edit/write tool arguments, all providers
+src/diff-anchors.ts         reads an edited file once to give snippet diffs real line numbers
+src/markdown-style.ts       slate markdown styles, SyntaxStyle hook, fenced-code renderer
+src/hunk.ts                 /diff: hunk arguments and running a program on the real terminal
+src/footer-layout.ts        composer sizing, welcome-screen layout, path shortening
+src/session-controller.ts   owns TuiState + bridge + tool expansion; subscribe/getVersion for useSyncExternalStore
+src/transcript.ts           pure block -> display row, turn sections, streaming flag
 src/keybindings.ts          DEFAULT_APP_KEYBINDINGS and chord matching
 src/theme.ts                slate palette as termcn theme tokens
 src/components/ui/, src/hooks/, src/providers/, src/lib/   vendored termcn (see docs/TERMCN.md)

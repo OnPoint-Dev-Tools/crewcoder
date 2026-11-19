@@ -4,7 +4,8 @@ export type AppAction =
   | "composerSubmit" | "composerNewline"
   | "summaryApply" | "summaryReset" | "summaryCancel"
   | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
-  | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown";
+  | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown"
+  | "transcriptPageUp" | "transcriptPageDown" | "transcriptTop" | "transcriptBottom" | "toggleToolOutput" | "toggleDiffs";
 
 export type KeyLike = {
   name: string;
@@ -46,7 +47,16 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   questionYes: ["y"],
   questionNo: ["n"],
   questionScrollUp: ["pageup"],
-  questionScrollDown: ["pagedown"]
+  questionScrollDown: ["pagedown"],
+  // The transcript scrollbox; the mouse wheel scrolls it too.
+  transcriptPageUp: ["pageup"],
+  transcriptPageDown: ["pagedown"],
+  transcriptTop: ["ctrl+home"],
+  transcriptBottom: ["ctrl+end"],
+  // Expand or collapse every tool's output at once.
+  toggleToolOutput: ["ctrl+o"],
+  // Hide or show every edit's inline diff at once.
+  toggleDiffs: ["ctrl+t"]
 };
 
 /** An OpenTUI textarea key binding (`@opentui/core` `KeyBinding`). */

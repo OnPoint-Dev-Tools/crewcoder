@@ -1,6 +1,6 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { describe, expect, it } from "vitest";
-import { blockPhase, blockToRow, normalize } from "../transcript.js";
+import { blockToRow, isStreaming, normalize, transcriptSections } from "../transcript.js";
 
 describe("blockToRow", () => {
   it("keeps thinking separate from assistant text and background separate from typed text", () => {
@@ -18,13 +18,8 @@ describe("blockToRow", () => {
     expect(rows[0]?.detail).toBe("repo: crewcoder\nbranch: main");
   });
 
-  it("clamps long tool output and flags failed tools as errors", () => {
-    const output = Array.from({ length: 20 }, (_, index) => `line ${index}`).join("\n");
-    const row = blockToRow({ type: "tool", name: "bash", status: "error", text: output });
-
-    expect(row.tone).toBe("error");
-    expect(row.text.split("\n")).toHaveLength(13);
-    expect(row.text).toContain("… 8 more lines");
+  it("flags failed tools as errors", () => {
+    expect(blockToRow({ type: "tool", name: "bash", status: "error", text: "boom" })).toMatchObject({ tone: "error", text: "boom" });
   });
 
   it("records an extension question and its answer without internal ids", () => {
@@ -40,24 +35,33 @@ describe("blockToRow", () => {
   });
 });
 
-describe("blockPhase", () => {
+describe("isStreaming", () => {
   it("streams only the last assistant or thinking block of an active run", () => {
-    expect(blockPhase({ type: "assistant", text: "a" }, true, true)).toBe("streaming");
-    expect(blockPhase({ type: "thinking", text: "a" }, true, true)).toBe("streaming");
-    expect(blockPhase({ type: "assistant", text: "a" }, false, true)).toBe("final");
+    expect(isStreaming({ type: "assistant", text: "a" }, true, true)).toBe(true);
+    expect(isStreaming({ type: "thinking", text: "a" }, true, true)).toBe(true);
+    expect(isStreaming({ type: "assistant", text: "a" }, false, true)).toBe(false);
+    expect(isStreaming({ type: "assistant", text: "a" }, true, false)).toBe(false);
+    expect(isStreaming({ type: "tool", name: "bash", status: "running" }, true, true)).toBe(false);
   });
+});
 
-  it("keeps in-place changing blocks live while the run is active", () => {
-    expect(blockPhase({ type: "tool", name: "bash", status: "running" }, false, true)).toBe("live");
-    expect(blockPhase({ type: "tool", name: "bash", status: "done" }, false, true)).toBe("final");
-    expect(blockPhase({ type: "approval", text: "x", status: "pending" }, false, true)).toBe("live");
-    expect(blockPhase({ type: "approval", text: "x", status: "denied" }, false, true)).toBe("final");
-    expect(blockPhase({ type: "crew", workers: [], completed: false }, false, true)).toBe("live");
-  });
+describe("transcriptSections", () => {
+  it("groups consecutive tools and approvals into one work section, in event order", () => {
+    const blocks: TuiEventBlock[] = [
+      { type: "user", text: "go" },
+      { type: "thinking", text: "plan" },
+      { type: "tool", name: "read", status: "done" },
+      { type: "approval", text: "rm", status: "approved" },
+      { type: "tool", name: "bash", status: "running" },
+      { type: "assistant", text: "done" },
+      { type: "tool", name: "grep", status: "done" }
+    ];
+    const sections = transcriptSections(blocks);
 
-  it("treats every block as final once the run is over, even one left running", () => {
-    expect(blockPhase({ type: "tool", name: "bash", status: "running" }, true, false)).toBe("final");
-    expect(blockPhase({ type: "assistant", text: "a" }, true, false)).toBe("final");
+    expect(sections.map((section) => section.kind)).toEqual(["block", "block", "work", "block", "work"]);
+    expect(sections[2]).toMatchObject({ kind: "work", start: 2 });
+    expect(sections[2]?.kind === "work" && sections[2].blocks).toEqual([blocks[2], blocks[3], blocks[4]]);
+    expect(sections[4]).toMatchObject({ kind: "work", start: 6 });
   });
 });
 

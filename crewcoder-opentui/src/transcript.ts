@@ -10,44 +10,49 @@ export type TranscriptRow = {
   detail?: string;
 };
 
-const MAX_TOOL_OUTPUT_LINES = 12;
+export type ToolBlock = Extract<TuiEventBlock, { type: "tool" }>;
+export type ApprovalBlock = Extract<TuiEventBlock, { type: "approval" }>;
+/** Blocks that belong to the agent's work: tool calls and the approvals that gate them. */
+export type WorkBlock = ToolBlock | ApprovalBlock;
 
 /**
- * How a block may be written to native scrollback:
- * - `final`: will not change again; commit it whole.
- * - `streaming`: grows by appending text only; finished rows may be committed early.
- * - `live`: still changes in place (running tool, pending approval, ...); keep it
- *   in the footer and commit nothing after it until it becomes final.
+ * A turn reads as sections in event order: a run of consecutive tool calls and
+ * approvals is one `work` section (the Agent work box); every other block is
+ * its own section. Blocks are never reordered.
  */
-export type BlockPhase = "final" | "streaming" | "live";
+export type TranscriptSection =
+  | { kind: "work"; blocks: WorkBlock[]; start: number }
+  | { kind: "block"; block: TuiEventBlock; start: number };
 
-export function blockPhase(block: TuiEventBlock, isLast: boolean, running: boolean): BlockPhase {
-  // Once the run is over nothing can change a block any more, even one the
-  // agent never closed (a tool left "running" by a crashed process), so commit
-  // everything rather than holding scrollback back forever.
-  if (!running) return "final";
-  switch (block.type) {
-    case "assistant":
-    case "thinking":
-      // The reducer only appends deltas to the last assistant/thinking block.
-      return isLast && running ? "streaming" : "final";
-    case "tool":
-      return block.status === "running" ? "live" : "final";
-    case "approval":
-      return block.status === "pending" ? "live" : "final";
-    case "extension_ui":
-      return block.status === "pending" ? "live" : "final";
-    case "compaction":
-    case "validation":
-    case "background_job":
-      return block.status === "running" ? "live" : "final";
-    case "crew":
-      return block.completed ? "final" : "live";
-    case "live_ui":
-      return block.status === "loading" || block.status === "ready" ? "live" : "final";
-    default:
-      return "final";
-  }
+export function transcriptSections(blocks: readonly TuiEventBlock[]): TranscriptSection[] {
+  const sections: TranscriptSection[] = [];
+  blocks.forEach((block, index) => {
+    if (block.type !== "tool" && block.type !== "approval") {
+      sections.push({ kind: "block", block, start: index });
+      return;
+    }
+    const last = sections.at(-1);
+    if (last?.kind === "work") last.blocks.push(block);
+    else sections.push({ kind: "work", blocks: [block], start: index });
+  });
+  return sections;
+}
+
+/** Per-tool display state, owned by SessionController. */
+export type ToolExpansion = {
+  /** Long output or diff shown in full rather than collapsed. */
+  isExpanded(block: ToolBlock): boolean;
+  toggle(block: ToolBlock): void;
+  /** The file diff of an edit is shown (not hidden). */
+  isDiffShown(block: ToolBlock): boolean;
+  toggleDiff(block: ToolBlock): void;
+  /** Real file lines of a finished snippet edit, once read (see `computeLineAnchors`). */
+  lineAnchors(block: ToolBlock): ReadonlyMap<string, number> | undefined;
+};
+
+/** The last assistant/thinking block of an active run still grows; the reducer only appends to it. */
+export function isStreaming(block: TuiEventBlock, isLast: boolean, running: boolean): boolean {
+  return running && isLast && (block.type === "assistant" || block.type === "thinking");
 }
 
 /** Convert a reducer block into a display row. Pure, so it is tested without a renderer. */
@@ -69,7 +74,7 @@ export function blockToRow(block: TuiEventBlock): TranscriptRow {
       return {
         label: `TOOL ${block.name} · ${block.status}`,
         tone: block.status === "error" ? "error" : "tool",
-        text: clampLines(normalize(block.text ?? ""), MAX_TOOL_OUTPUT_LINES)
+        text: normalize(block.text ?? "")
       };
     case "approval":
       return {
@@ -109,10 +114,4 @@ export function normalize(text: string): string {
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]/g, "")
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
-}
-
-function clampLines(text: string, maxLines: number): string {
-  const lines = text.split("\n");
-  if (lines.length <= maxLines) return text;
-  return [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`].join("\n");
 }

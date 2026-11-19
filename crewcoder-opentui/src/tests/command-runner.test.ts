@@ -221,23 +221,57 @@ describe("session commands", () => {
     expect(controller.currentAlert).toMatchObject({ variant: "success", title: "Reloaded CrewCoder" });
   });
 
-  it("/clear wipes the screen through the renderer hook and returns to the welcome screen", async () => {
+  it("/clear empties the conversation and returns to the welcome screen", async () => {
     const { controller } = setup();
-    const clear = vi.fn();
-    controller.onClearScreen = clear;
     controller.state.blocks.push({ type: "system", text: "old" });
     await run(controller, "/clear");
-    expect(clear).toHaveBeenCalledTimes(1);
     expect(controller.state.blocks).toEqual([]);
   });
 
   it("/clear refuses during a run", async () => {
     const { controller } = setup();
-    const clear = vi.fn();
-    controller.onClearScreen = clear;
     controller.submit("work");
     await run(controller, "/clear");
-    expect(clear).not.toHaveBeenCalled();
+    expect(controller.state.blocks).toEqual([{ type: "user", text: "work" }]);
+  });
+
+  describe("/diff", () => {
+    it("opens Hunk on the files this session changed, relative to the workspace", async () => {
+      const { controller } = setup();
+      const runInTerminal = vi.fn(async () => ({ code: 0, stderr: "", missing: false }));
+      controller.runInTerminal = runInTerminal;
+      controller.state.cwd = "/repo";
+      controller.state.changedFiles = ["/repo/src/a.ts", "src/b.ts", "/repo/src/a.ts"];
+      await run(controller, "/diff");
+      expect(runInTerminal).toHaveBeenCalledWith("hunk", ["diff", "--", "src/a.ts", "src/b.ts"], "/repo");
+      expect(controller.currentAlert).toBeUndefined();
+    });
+
+    it("shows the whole working tree when the session changed nothing", async () => {
+      const { controller } = setup();
+      const runInTerminal = vi.fn(async () => ({ code: 0, stderr: "", missing: false }));
+      controller.runInTerminal = runInTerminal;
+      await run(controller, "/diff");
+      expect(runInTerminal).toHaveBeenCalledWith("hunk", ["diff"], controller.state.cwd);
+    });
+
+    it("explains how to install Hunk when it is missing, and reports failures", async () => {
+      const { controller } = setup();
+      controller.runInTerminal = async () => ({ code: null, stderr: "", missing: true });
+      await run(controller, "/diff");
+      expect(controller.currentAlert).toMatchObject({ variant: "error", title: "Hunk is not installed" });
+      expect(controller.currentAlert?.body).toContain("npm install -g hunkdiff");
+
+      controller.runInTerminal = async () => ({ code: 1, stderr: "fatal: not a git repository\n", missing: false });
+      await run(controller, "/diff");
+      expect(controller.currentAlert).toMatchObject({ variant: "error", title: "hunk diff exited with 1", body: "fatal: not a git repository" });
+    });
+
+    it("needs an interactive terminal", async () => {
+      const { controller } = setup();
+      await run(controller, "/diff");
+      expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "/diff needs an interactive terminal" });
+    });
   });
 
   it("/set-budget parses shorthand and applies to the next run", async () => {
@@ -363,8 +397,8 @@ describe("alerts", () => {
   it("is part of the footer height and goes away when dismissed", () => {
     const { controller } = setup();
     controller.alert({ variant: "info", title: "x", body: "a\nb" });
-    expect(controller.footerExtras(30, 80).alertRows).toBe(5);
+    expect(controller.footerExtras().alertRows).toBe(5);
     controller.dismissAlert();
-    expect(controller.footerExtras(30, 80).alertRows).toBe(0);
+    expect(controller.footerExtras().alertRows).toBe(0);
   });
 });

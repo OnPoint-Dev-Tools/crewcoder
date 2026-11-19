@@ -28,53 +28,55 @@ agent loop here. Event rendering must follow the guardrails in
 thinking stays a separate block, user `background` renders muted and separate from typed
 text, approvals are live control-channel state resolved through the bridge.
 
-## Native scrollback (split-footer)
+## Full-screen transcript (alternate screen)
 
-The renderer runs in `split-footer` with `externalOutputMode: "capture-stdout"`; never
-switch back to the alternate screen. The transcript belongs in the terminal's native
-scrollback, written by `ScrollbackWriter`; the React tree renders only the footer. See
-`docs/SCROLLBACK.md`.
+The renderer runs in `alternate-screen` with the mouse on, by owner decision (it replaced
+the split-footer native-scrollback design so tools can update live and tool output can
+expand and collapse). The React tree renders the whole UI: a `<scrollbox>` transcript
+(`components/Transcript.tsx`) above a footer. See `docs/TRANSCRIPT.md`.
 
-- Write each block exactly once and in order. Track committed blocks by identity (the
-  reducer trims and re-slices `state.blocks`), never by index.
-- Only `streaming` blocks (the last assistant/thinking block of an active run) may commit
-  rows early, and only the rows their `BlockView.stableRows()` reports final
-  (`scrollback-blocks.ts`). This relies on the reducer appending to them only; if a block
-  type starts changing in place, classify it `live` in `blockPhase`.
-- Assistant replies and reasoning render as markdown through OpenTUI's native
-  `MarkdownRenderable` (`markdown-body.ts`), by owner decision over termcn `markdown`
-  (React-only, cannot render into scrollback). Streaming commits only what
-  `MarkdownBody.stableEnd()` allows; keep the "streamed equals one-shot" writer test
-  passing. Reasoning is termcn's `thinking-block` design ported to core renderables and
-  always expanded (committed rows cannot toggle; summaries must stay visible).
-- A turn reads as sections in event order: reasoning panel, then the agent's work as one
-  stacked section (no blank rows between consecutive tool blocks), then the reply. Never
-  reorder blocks to group them. Tool rows come from the pure `tool-presentation.ts`
-  (icon, title, target, layout, output policy) for both scrollback (`ToolView`) and the
-  footer's running tools; add new provider tool names to `KINDS_BY_NAME`.
-- The first `live` block stops the writer. With no active run every block is `final`.
-- Keep commits chunked under the OpenTUI per-commit cell limit.
-- `attachScrollback` must run before the footer mounts so `pending` is current on render.
-- The welcome screen shows only while `isHome` (no blocks, not running) and sizes the
-  footer from `renderer.terminalHeight`, never `useTerminalDimensions()` (that is the
-  footer's own size in split-footer mode). Keep the big logo centered; it is the owner's
-  landing identity. Below 70 columns or when too short, show only the composer; do not
-  bring back the compact or mini logo (owner rejected them).
-- On terminals 70 columns and wider, the first submitted user message starts at the top
-  of the viewport; later transcript blocks follow below it in order. On narrower terminals,
-  use fresh-screen padding so the latest messages stay near the composer. Preserve the
-  mechanisms in `docs/SCROLLBACK.md` "Footer geometry": OSC 11/111 written outside the
-  renderer lifetime, the welcome transition sized before writing and writes deferred until
-  `footerSettled`, `RESERVED_ROWS`, `trailingNewline` on final commits, and all other sizing
-  after `writer.sync`. Footer sizing never lives in a React effect. The default theme is
-  minimal slate; keep transcript and footer colors synchronized.
+- The footer holds only the working spinner, alerts (errors and command results), the
+  pending approval card, the composer, and the status line. Never put agent output
+  (running tools, streaming text, other live blocks) in the footer; it belongs in the
+  transcript. An open picker, summary editor, or extension question replaces the footer.
+- A turn reads as sections in event order (`transcriptSections`): reasoning panel, then
+  the agent's work, then the reply. Each run of consecutive `tool`/`approval` blocks is one
+  dashed **Agent work** box (`DASHED_BORDER`). Never reorder blocks to group them.
+- Tool rows come from the pure `tool-presentation.ts` (icon, title, target, layout, diff
+  coloring); add new provider tool names to `KINDS_BY_NAME`. Every kind needs both an
+  `emoji` and a single-cell `text` icon. `glyphs.ts` uses emoji only when OpenTUI's probe
+  reports `unicode`/`unicode-wide` widths and `multiplexer: "none"`; everything else
+  (tmux, wcwidth, no answer yet) gets single-cell icons, because a width mismatch clips
+  emoji. `CREWCODER_TUI_ICONS=emoji|text` overrides. Never hardcode an emoji in the
+  transcript outside `glyphs.ts` / `KIND_STYLES`. See `docs/TRANSCRIPT.md#icons`.
+  Tool titles are highlighted chips. Running tools render live with a spinner. Every tool's output is shown (owner:
+  never hide read contents); output over `COLLAPSED_OUTPUT_LINES` (12) collapses behind a
+  clickable toggle, and `toggleToolOutput` (Ctrl+O) flips all. Expansion state lives in
+  `SessionController.toolExpansion`, keyed by block identity.
+- Edits and writes show an inline diff in place of their output (`tool-diff.ts`, OpenTUI
+  `<diff>`), built from tool arguments so native Claude/Codex edits work too; add new
+  argument shapes there. Snippet edits get real line numbers from `diff-anchors.ts` (one
+  local read when the tool ends); unanchored diffs render as tinted +/- lines, never
+  `<diff>` with fake numbers. Diffs hide per edit (header click) or all at once
+  (`toggleDiffs`, Ctrl+T). Hunk stays an optional external install for `/diff`; ask the owner
+  before making it a dependency (its binary is about 185 MB).
+- Replies and reasoning render through OpenTUI's native `<markdown>` with styles from
+  `markdown-style.ts` (owner decision over termcn `markdown`). Reasoning follows termcn's
+  `thinking-block` design and stays expanded (summaries must stay visible).
+- The transcript scrollbox sticks to the bottom and must stay `focusable={false}` so a
+  click never takes focus from the composer. Scroll keys (`transcriptPageUp/Down`,
+  `transcriptTop/Bottom`) go through `DEFAULT_APP_KEYBINDINGS`. A mouse selection is copied
+  over OSC 52 from `cli.tsx`.
+- The welcome screen shows only while `isHome` (no blocks, not running). Keep the big logo
+  centered; it is the owner's landing identity. Below 70 columns or when too short, show
+  only the composer; do not bring back the compact or mini logo (owner rejected them).
+- Programs that need the real terminal (Hunk for `/diff`) run through
+  `SessionController.runInTerminal`, which `cli.tsx` wires to `renderer.suspend()` /
+  `resume()`. Never write raw escapes to stdout; `/clear` only empties the transcript.
 - Verify layout changes in a real terminal (detached `tmux` on its own socket with a fake
-  agent via `CREWCODER_BIN`); the test renderer does not model split-footer scrolling.
-- Footer rows are fixed height (`height={1}`, `wrapMode="none"`, `flexShrink={0}`) and
-  `footerModel().rows` must equal what `App` renders; update both together. Variable parts
-  (open picker, summary editor, or extension question, alert, composer lines) come only from
-  `controller.footerExtras(terminalHeight, terminalWidth)`, passed to `footerModel` by both `App` and
-  `cli.tsx`.
+  agent via `CREWCODER_BIN`, `capture-pane -p`, `-e` for colors); the test renderer does not
+  exercise the real terminal, mouse reporting, or suspend/resume.
+- Footer rows that must not wrap use `height={1}`, `wrapMode="none"`, `flexShrink={0}`.
 
 ## termcn components
 
@@ -129,12 +131,12 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   question with `null`; it must not abort the run. Question text, option labels, and
   descriptions wrap (never truncate), all rows come from `question-model.ts` so
   `questionView().height` equals what renders, and the card never shows extension or
-  request ids. Overlay precedence is summary editor, then question, then picker, in both
-  `footerExtras` and `App`. An overlay that opens on its own must preserve the composer
-  draft. See `docs/QUESTIONS.md`.
-- `/clear` wipes the screen and scrollback with `renderer.resetSplitFooterForReplay({
-  clearSavedLines: true })` (wired in `cli.tsx`); never write raw escapes to stdout, which is
-  captured as transcript in split-footer mode.
+  request ids. Overlay precedence in `App` is summary editor, then question, then picker.
+  An overlay that opens on its own must preserve the composer draft. See
+  `docs/QUESTIONS.md`.
+- `/diff` runs `hunk diff -- <state.changedFiles>` (`hunk.ts`) through `runInTerminal`.
+  Hunk is an external install, never a dependency; a missing binary is an error alert with
+  install commands. See `docs/DIFF.md`.
 
 ## Verification
 
@@ -147,21 +149,24 @@ Tests that protect current behavior:
 
 ```txt
 src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, unported commands
-src/tests/transcript.test.ts          row mapping, block phases, control stripping
-src/tests/scrollback-writer.test.ts   first block placement, order, single commit, streaming hold-back, live blocking, trimmed arrays,
-                                      Reasoning panel + hold-back, markdown rendering, streamed markdown equals one-shot,
-                                      turn sections (reasoning, stacked tools, reply)
-src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, output policy
-src/tests/footer-layout.test.ts       footer row math, reserved rows, approval height, streaming tail, home logo rule
-src/tests/footer-sizer.test.ts        welcome transition, after-write sizing, settled detection
-src/tests/terminal-background.test.ts OSC 11/111 and color validation
+src/tests/transcript.test.ts          row mapping, control stripping
+src/tests/transcript.test.ts          turn sections (tools + approvals grouped, event order), streaming flag
+src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, full output, clamping, diff tones, text icons
+src/tests/glyphs.test.ts              emoji only for Unicode-width terminals without a multiplexer; CREWCODER_TUI_ICONS override
+src/tests/tool-diff.test.ts           edit shapes per provider, single-file patches, Codex headers, anchors
+src/tests/app.test.tsx (diffs)        inline diff replaces output, click/Ctrl+T hide, real line numbers, long diff collapse
+src/tests/footer-layout.test.ts       composer sizing, approval height, home logo rule, path shortening
 src/tests/command-palette.test.tsx    pickerHeight equals the rendered palette; grouped order matches cursor; long lists scroll
 src/tests/picker-flows.test.ts        every picker against FakeCli: chains, resume, skills, rewind confirm, busy guards
-src/tests/app.test.tsx (pickers)      footer sized to the palette; fast "/commands" typing reaches the palette, not the composer
-src/tests/app.test.tsx (composer)     Shift+Enter / Ctrl+J newline, footer grows, Enter sends every line; alert until next key;
+src/tests/app.test.tsx (transcript)   reply + Reasoning panel, composer/status at the bottom, PgUp/Ctrl+End scrolling,
+                                      live tool in the dashed Agent work box and not the footer, stacked tools,
+                                      read contents, collapse/expand with Ctrl+O and a click
+src/tests/app.test.tsx (pickers)      palette below the transcript; fast "/commands" typing reaches the palette, not the composer
+src/tests/app.test.tsx (composer)     Shift+Enter / Ctrl+J newline, Enter sends every line; alert until next key;
                                       summary editor opens at the end and applies with Ctrl+S
-src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts, compaction preview
-src/tests/app.test.tsx                scrollback + footer end to end; bare "y" never approves; abort, quit; approval buttons;
+src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts, compaction preview,
+                                      /diff arguments and Hunk failures
+src/tests/app.test.tsx                bare "y" never approves; abort, quit; approval buttons;
                                       welcome screen centered, left on first prompt, restored by /new
 src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags, key labels
 src/tests/question-model.test.ts      question wrapping, option rows, windowing, answers, height cap

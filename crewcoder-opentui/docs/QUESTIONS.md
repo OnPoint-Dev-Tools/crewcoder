@@ -17,7 +17,7 @@ answer / Esc          -> SessionController.answerQuestion(value)
                       -> bridge.resolveUiRequest(requestId, value)   (ui_response)
                       -> block settles locally (answered / cancelled), card closes
 extension_ui_resolved -> reducer confirms the status
-run ends              -> block is final; ScrollbackWriter commits "QUESTION · <status>"
+transcript            -> the block stays as a "QUESTION · <status>" row
 ```
 
 A question shows only while the bridge is running, because only a live agent can receive
@@ -52,8 +52,8 @@ option or Yes/No answers with it.
 ## Layout
 
 `src/question-model.ts` is the single source for the card's rows. `questionView` returns
-the visible rows and the exact `height`. `footerExtras` hands that height to the footer
-sizer, so the split footer always matches what `App` renders.
+the visible rows and the exact `height` of the card that `App` renders in place of the
+footer.
 
 - The question title, message, option labels, and option descriptions **wrap**, never
   truncate. Agent-authored questions are full sentences, and their options carry the
@@ -64,7 +64,7 @@ sizer, so the split footer always matches what `App` renders.
   rows stay visible. A longer question is windowed with a PgUp/PgDn hint. A long option
   list scrolls so the whole highlighted option stays visible.
 - The card shows the question and its reply controls only. Extension and request ids stay
-  internal. The committed scrollback row shows the question title and `Answer: <value>`.
+  internal. The transcript row shows the question title and `Answer: <value>`.
 - All agent text passes through `normalize()`.
 
 ## Composer draft
@@ -80,4 +80,4 @@ as the composer draft, and `App` restores it when the composer remounts.
 - `src/tests/app.test.tsx` ("extension questions"): select by keyboard with the original
   value and the committed outcome; confirm by `y` without leaking into the composer; input
   text plus draft restore; Esc cancels without aborting; mouse click.
-- `src/tests/transcript.test.ts`: the scrollback row hides internal ids.
+- `src/tests/transcript.test.ts`: the transcript row hides internal ids.

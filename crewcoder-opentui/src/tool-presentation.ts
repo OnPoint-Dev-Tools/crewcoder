@@ -1,4 +1,5 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import type { GlyphSet } from "./glyphs.js";
 import { normalize } from "./transcript.js";
 
 type ToolBlock = Extract<TuiEventBlock, { type: "tool" }>;
@@ -17,24 +18,27 @@ export type ToolPresentation = {
   title: string;
   target?: string;
   layout: "inline" | "stacked";
-  /** Output worth showing under the header: commands, unknown tools, and any failure. */
+  /** The tool's whole output, every kind (the view clamps it, see `clampOutput`). */
   output?: string;
+  /** Output lines read as a diff (`+`/`-`/`@@`), for edits and writes. */
+  diff: boolean;
   failed: boolean;
 };
 
-type KindStyle = { icon: string; title: string; layout: ToolPresentation["layout"]; showOutput: boolean };
+/** `emoji` for terminals that draw two-cell emoji correctly, `text` (one cell) for the rest; see `glyphs.ts`. */
+type KindStyle = { icons: Readonly<Record<GlyphSet, string>>; title: string; layout: ToolPresentation["layout"] };
 
 const KIND_STYLES: Readonly<Record<ToolKind, KindStyle>> = {
-  read: { icon: "📖", title: "Read File", layout: "stacked", showOutput: false },
-  edit: { icon: "±", title: "Edit File", layout: "inline", showOutput: false },
-  write: { icon: "+", title: "Write File", layout: "inline", showOutput: false },
-  command: { icon: "💻", title: "Run Command", layout: "stacked", showOutput: true },
-  search: { icon: "🔍", title: "Search", layout: "stacked", showOutput: false },
-  list: { icon: "📂", title: "List Files", layout: "stacked", showOutput: false },
-  web: { icon: "🌐", title: "Web", layout: "stacked", showOutput: false },
-  tasks: { icon: "☑", title: "Update Tasks", layout: "inline", showOutput: false },
-  agent: { icon: "🤖", title: "Delegate", layout: "stacked", showOutput: false },
-  other: { icon: "⚙", title: "", layout: "inline", showOutput: true }
+  read: { icons: { emoji: "📖", text: "→" }, title: "Read File", layout: "stacked" },
+  edit: { icons: { emoji: "±", text: "±" }, title: "Edit File", layout: "inline" },
+  write: { icons: { emoji: "+", text: "+" }, title: "Write File", layout: "inline" },
+  command: { icons: { emoji: "💻", text: "$" }, title: "Run Command", layout: "stacked" },
+  search: { icons: { emoji: "🔍", text: "✱" }, title: "Search", layout: "stacked" },
+  list: { icons: { emoji: "📂", text: "≡" }, title: "List Files", layout: "stacked" },
+  web: { icons: { emoji: "🌐", text: "%" }, title: "Web", layout: "stacked" },
+  tasks: { icons: { emoji: "☑", text: "#" }, title: "Update Tasks", layout: "inline" },
+  agent: { icons: { emoji: "🤖", text: "@" }, title: "Delegate", layout: "stacked" },
+  other: { icons: { emoji: "⚙", text: "*" }, title: "", layout: "inline" }
 };
 
 /**
@@ -54,7 +58,8 @@ const KINDS_BY_NAME: Readonly<Record<string, ToolKind>> = {
   task: "agent", agent: "agent", delegateworker: "agent"
 };
 
-const MAX_OUTPUT_LINES = 8;
+/** Output lines a collapsed tool shows; the rest open with its toggle or Ctrl+O. */
+export const COLLAPSED_OUTPUT_LINES = 12;
 const MAX_TARGET_CHARS = 160;
 
 export function toolKind(name: string): ToolKind {
@@ -62,8 +67,11 @@ export function toolKind(name: string): ToolKind {
   return Object.hasOwn(KINDS_BY_NAME, key) ? KINDS_BY_NAME[key]! : "other";
 }
 
-/** `cwd` shortens absolute paths under the workspace to workspace-relative ones. */
-export function toolPresentation(block: ToolBlock, cwd?: string): ToolPresentation {
+/**
+ * `cwd` shortens absolute paths under the workspace to workspace-relative ones.
+ * `glyphs` picks the icon set the terminal can draw (`resolveGlyphSet`).
+ */
+export function toolPresentation(block: ToolBlock, cwd?: string, glyphs: GlyphSet = "emoji"): ToolPresentation {
   const kind = toolKind(block.name);
   const style = KIND_STYLES[kind];
   const args = block.args ?? {};
@@ -71,10 +79,36 @@ export function toolPresentation(block: ToolBlock, cwd?: string): ToolPresentati
   // The reducer's stand-in when a tool returned no text says nothing the title does not.
   const raw = normalize(block.text ?? "").trimEnd();
   const text = raw === `tool completed: ${block.name}` ? "" : raw;
-  const output = text && (failed || style.showOutput) ? clampLines(text, MAX_OUTPUT_LINES) : undefined;
   const title = kind === "other" ? block.name.replace(/^mcp__[^_]+(?:_[^_]+)*__/, "") : kind === "web" ? webTitle(block.name) : style.title;
   const target = toolTarget(kind, args, cwd);
-  return { kind, icon: style.icon, title, target: target ? fit(normalize(target)) : undefined, layout: style.layout, output, failed };
+  return {
+    kind,
+    icon: style.icons[glyphs],
+    title,
+    target: target ? fit(normalize(target)) : undefined,
+    layout: style.layout,
+    output: text || undefined,
+    diff: kind === "edit" || kind === "write",
+    failed
+  };
+}
+
+/** The output lines to draw and how many a collapsed view hides. */
+export function clampOutput(output: string, expanded: boolean, max = COLLAPSED_OUTPUT_LINES): { lines: string[]; hidden: number } {
+  const lines = output.split("\n");
+  if (expanded || lines.length <= max) return { lines, hidden: 0 };
+  return { lines: lines.slice(0, max), hidden: lines.length - max };
+}
+
+export type DiffLineTone = "added" | "removed" | "hunk" | "plain";
+
+/** How a line of edit/write output reads as a diff. File headers (`+++`/`---`) stay plain. */
+export function diffLineTone(line: string): DiffLineTone {
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("+++") || line.startsWith("---")) return "plain";
+  if (line.startsWith("+")) return "added";
+  if (line.startsWith("-")) return "removed";
+  return "plain";
 }
 
 function toolTarget(kind: ToolKind, args: Record<string, unknown>, cwd?: string): string | undefined {
@@ -112,7 +146,8 @@ function argPaths(args: Record<string, unknown>): string[] {
   return [...new Set(paths.filter((path): path is string => Boolean(path)))];
 }
 
-function relativePath(path: string, cwd?: string): string {
+/** `path` relative to `cwd` when it is under it; otherwise unchanged. */
+export function relativePath(path: string, cwd?: string): string {
   if (!cwd || cwd === "/") return path;
   const root = cwd.endsWith("/") ? cwd : `${cwd}/`;
   return path.startsWith(root) ? path.slice(root.length) : path;
@@ -140,11 +175,6 @@ function firstLine(text: string | undefined): string | undefined {
 
 function fit(text: string): string {
   return text.length <= MAX_TARGET_CHARS ? text : `${text.slice(0, MAX_TARGET_CHARS - 1)}…`;
-}
-
-function clampLines(text: string, max: number): string {
-  const lines = text.split("\n");
-  return lines.length <= max ? text : [...lines.slice(0, max), `… ${lines.length - max} more lines`].join("\n");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

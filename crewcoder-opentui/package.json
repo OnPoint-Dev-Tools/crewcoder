@@ -45,6 +45,7 @@
       "@opentui/core": "0.9.2",
       "@opentui/react": "0.9.2",
       "cli-spinners": "3.4.0",
+      "diff": "9.0.0",
       "react": "^19.3.1"
    },
    "devDependencies": {

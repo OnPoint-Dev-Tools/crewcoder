@@ -17,7 +17,7 @@ here**; there is no runtime termcn dependency. Attribution is in
 | `src/lib/terminal-themes/default.ts` | `opentui/theme-default` | none |
 | `src/components/ui/spinner.tsx` | `opentui/spinner` | none |
 | `src/hooks/use-animation.ts` | `ink/use-animation` | Ink import and screen-reader check removed (see below) |
-| `src/components/ui/tool-call.tsx` | `opentui/tool-call` | see file header |
+| `src/components/ui/tool-call.tsx` | `opentui/tool-call` | see file header; not rendered now that running tools live in the transcript's Agent work box |
 | `src/components/ui/tool-approval.tsx` | `opentui/tool-approval` | see file header |
 | `src/components/ui/alert.tsx` | `opentui/alert` | inline row `flexDirection="row"`; bordered variant sets `border`; fixed one-row body `lines`; trimmed props |
 | `src/components/ui/select.tsx` | `opentui/select` | no global keyboard (controlled `active`); renders precomputed wrapped `OptionRow`s from `src/question-model.ts` with indented descriptions; `flexDirection="row"`, height-1 rows; `#666` replaced with theme tokens; rows clickable |
@@ -29,19 +29,16 @@ Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
 
 ## Designs ported, not vendored
 
-The transcript is native terminal scrollback written with `@opentui/core` renderables, so
-termcn's React components cannot render there.
-
 - **`thinking-block`**: its design (single-line border, a header row with the `Reasoning`
-  label, a blank row, then the content) is ported to core renderables in
-  `src/scrollback-blocks.ts` (`ThinkingView`), restyled to the owner's reference: amber
-  (`warning`) border, a bold `💭 Reasoning` header, and foreground-colored markdown content. Upstream toggles on every Enter/Space through a global `useKeyboard` and
-  defaults to collapsed. Ours is always expanded: committed rows cannot toggle, and
-  reasoning summaries must stay visible. The streaming header (`Thinking...`) is the
-  footer spinner label instead, because the header row commits as soon as the block starts.
-- **`markdown`**: not adopted (owner decision). It is React-only, and its regex parser has
-  no fenced code blocks, numbered lists, or tables. Transcript markdown uses OpenTUI's
-  native `MarkdownRenderable` (`src/markdown-body.ts`).
+  label, a blank row, then the content) is ported in `src/components/Transcript.tsx`
+  (`ReasoningPanel`), restyled to the owner's reference: amber (`warning`) border, a bold
+  `💭 Reasoning` header, and foreground-colored markdown content. Upstream toggles on every
+  Enter/Space through a global `useKeyboard` and defaults to collapsed. Ours is always
+  expanded, because reasoning summaries must stay visible. The streaming state
+  (`Thinking...`) is the footer spinner label.
+- **`markdown`**: not adopted (owner decision). Its regex parser has no fenced code
+  blocks, numbered lists, or tables. Transcript markdown uses OpenTUI's native `<markdown>`
+  (`MarkdownRenderable`) with slate styles from `src/markdown-style.ts`.
 
 ## Upstream problems found and fixed in our copies
 

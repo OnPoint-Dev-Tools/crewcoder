@@ -1,57 +1,50 @@
 import os from "node:os";
-import type { InputRenderable, TextareaRenderable } from "@opentui/core";
-import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
+import type { InputRenderable, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { alertLines } from "./alert-model.js";
 import { Alert } from "./components/ui/alert.js";
 import { Spinner } from "./components/ui/spinner.js";
 import { ToolApproval, type RiskLevel } from "./components/ui/tool-approval.js";
-import { ToolCall } from "./components/ui/tool-call.js";
 import { CommandPalette } from "./components/ui/command-palette.js";
 import { Composer } from "./components/Composer.js";
 import { ExtensionQuestion } from "./components/ExtensionQuestion.js";
 import { Home } from "./components/Home.js";
 import { SummaryEditor } from "./components/SummaryEditor.js";
-import { COMPOSER_ROWS, footerModel, isHome, shortenPath, streamingTail } from "./footer-layout.js";
+import { Transcript } from "./components/Transcript.js";
+import { COMPOSER_ROWS, isHome, shortenPath } from "./footer-layout.js";
 import { useTheme } from "./hooks/use-theme.js";
-import { matchesAction, type KeyLike } from "./keybindings.js";
-import type { ScrollbackWriter } from "./scrollback-writer.js";
+import { actionLabel, matchesAction, type KeyLike } from "./keybindings.js";
 import { summaryEditorTextRows, type SessionController } from "./session-controller.js";
-import { toneColor } from "./theme.js";
-import { toolPresentation } from "./tool-presentation.js";
-import { blockToRow } from "./transcript.js";
 
 export type AppProps = {
   controller: SessionController;
-  scrollback: Pick<ScrollbackWriter, "pending">;
   onQuit: () => void;
 };
 
 /**
- * The split footer. Settled transcript lives in native scrollback (see
- * ScrollbackWriter); this renders only what is still changing, plus the
- * composer and status line. The footer height is set outside React by
- * applyFooterHeight, in step with scrollback commits.
+ * The full-screen UI: the conversation in a scrollbox, and below it a footer
+ * that holds only the working spinner, alerts (errors and command results),
+ * the approval card, the composer, and the status line. Running tools and
+ * streaming text live in the transcript, never in the footer.
  */
-export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
+export function App({ controller, onQuit }: AppProps): ReactNode {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
-  const renderer = useRenderer();
-  // In split-footer mode these are the footer's own dimensions; the hook also
-  // re-renders on resize, so renderer.terminalHeight below stays current.
-  const { width } = useTerminalDimensions();
+  const { width, height } = useTerminalDimensions();
   const theme = useTheme();
   const inputRef = useRef<TextareaRenderable>(null);
   const editorRef = useRef<TextareaRenderable>(null);
   const questionInputRef = useRef<InputRenderable>(null);
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
   const state = controller.state;
   const picker = controller.picker;
   const editor = controller.editor;
   const question = controller.question();
-  const questionView = controller.questionView(renderer.terminalHeight, renderer.terminalWidth);
+  const questionView = controller.questionView(height, width);
   const overlayOpen = picker !== undefined || editor !== undefined || question !== undefined;
-  const extras = controller.footerExtras(renderer.terminalHeight, renderer.terminalWidth);
-  const model = footerModel(scrollback.pending, state.running, extras);
+  const extras = controller.footerExtras();
   const home = isHome(state.blocks, state.running);
+  const approval = state.running ? controller.pendingApproval() : undefined;
 
   useEffect(() => {
     if (overlayOpen) inputRef.current?.blur();
@@ -78,7 +71,7 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
     // An alert lasts until the next key; the key itself still does its job.
     controller.dismissAlert();
     // The summary editor and an extension question gate a live run, so they
-    // take keys before a picker (matching footerExtras).
+    // take keys before a picker.
     if (controller.editor) {
       handleEditorKey(key);
       return;
@@ -102,10 +95,25 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
       else if (!key.ctrl && !key.meta && key.name.length === 1) controller.setPickerQuery(controller.pickerQuery + key.name);
       return;
     }
-    if (model.approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
-    else if (model.approval && matchesAction(key, "deny")) controller.resolvePendingApproval(false);
+    if (handleTranscriptKey(key)) return;
+    if (approval && matchesAction(key, "approve")) controller.resolvePendingApproval(true);
+    else if (approval && matchesAction(key, "deny")) controller.resolvePendingApproval(false);
     else if (matchesAction(key, "abort")) controller.abort();
   });
+
+  /** Scrolling and Ctrl+O; true when the key was used. */
+  function handleTranscriptKey(key: KeyLike): boolean {
+    const scroll = scrollRef.current;
+    if (matchesAction(key, "toggleToolOutput")) controller.toggleAllToolOutput();
+    else if (matchesAction(key, "toggleDiffs")) controller.toggleAllDiffs();
+    else if (matchesAction(key, "transcriptPageUp")) scroll?.scrollBy(-1, "viewport");
+    else if (matchesAction(key, "transcriptPageDown")) scroll?.scrollBy(1, "viewport");
+    else if (matchesAction(key, "transcriptTop")) scroll?.scrollTo(0);
+    else if (matchesAction(key, "transcriptBottom")) scroll?.scrollTo(Number.POSITIVE_INFINITY);
+    else return false;
+    key.preventDefault?.();
+    return true;
+  }
 
   function handleEditorKey(key: KeyLike): void {
     const current = controller.editor;
@@ -127,7 +135,7 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
     const scroll = matchesAction(key, "questionScrollUp") ? -3 : matchesAction(key, "questionScrollDown") ? 3 : 0;
     if (scroll) {
       key.preventDefault?.();
-      controller.scrollQuestion(scroll, renderer.terminalHeight, renderer.terminalWidth);
+      controller.scrollQuestion(scroll, height, width);
     } else if (matchesAction(key, "questionCancel")) {
       key.preventDefault?.();
       controller.answerQuestion(null);
@@ -176,107 +184,72 @@ export function App({ controller, scrollback, onQuit }: AppProps): ReactNode {
     ? <Alert variant={controller.currentAlert.variant} title={controller.currentAlert.title} lines={alertLines(controller.currentAlert)} />
     : null;
 
-  if (editor) {
-    return (
-      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent={home ? "center" : "flex-start"}>
-        <SummaryEditor editor={editor} editorRef={editorRef} textRows={summaryEditorTextRows(renderer.terminalHeight)} />
+  // Overlays replace the footer (and the welcome screen); the transcript stays above them.
+  const view = controller.pickerView(height);
+  const overlay = editor ? (
+    <SummaryEditor editor={editor} editorRef={editorRef} textRows={summaryEditorTextRows(height)} />
+  ) : question && questionView ? (
+    <ExtensionQuestion block={question} view={questionView} inputRef={questionInputRef} onChoose={(choice) => controller.chooseQuestion(choice)} />
+  ) : picker && view ? (
+    <box width="100%" alignItems="center" flexShrink={0}>
+      <box width={Math.max(1, Math.min(width - 2, 80))} flexShrink={0}>
+        <CommandPalette
+          view={view}
+          query={controller.pickerQuery}
+          title={picker.title}
+          placeholder={picker.placeholder}
+          emptyText={picker.loading ? "Loading…" : picker.emptyText}
+        />
       </box>
-    );
-  }
-
-  if (question && questionView) {
-    return (
-      <box width="100%" height="100%" backgroundColor={theme.colors.background}>
-        <ExtensionQuestion block={question} view={questionView} inputRef={questionInputRef} onChoose={(choice) => controller.chooseQuestion(choice)} />
-      </box>
-    );
-  }
-
-  const view = controller.pickerView(renderer.terminalHeight);
-  if (picker && view) {
-    return (
-      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent={home ? "center" : "flex-start"} alignItems="center">
-        <box width={Math.max(1, Math.min(width - 2, 80))} flexShrink={0}>
-          <CommandPalette
-            view={view}
-            query={controller.pickerQuery}
-            title={picker.title}
-            placeholder={picker.placeholder}
-            emptyText={picker.loading ? "Loading…" : picker.emptyText}
-          />
-        </box>
-      </box>
-    );
-  }
+    </box>
+  ) : null;
 
   if (home) {
     return (
-      <box width="100%" height="100%" backgroundColor={theme.colors.background}>
-        <Home
-          width={width}
-          height={renderer.terminalHeight}
-          info={homeInfo(state.provider, state.model, state.cwd, state.remoteTarget, width)}
-          composer={composer}
-          alert={alert}
-          extraRows={(extras.alertRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
-        />
+      <box width="100%" height="100%" backgroundColor={theme.colors.background} justifyContent="center">
+        {overlay ?? (
+          <Home
+            width={width}
+            height={height}
+            info={homeInfo(state.provider, state.model, state.cwd, state.remoteTarget, width)}
+            composer={composer}
+            alert={alert}
+            extraRows={(extras.alertRows ?? 0) + (extras.composerRows ?? COMPOSER_ROWS) - COMPOSER_ROWS}
+          />
+        )}
       </box>
     );
   }
 
+  const last = state.blocks.at(-1);
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={theme.colors.background}>
-      {/* Takes the free space so the live region and composer sit at the bottom. */}
-      <box flexGrow={1} />
-      {model.other.map((block, index) => {
-        const row = blockToRow(block);
-        return (
-          <text key={`other-${index}`} fg={toneColor(theme, row.tone)} height={1} wrapMode="none" flexShrink={0}>
-            {`${row.label} · ${firstLine(row.text)}`}
-          </text>
-        );
-      })}
-      {model.tools.map((tool, index) => (
-        <box key={tool.id ?? `tool-${index}`} height={1} flexShrink={0}>
-          <ToolCall name={toolLabel(tool, state.cwd)} status="running" args={tool.args} collapsed />
-        </box>
-      ))}
-      {model.hiddenTools > 0 ? (
-        <text fg={theme.colors.mutedForeground} height={1} flexShrink={0}>{`… ${model.hiddenTools} more running`}</text>
-      ) : null}
-      {/* Reserved row (RESERVED_ROWS): the streaming tail, or empty. */}
-      {model.streaming?.type === "thinking" ? (
-        // Continues the Reasoning panel's left border above it in scrollback.
-        <box flexDirection="row" height={1} flexShrink={0}>
-          <text fg={theme.colors.warning} wrapMode="none">{"│ "}</text>
-          <text fg={theme.colors.foreground} wrapMode="none">{streamingTail(blockToRow(model.streaming).text, width - 2)}</text>
-        </box>
-      ) : (
-        <text fg={model.streaming ? toneColor(theme, blockToRow(model.streaming).tone) : theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>
-          {model.streaming ? streamingTail(blockToRow(model.streaming).text, width) : ""}
-        </text>
-      )}
-      {model.approval ? (
-        <ToolApproval
-          name={model.approval.toolName ?? "tool"}
-          description={model.approval.text}
-          args={model.approval.args}
-          risk={riskLevel(model.approval.risk)}
-          onApprove={() => controller.resolvePendingApproval(true)}
-          onDeny={() => controller.resolvePendingApproval(false)}
-        />
-      ) : null}
-      {/* Reserved row (RESERVED_ROWS): the working spinner, or empty when idle. */}
-      {model.working ? (
-        <box height={1} flexShrink={0}>
-          <Spinner label={model.streaming?.type === "thinking" ? "Thinking" : "Working"} />
-        </box>
-      ) : (
-        <text height={1} wrapMode="none" flexShrink={0} />
-      )}
-      {alert}
-      {composer}
-      <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0} paddingLeft={1}>{status}</text>
+      <Transcript blocks={state.blocks} running={state.running} cwd={state.cwd} expansion={controller.toolExpansion} scrollRef={scrollRef} />
+      <box flexDirection="column" width="100%" flexShrink={0} marginTop={1}>
+        {overlay ?? (
+          <>
+            {state.running ? (
+              <box flexDirection="row" height={1} flexShrink={0} paddingLeft={1}>
+                <Spinner label={last?.type === "thinking" ? "Thinking" : "Working"} />
+                <text fg={theme.colors.mutedForeground} wrapMode="none">{`  ${actionLabel("abort")} to stop`}</text>
+              </box>
+            ) : null}
+            {approval ? (
+              <ToolApproval
+                name={approval.toolName ?? "tool"}
+                description={approval.text}
+                args={approval.args}
+                risk={riskLevel(approval.risk)}
+                onApprove={() => controller.resolvePendingApproval(true)}
+                onDeny={() => controller.resolvePendingApproval(false)}
+              />
+            ) : null}
+            {alert}
+            {composer}
+            <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0} paddingLeft={1}>{status}</text>
+          </>
+        )}
+      </box>
     </box>
   );
 }
@@ -295,15 +268,4 @@ function homeInfo(provider: string, model: string, cwd: string, remoteTarget: st
   const location = remoteTarget ? `${remoteTarget}:${cwd}` : cwd;
   const room = Math.max(8, width - 2 - prefix.length);
   return `${prefix}${shortenPath(location, room, remoteTarget ? undefined : os.homedir())}`;
-}
-
-/** One-row running-tool label matching the committed tool section: `📖 Read File · src/App.tsx`. */
-function toolLabel(tool: Parameters<typeof toolPresentation>[0], cwd: string): string {
-  const view = toolPresentation(tool, cwd);
-  const title = `${view.icon} ${view.title || tool.name}`;
-  return view.target ? `${title} · ${view.target}` : title;
-}
-
-function firstLine(text: string): string {
-  return text.split("\n", 1)[0] ?? "";
 }

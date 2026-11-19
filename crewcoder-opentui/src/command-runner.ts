@@ -14,6 +14,7 @@ import {
   BUDGET_MENU, CONFIG_TOGGLES, configToggleOn, GOAL_MENU, MEMORY_MENU_EXTRAS, TASK_MENU_EXTRAS, toggleMenu, type ConfigToggle
 } from "./commands.js";
 import { cliJson, cliText, errorMessage } from "./crewcoder-cli.js";
+import { HUNK_COMMAND, HUNK_INSTALL_HINT, hunkDiffArgs, type TerminalRun } from "./hunk.js";
 import type { PaletteCommand } from "./palette-model.js";
 import type { PickerFlows, PickerHost } from "./picker-flows.js";
 
@@ -36,6 +37,8 @@ export interface CommandHost extends PickerHost {
   clearScreen(): void;
   openSummaryEditor(editor: SummaryEditorState): void;
   requestLiveCompactionPreview(): boolean;
+  /** Hands the terminal to a full-screen program (wired by cli.tsx); undefined without one. */
+  readonly runInTerminal: TerminalRun | undefined;
 }
 
 type Handler = (rest: string) => void | Promise<void>;
@@ -79,6 +82,7 @@ export class CommandRunner {
       "/reload": () => this.reload(),
       "/goal": (rest) => this.goal(rest),
       "/clear": () => this.clear(),
+      "/diff": () => this.diff(),
       "/approve": (rest) => this.host.resolveApproval(rest || undefined, true),
       "/deny": (rest) => this.host.resolveApproval(rest || undefined, false),
       "/approve-plan": () => this.approvePlan(),
@@ -133,6 +137,25 @@ export class CommandRunner {
     if (this.state.sessionId && this.state.sessionId !== "new") return this.state.sessionId;
     this.alert({ variant: "warning", title: `No saved session to ${action} yet`, body: "Send a prompt first." });
     return undefined;
+  }
+
+  /** Review this session's file changes in Hunk; the UI is suspended until Hunk exits. */
+  private async diff(): Promise<void> {
+    if (isCrewCoderRemote()) {
+      this.alert({ variant: "warning", title: "/diff is not available in remote SSH mode", body: "Hunk runs on this machine; the changes live on the remote host." });
+      return;
+    }
+    const run = this.host.runInTerminal;
+    if (!run) {
+      this.alert({ variant: "warning", title: "/diff needs an interactive terminal" });
+      return;
+    }
+    const result = await run(HUNK_COMMAND, hunkDiffArgs(this.state.changedFiles, this.state.cwd), this.state.cwd);
+    if (result.missing) {
+      this.alert({ variant: "error", title: "Hunk is not installed", body: HUNK_INSTALL_HINT });
+    } else if (result.code !== 0) {
+      this.alert({ variant: "error", title: `hunk diff exited with ${result.code ?? "a signal"}`, body: result.stderr.trim() || undefined });
+    }
   }
 
   private usage(text: string): void {

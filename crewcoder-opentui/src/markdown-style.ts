@@ -1,13 +1,6 @@
-import {
-  BoxRenderable,
-  MarkdownRenderable,
-  SyntaxStyle,
-  TextRenderable,
-  type MarkdownBlock,
-  type Renderable,
-  type ScrollbackSurface,
-  type StyleDefinitionInput
-} from "@opentui/core";
+import { BoxRenderable, SyntaxStyle, TextRenderable, type MarkdownBlock, type RenderContext, type Renderable, type StyleDefinitionInput } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
+import { useEffect, useState } from "react";
 import type { Theme } from "./components/ui/types.js";
 
 export type MarkdownColors = {
@@ -45,82 +38,29 @@ export function markdownStyles(theme: Theme, colors: MarkdownColors): Record<str
 }
 
 /**
- * Agent text rendered with OpenTUI's native `MarkdownRenderable` inside a
- * scrollback surface: paragraphs, headings, lists, quotes, tables, and fenced
- * code. While streaming, `stableEnd` reports which rows are final so the writer
- * can commit them early.
- *
- * Fenced code renders as plain accent text behind a rail. OpenTUI would
- * otherwise highlight it with tree-sitter asynchronously, after its rows may
- * already be committed, so colors would differ from block to block.
+ * A native `SyntaxStyle` for these colors, owned by the component and freed on
+ * unmount. Colors are read once; the theme does not change at runtime.
  */
-export class MarkdownBody {
-  readonly renderable: MarkdownRenderable;
-  private readonly surface: ScrollbackSurface;
-  private readonly style: SyntaxStyle;
-  private text = "";
-
-  constructor(surface: ScrollbackSurface, theme: Theme, colors: MarkdownColors, options: { marginTop?: number } = {}) {
-    this.surface = surface;
-    this.style = SyntaxStyle.fromStyles(markdownStyles(theme, colors), surface.renderContext.nativeScene);
-    this.renderable = new MarkdownRenderable(surface.renderContext, {
-      content: "",
-      syntaxStyle: this.style,
-      fg: colors.base,
-      width: "100%",
-      streaming: true,
-      conceal: true,
-      marginTop: options.marginTop,
-      tableOptions: { borderColor: theme.colors.border, wrapMode: "word", widthMode: "content", cellPaddingX: 1 },
-      renderBlock: (block) => (block.kind === "code" ? codeBlock(surface, theme, block) : undefined)
-    });
-  }
-
-  set(text: string, streaming: boolean): void {
-    if (this.renderable.streaming !== streaming) this.renderable.streaming = streaming;
-    if (text === this.text) return;
-    this.renderable.content = text;
-    this.text = text;
-  }
-
-  /**
-   * Surface row up to which the document is final. Top-level blocks the engine
-   * reports committed are final. Of the block still being written, a paragraph
-   * or code block only ever changes its last row as text is appended, so its
-   * other rows are final too; anything else (lists, tables, quotes) can still
-   * reflow and is held back whole. Call after the surface rendered.
-   */
-  stableEnd(): number {
-    const origin = this.surface.root.y;
-    const children = this.renderable.getChildren();
-    const next = children[this.renderable.committedBlockCount];
-    const last = children.at(-1);
-    // Nothing shown yet: only the rows above the document are final.
-    let end = this.renderable.y - origin;
-    if (next) {
-      const top = next.y - origin;
-      const kind = this.renderable.blocks.find((block) => block.renderable === next)?.kind;
-      end = kind === "paragraph" || kind === "code" ? top + Math.max(0, next.height - 1) : top;
-    } else if (last) {
-      end = last.y - origin + last.height;
-    }
-    return Math.max(0, Math.min(end, this.surface.height));
-  }
-
-  /** Call after the surface is destroyed. */
-  destroy(): void {
-    this.style.destroy();
-  }
+export function useMarkdownStyle(theme: Theme, colors: MarkdownColors): SyntaxStyle {
+  const renderer = useRenderer();
+  const [style] = useState(() => SyntaxStyle.fromStyles(markdownStyles(theme, colors), renderer.nativeScene));
+  useEffect(() => () => style.destroy(), [style]);
+  return style;
 }
 
-function codeBlock(surface: ScrollbackSurface, theme: Theme, block: MarkdownBlock): Renderable {
-  const box = new BoxRenderable(surface.renderContext, {
+/**
+ * Fenced code as plain accent text behind a left rail. Highlighting would need
+ * a tree-sitter worker and scope styles for every language; plain text keeps
+ * code readable without them.
+ */
+export function codeBlock(ctx: RenderContext, theme: Theme, block: MarkdownBlock): Renderable {
+  const box = new BoxRenderable(ctx, {
     width: "100%",
     border: ["left"],
     borderStyle: "single",
     borderColor: theme.colors.border,
     paddingLeft: 1
   });
-  box.add(new TextRenderable(surface.renderContext, { content: block.text.replace(/\n$/, ""), width: "100%", wrapMode: "char", fg: theme.colors.accent }));
+  box.add(new TextRenderable(ctx, { content: block.text.replace(/\n$/, ""), width: "100%", wrapMode: "char", fg: theme.colors.accent }));
   return box;
 }

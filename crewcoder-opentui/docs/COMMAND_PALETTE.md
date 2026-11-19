@@ -73,7 +73,8 @@ alert; bad values report what is accepted.
 | `/export [path]` | Export the session to HTML (default `<session>.html`). |
 | `/goal` | Menu: start (prefills `/goal ` in the composer), status, list, logs. Typed: `/goal [--max-turns N] [--check-model M | --no-check-model] [--timeout-minutes N] <objective>`, or `status|list|logs|pause|resume|clear|approve|deny`. Goals run detached in CrewCoder's supervisor. |
 | `/reload` | Reload config defaults, the integration profile, providers, and workers. |
-| `/clear` | Wipe the screen and the terminal scrollback and return to the welcome screen. The session is kept; the next message resumes it. Refused during a run. |
+| `/clear` | Clear the conversation from the screen and return to the welcome screen. The session is kept; the next message resumes it. Refused during a run. |
+| `/diff` | Open [Hunk](https://www.hunk.dev) on the files this session changed; the UI resumes when Hunk exits. Needs Hunk installed and a git repo. See [`DIFF.md`](DIFF.md). |
 | `/why` | One-shot `session why`: the model's explanation of its last decision. A deterministic transcript readout (model failed) shows as a warning with the fallback reason. Never adds a turn. |
 | `/review-summary` | Git branch, changed files, and issue references. |
 | `/extensions`, `/teams` | CLI listings in an alert. |
@@ -121,9 +122,9 @@ src/session-controller.ts           owns picker, alert, editor, composer lines; 
 
 - **Menu and palette items carry their action in the id**: a command (`/thinking on`) is
   submitted as if typed; `draft:<text>` fills the composer.
-- **One footer source.** `SessionController.footerExtras(terminalHeight, terminalWidth)` returns the
-  picker/editor rows, alert rows, and composer rows; `App` and the footer sizer
-  (`cli.tsx`) both pass it to `footerModel`, so the footer always matches what renders.
+- **Overlays replace the footer.** An open picker, the summary editor, or an extension
+  question renders below the transcript in place of the composer (editor, then question,
+  then picker). The transcript shrinks to make room; nothing is sized by hand.
 - **One order for the cursor and the drawn rows.** `pickerEntries` returns items in
   grouped display order; the cursor indexes that list and `CommandPalette` draws it.
 - **Keys go to the open picker or editor, read live.** `App` checks `controller.picker` and

@@ -1,8 +1,9 @@
-import type {
-  CrewCoderEventHandler,
-  CrewCoderProcessOptions,
-  CrewCoderResumeOptions,
-  SessionRecord
+import {
+  isCrewCoderRemote,
+  type CrewCoderEventHandler,
+  type CrewCoderProcessOptions,
+  type CrewCoderResumeOptions,
+  type SessionRecord
 } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import type { CrewCoderJsonEvent } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/event-parser";
 import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
@@ -12,9 +13,13 @@ import { CommandRunner, type CommandHost, type SummaryEditorState } from "./comm
 import { DRAFT_PREFIX, paletteCommands } from "./commands.js";
 import { errorMessage, processCli, type CrewCoderCli, type LoadedSkill } from "./crewcoder-cli.js";
 import { composerRows, type FooterExtras } from "./footer-layout.js";
-import { pickerEntries, pickerHeight, pickerMaxRows, pickerView, type PaletteCommand, type PickerView } from "./palette-model.js";
+import { computeLineAnchors, readLocalFile, type FileReader } from "./diff-anchors.js";
+import type { TerminalRun } from "./hunk.js";
+import type { LineAnchors } from "./tool-diff.js";
+import { pickerEntries, pickerMaxRows, pickerView, type PaletteCommand, type PickerView } from "./palette-model.js";
 import { PickerFlows } from "./picker-flows.js";
 import { PICKER_COMMANDS, type Picker } from "./pickers.js";
+import type { ToolExpansion } from "./transcript.js";
 import { choiceAnswer, questionChoices, questionContentWidth, questionMaxRows, questionView, type QuestionAnswer, type QuestionBlock, type QuestionView } from "./question-model.js";
 
 /** The subset of `CrewCoderProcessBridge` the OpenTUI shell drives. */
@@ -31,6 +36,7 @@ export type SessionBridge = {
 };
 
 type PendingApproval = Extract<TuiEventBlock, { type: "approval" }>;
+type ToolBlock = Extract<TuiEventBlock, { type: "tool" }>;
 
 /** Summary editor text rows for a terminal height (the editor adds border + hint). */
 export function summaryEditorTextRows(terminalHeight: number): number {
@@ -65,17 +71,27 @@ export class SessionController implements CommandHost {
   currentAlert: FooterAlert | undefined;
   /** The compaction summary being edited, if any. */
   editor: SummaryEditorState | undefined;
-  /** Clears the terminal screen and scrollback (`/clear`); wired by cli.tsx to the renderer. */
-  onClearScreen: (() => void) | undefined;
+  /** Hands the terminal to a full-screen program such as Hunk (`/diff`); wired by cli.tsx. */
+  runInTerminal: TerminalRun | undefined;
+  /** Ctrl+O: every tool's output expanded. A per-tool toggle flips its own state against this. */
+  private allToolsExpanded = false;
+  /** Tools toggled individually. Keyed by identity: the reducer mutates blocks in place. */
+  private toggledTools = new WeakSet<ToolBlock>();
+  /** Ctrl+T: every edit's diff hidden. A per-tool toggle flips its own diff against this. */
+  private allDiffsHidden = false;
+  private toggledDiffs = new WeakSet<ToolBlock>();
+  private readonly anchors = new WeakMap<ToolBlock, LineAnchors>();
+  private readonly readFile: FileReader;
   /** Latest composer text, so a draft survives an overlay that unmounts the composer. */
   private composerText = "";
   /** Cursor and scroll for the open question; reset when another request opens. */
   private questionNav = { requestId: "", cursor: 0, offset: 0 };
 
-  constructor(bridge: SessionBridge, state: TuiState = createInitialState(), cli: CrewCoderCli = processCli) {
+  constructor(bridge: SessionBridge, state: TuiState = createInitialState(), cli: CrewCoderCli = processCli, readFile: FileReader = readLocalFile) {
     this.bridge = bridge;
     this.state = state;
     this.cli = cli;
+    this.readFile = readFile;
     this.flows = new PickerFlows(this);
     this.commands = new CommandRunner(this, this.flows);
     // The legacy help tip refers to slash commands this preview does not ship yet.
@@ -162,16 +178,57 @@ export class SessionController implements CommandHost {
     return this.picker ? pickerView(this.picker.items, this.pickerQuery, this.pickerCursor, pickerMaxRows(terminalHeight)) : undefined;
   }
 
+  /** Rows the alert and composer take; the welcome screen hides the logo when they do not fit. */
+  footerExtras(): FooterExtras {
+    return { alertRows: alertRows(this.currentAlert), composerRows: composerRows(this.composerLines) };
+  }
+
+  // ── Tool output ───────────────────────────────────────────────────────────────
+
+  readonly toolExpansion: ToolExpansion = {
+    isExpanded: (block) => this.allToolsExpanded !== this.toggledTools.has(block),
+    toggle: (block) => this.flip(this.toggledTools, block),
+    isDiffShown: (block) => this.allDiffsHidden === this.toggledDiffs.has(block),
+    toggleDiff: (block) => this.flip(this.toggledDiffs, block),
+    lineAnchors: (block) => this.anchors.get(block)
+  };
+
   /**
-   * Everything outside the transcript that sizes the footer. Shared by App and
-   * the footer sizer. Overlays take the whole footer: the summary editor and a
-   * question gate a live run, so they win over a picker.
+   * Number a finished edit's diff with real file lines, read once from the
+   * local workspace (remote files are not readable here; those diffs stay plain).
    */
-  footerExtras(terminalHeight: number, terminalWidth: number): FooterExtras {
-    const question = this.questionView(terminalHeight, terminalWidth);
-    const view = this.pickerView(terminalHeight);
-    const overlayRows = this.editor ? summaryEditorTextRows(terminalHeight) + 3 : question ? question.height : view ? pickerHeight(view) : 0;
-    return { overlayRows, alertRows: alertRows(this.currentAlert), composerRows: composerRows(this.composerLines) };
+  private anchorEdit(toolCallId: unknown): void {
+    {
+        if (typeof toolCallId !== "string" || isCrewCoderRemote()) return;
+        const block = this.state.blocks.find((candidate): candidate is ToolBlock => candidate.type === "tool" && candidate.id === toolCallId);
+        // The agent's snapshot diffs (file_diff, before tool_execution_end) already carry real line numbers.
+        if (!block || block.fileDiffs?.length) return;
+        computeLineAnchors(block, this.state.cwd, this.readFile).then((anchors) => {
+          if (!anchors) return;
+          this.anchors.set(block, anchors);
+          this.notify();
+        }, () => undefined);
+      }
+  }
+
+  /** Hide or show every edit's diff, resetting per-tool diff toggles. */
+  toggleAllDiffs(): void {
+    this.allDiffsHidden = !this.allDiffsHidden;
+    this.toggledDiffs = new WeakSet();
+    this.notify();
+  }
+
+  private flip(set: WeakSet<ToolBlock>, block: ToolBlock): void {
+    if (set.has(block)) set.delete(block);
+    else set.add(block);
+    this.notify();
+  }
+
+  /** Expand or collapse every tool's output, resetting individual toggles. */
+  toggleAllToolOutput(): void {
+    this.allToolsExpanded = !this.allToolsExpanded;
+    this.toggledTools = new WeakSet();
+    this.notify();
   }
 
   // ── Extension questions ────────────────────────────────────────────────────
@@ -320,7 +377,6 @@ export class SessionController implements CommandHost {
   clearScreen(): void {
     this.state.blocks = [];
     this.currentAlert = undefined;
-    this.onClearScreen?.();
     this.notify();
   }
 
@@ -440,6 +496,7 @@ export class SessionController implements CommandHost {
   private readonly onEvent = (event: CrewCoderJsonEvent): void => {
     const questionOpen = this.question() !== undefined;
     applyCrewCoderEvent(this.state, event);
+    if (event.type === "tool_execution_end") this.anchorEdit(event.toolCallId);
     // An extension question replaces the footer, picker included; keep what the user was typing.
     if (event.type === "extension_ui_request" && !questionOpen && this.question()) {
       this.preserveComposerDraft();
