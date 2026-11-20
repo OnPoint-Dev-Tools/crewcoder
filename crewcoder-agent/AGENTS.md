@@ -502,6 +502,16 @@ User-message `background` is deliberate. It should be passed to the model and vi
 
 Interactive approvals are part of the live JSON-events control channel. `src/core/stdin-control.ts` accepts `{"type":"control","action":"approval","approvalId":"...","approved":true|false}` and `src/core/agent-loop.ts` waits for matching decisions when an approval signal is available. Do not replace this with saved-session polling; approvals must control the active run.
 
+## Reply throughput timing
+
+`message_end.durationMs` is generation time from `GenerationClock` (`src/core/generation-clock.ts`), not
+wall-clock around `modelClient.complete()`. Claude Agent SDK and Codex run tools inside that call, so
+every non-generation interval must stay excluded: provider-native tools (start to end, including the
+diff snapshot), `executeTool`, `requestQuestion`, follow-up delivery, and `onUsage` pricing. A new
+stream callback that waits on tools, the user, or disk must run inside `generationClock.excluding`.
+An unmatched native tool start means the duration is omitted, never guessed. Guarded by
+`src/tests/generation-clock.test.ts` and the throughput tests in `src/tests/agent-loop.test.ts`.
+
 ## Session durability
 
 Sessions are saved **after every completed turn**, not just at the end of the run

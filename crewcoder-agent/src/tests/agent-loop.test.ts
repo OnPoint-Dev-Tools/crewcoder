@@ -164,6 +164,64 @@ describe("agent loop", () => {
     expect(events).toContain("usage_update");
     expect(result.usage).toMatchObject({ inputTokens: 10, outputTokens: 4, totalTokens: 14, turns: 1 });
   });
+  it("times generation without the provider's own tools or questions for message_end throughput", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const ends: AgentEvent[] = [];
+    const modelClient: ModelClient = {
+      async complete(_input, _signal, stream) {
+        // A native-loop provider (Claude SDK, Codex): its tool and an approval run inside the call.
+        await stream?.onProviderToolStart?.({ type: "toolCall", id: "native-1", name: "Bash", arguments: { command: "npm test" } });
+        await sleep(300);
+        await stream?.onProviderToolEnd?.({ toolCallId: "native-1", toolName: "Bash", text: "ok", isError: false });
+        await stream?.requestQuestion?.({ title: "Allow?", options: [{ label: "Yes", value: "yes" }] });
+        await stream?.onUsage?.({ providerId: "test", model: "model", inputTokens: 10, outputTokens: 40, totalTokens: 50 });
+        return assistantText("done");
+      }
+    };
+    await runAgentLoop({ prompt: "hello", requestedMode: "general", cwd }, {
+      maxIterations: 1,
+      providerId: "test",
+      model: "model",
+      modelClient,
+      requestQuestion: async () => {
+        await sleep(300);
+        return "yes";
+      },
+      emit: (event) => {
+        if (event.type === "message_end" && event.message.role === "assistant") ends.push(event);
+      }
+    });
+    const end = ends.at(-1);
+    expect(end).toMatchObject({ type: "message_end", outputTokens: 40 });
+    const durationMs = end?.type === "message_end" ? end.durationMs : undefined;
+    expect(durationMs).toBeTypeOf("number");
+    // 600ms of tool and question time inside the call; generation itself is near zero.
+    expect(durationMs!).toBeLessThan(150);
+  });
+
+  it("omits throughput time when a provider tool never reports its end", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
+    const ends: AgentEvent[] = [];
+    const modelClient: ModelClient = {
+      async complete(_input, _signal, stream) {
+        await stream?.onProviderToolStart?.({ type: "toolCall", id: "lost", name: "Bash", arguments: {} });
+        await stream?.onUsage?.({ providerId: "test", model: "model", inputTokens: 10, outputTokens: 40, totalTokens: 50 });
+        return assistantText("done");
+      }
+    };
+    await runAgentLoop({ prompt: "hello", requestedMode: "general", cwd }, {
+      maxIterations: 1,
+      providerId: "test",
+      model: "model",
+      modelClient,
+      emit: (event) => {
+        if (event.type === "message_end" && event.message.role === "assistant") ends.push(event);
+      }
+    });
+    expect(ends.at(-1)).toMatchObject({ type: "message_end", outputTokens: 40, durationMs: undefined });
+  });
+
   it("records every billed turn in the cost ledger and rolls the dollar total into the usage summary", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-loop-"));
     const current = readConfig();
