@@ -1,6 +1,6 @@
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { describe, expect, it } from "vitest";
-import { blockToRow, isStreaming, normalize, transcriptSections } from "../transcript.js";
+import { blockToRow, isStreaming, normalize, throughputLabel, transcriptSections } from "../transcript.js";
 
 describe("blockToRow", () => {
   it("keeps thinking separate from assistant text and background separate from typed text", () => {
@@ -62,6 +62,20 @@ describe("transcriptSections", () => {
     expect(sections[2]).toMatchObject({ kind: "work", start: 2 });
     expect(sections[2]?.kind === "work" && sections[2].blocks).toEqual([blocks[2], blocks[3], blocks[4]]);
     expect(sections[4]).toMatchObject({ kind: "work", start: 6 });
+  });
+});
+
+describe("throughputLabel", () => {
+  it("shows a reply's reported speed, one decimal below 100 and whole above", () => {
+    expect(throughputLabel({ type: "assistant", text: "a", tokensPerSecond: 42.25 })).toBe("42.3 tok/s");
+    expect(throughputLabel({ type: "assistant", text: "a", tokensPerSecond: 1234.6 })).toBe("1,235 tok/s");
+  });
+
+  it("shows nothing without a usable rate or for other blocks", () => {
+    expect(throughputLabel({ type: "assistant", text: "a" })).toBeUndefined();
+    expect(throughputLabel({ type: "assistant", text: "a", tokensPerSecond: Number.NaN })).toBeUndefined();
+    expect(throughputLabel({ type: "assistant", text: "a", tokensPerSecond: 0 })).toBeUndefined();
+    expect(throughputLabel({ type: "user", text: "a" })).toBeUndefined();
   });
 });
 

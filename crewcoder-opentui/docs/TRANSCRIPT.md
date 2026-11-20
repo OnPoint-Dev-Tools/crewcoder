@@ -48,7 +48,7 @@ every other block is its own section. Sections are divided by a blank row.
 
 | Component (`src/components/Transcript.tsx`) | Blocks | Layout |
 |---|---|---|
-| `AssistantMessage` | `assistant` | `CREW CODER`, then markdown |
+| `AssistantMessage` | `assistant` | `CREW CODER` and its muted generation speed (`42.3 tok/s`, `throughputLabel`, once `message_end` reports it), then markdown |
 | `ReasoningPanel` | `thinking` | amber single border, bold `💭 Reasoning`, blank row, markdown; always expanded |
 | `AgentWork` | `tool`, `approval` runs | dashed rounded box (`DASHED_BORDER`) titled `Agent work` |
 | `ToolEntry` | `tool` | spinner / `✓` / `✗`, highlighted title chip (primary background), target, output |

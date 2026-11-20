@@ -17,6 +17,7 @@ import { SummaryEditor } from "./components/SummaryEditor.js";
 import { Transcript } from "./components/Transcript.js";
 import { COMPOSER_ROWS, isHome, shortenPath } from "./footer-layout.js";
 import { useTerminalFocus } from "./hooks/use-terminal-focus.js";
+import { resolveImageMode } from "./image-view.js";
 import { useTheme } from "./hooks/use-theme.js";
 import { actionLabel, matchesAction, type KeyLike } from "./keybindings.js";
 import { summaryEditorTextRows, type SessionController } from "./session-controller.js";
@@ -319,7 +320,15 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     </box>
   ) : (
     <box flexDirection="column" width={width} height="100%" flexShrink={0}>
-      <Transcript blocks={state.blocks} running={state.running} cwd={state.cwd} expansion={controller.toolExpansion} scrollRef={scrollRef} />
+      <Transcript
+        blocks={state.blocks}
+        running={state.running}
+        cwd={state.cwd}
+        expansion={controller.toolExpansion}
+        // Columns inside the transcript: its padding (1 + 1) and the scrollbar.
+        images={{ mode: resolveImageMode(process.env, Boolean(state.remoteTarget)), cols: width - TRANSCRIPT_CHROME_COLUMNS, screenRows: height }}
+        scrollRef={scrollRef}
+      />
       <box flexDirection="column" width="100%" flexShrink={0} marginTop={1}>
         {overlay ?? (
           <>
@@ -390,6 +399,8 @@ export function riskLevel(value: string | undefined): RiskLevel | undefined {
 }
 
 /** `provider · model · cwd`, with the cwd shortened so the line fits and stays centered. */
+const TRANSCRIPT_CHROME_COLUMNS = 3;
+
 function homeInfo(provider: string, model: string, cwd: string, remoteTarget: string | undefined, width: number): string {
   const prefix = `${provider} · ${model} · `;
   const location = remoteTarget ? `${remoteTarget}:${cwd}` : cwd;

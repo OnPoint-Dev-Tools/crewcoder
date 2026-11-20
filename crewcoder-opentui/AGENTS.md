@@ -173,7 +173,9 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   catalog and menus are in `commands.ts`. Status, on/off, and text-output results are
   footer alerts (`controller.alert`, vendored termcn `alert`) that last until the next key;
   they never go into the transcript. Only `/approve-plan` sends a prompt. `/why` is a
-  one-shot `session why` call and must never push a turn. `/crew` is skipped by owner
+  one-shot `session why` call and must never push a turn. Live UI (`contributes.liveUi[]`,
+  sandboxed extension worker panels) is skipped by owner decision: never mount or run an
+  extension `entry` module here; ask the owner before porting it. `/crew` is skipped by owner
   decision. Picker commands take their value directly (`/effort high`) through
   `PickerFlows.applyArgument`, which must reuse the same selection path as the picker.
   `/plugins` is listed only under the `crewcode` profile (`paletteCommands`).
@@ -215,6 +217,12 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   with a new run or resume as `--image`; follow-ups are text only. Remote mode attaches
   nothing. Clipboard and image-path helpers live in tui-core (`state/clipboard`,
   `state/image-attachment`); do not copy them here.
+- Image pixels (`docs/ATTACHMENTS.md#inline-pixels`): `ImageView` draws `image` blocks with
+  OpenTUI's native `<image>`; never port legacy's raw kitty/iTerm escape pass. Pass the
+  source as a `file:` URL (plain strings that look like `http(s)://` are fetched). Mode
+  comes from `resolveImageMode` (`CREWCODER_TUI_IMAGE_PROTOCOL`, `none` in remote mode:
+  never read a local file for an SSH path) and the cell box from `imageBox` (legacy caps).
+  A load error keeps the caption plus `IMAGE_FAILED_TEXT`.
 - Extension questions (`extension_ui_request`) are live control-channel state, like
   approvals: a focused `ExtensionQuestion` card replaces the footer while the run is live,
   and answers go back through `bridge.resolveUiRequest` (`ui_response`). Esc cancels the
@@ -257,7 +265,8 @@ Tests that protect current behavior:
 
 ```txt
 src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, unported commands
-src/tests/transcript.test.ts          row mapping, control stripping
+src/tests/transcript.test.ts          row mapping, control stripping, throughput label (format, missing/NaN/zero rate)
+src/tests/app.test.tsx (transcript)   tok/s beside CREW CODER only after message_end, muted
 src/tests/transcript.test.ts          turn sections (tools + approvals grouped, event order), streaming flag
 src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, full output, clamping, diff tones, text icons,
                                       read filetype (never failures or line-numbered output)
@@ -272,6 +281,9 @@ src/tests/theme.test.ts               slate palette and markdown styles unchange
                                       readable errors with the file path, $CREWCODER_HOME/themes
 src/tests/path-suggestions.test.ts    @ token parsing (no emails), file vs directory insert, list window, walker order/ignores/matching
 src/tests/attachments.test.ts         clipboard image -> cache, clipboard text naming images, plain text passthrough, source dedupe
+src/tests/image-view.test.ts          image mode override (iterm/junk -> auto, remote -> none), cell box caps and shape
+src/tests/app.test.tsx (images)       tool image pixels between caption and path at the right size, undecodable file keeps
+                                      the caption, protocol none draws nothing, pasted image drawn after sending
 src/tests/app.test.tsx (shortcuts)    Ctrl+V image row + send alone with --image, Ctrl+X clear, Ctrl+V text, dropped path attaches,
                                       Ctrl+P toggle keeps the draft, Tab opens the modes picker
 src/tests/text-offset.test.ts         textarea cursor cells <-> JS index, checked against a real OpenTUI textarea

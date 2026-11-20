@@ -8,10 +8,11 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, riskLevel } from "../App.js";
 import { MENTION_EMPTY_TEXT } from "../components/MentionList.js";
-import { AGENT_WORK_TITLE } from "../components/Transcript.js";
+import { AGENT_WORK_TITLE, IMAGE_FAILED_TEXT } from "../components/Transcript.js";
 import type { PathLister, PathSuggestion } from "../path-suggestions.js";
 import type { ClipboardSource } from "../attachments.js";
-import { fakeClipboard, isolateImageCache, pngBytes, pngFile } from "./fake-images.js";
+import { fakeClipboard, isolateImageCache, pngBytes, pngFile, solidPng, solidPngFile } from "./fake-images.js";
+import { IMAGE_PROTOCOL_ENV } from "../image-view.js";
 import { AppThemeProvider } from "../providers/app-theme-provider.js";
 import { ThemeProvider } from "../providers/theme-provider.js";
 import { SessionController } from "../session-controller.js";
@@ -89,6 +90,25 @@ describe("full-screen transcript", () => {
     const idle = await setup.waitForFrame((text) => !text.includes("Working"));
     expect(idle).toContain("hi there");
     expect(idle).toContain("hello crew");
+  });
+
+  it("shows the reply's generation speed beside CREW CODER once message_end reports it", async () => {
+    const { setup, bridge } = await inConversation({}, "speed");
+    bridge.emit({ type: "assistant_delta", text: "fast reply" });
+    const streaming = await setup.waitForFrame((text) => text.includes("fast reply"));
+    expect(streaming).not.toContain("tok/s");
+
+    bridge.emit({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "fast reply" }] },
+      durationMs: 2_000,
+      outputTokens: 85
+    });
+    const done = await setup.waitForFrame((text) => text.includes("tok/s"));
+    const lines = done.split("\n");
+    expect(lines.find((line) => line.includes("CREW CODER"))).toContain("CREW CODER 42.5 tok/s");
+    const rate = setup.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes("tok/s"));
+    expect(rate?.fg.equals(RGBA.fromHex(slateTheme.colors.mutedForeground))).toBe(true);
   });
 
   it("switches to single-cell icons when the terminal turns out to be behind tmux", async () => {
@@ -847,6 +867,101 @@ describe("composer shortcuts", () => {
     setup.mockInput.pressTab();
     await setup.waitForFrame((text) => text.includes("Mode or worker"));
     expect(controller.picker?.kind).toBe("mode");
+  });
+});
+
+describe("inline images", () => {
+  const RED = RGBA.fromHex("#ff0000");
+  let restoreEnv: string | undefined;
+  beforeEach(() => {
+    restoreEnv = process.env[IMAGE_PROTOCOL_ENV];
+  });
+  afterEach(() => {
+    if (restoreEnv === undefined) delete process.env[IMAGE_PROTOCOL_ENV];
+    else process.env[IMAGE_PROTOCOL_ENV] = restoreEnv;
+  });
+
+  /** Rows (index) holding image cells: the test renderer has no graphics protocol, so `auto` draws half-blocks. */
+  function redRows(setup: Setup): number[] {
+    return setup.captureSpans().lines.flatMap((line, index) => (line.spans.some((span) => span.bg.equals(RED) && span.text.trim() !== "") ? [index] : []));
+  }
+
+  async function waitForRedRows(setup: Setup): Promise<number[]> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      await setup.renderOnce();
+      const rows = redRows(setup);
+      if (rows.length > 0) return rows;
+      if (Date.now() > deadline) throw new Error("the image never drew");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  const toolImage = (file: string) => ({
+    type: "tool_execution_end",
+    toolName: "screenshot",
+    toolCallId: "img-1",
+    result: toolResult("captured"),
+    metadata: { images: [{ path: file, displayPath: "shot.png" }] }
+  });
+
+  it("draws a tool-result image between its caption and path, sized by its shape", async () => {
+    const file = solidPngFile("shot.png", 400, 100, [255, 0, 0]);
+    const { setup, bridge } = await inConversation({ width: 80, height: 40 });
+    bridge.emit({ type: "tool_execution_start", toolName: "screenshot", toolCallId: "img-1", args: {} });
+    bridge.emit(toolImage(file));
+    const rows = await waitForRedRows(setup);
+    const frame = setup.captureCharFrame().split("\n");
+    const label = frame.findIndex((line) => line.includes("TOOL IMAGE"));
+    expect(frame[label + 1]).toContain("shot.png · 400×100");
+    // 4:1 pixels in 2:1 cells: 77 usable columns -> 10 rows (40 * 0.35 = 14 allowed).
+    expect(rows).toEqual(Array.from({ length: 10 }, (_, index) => label + 2 + index));
+    expect(frame[label + 12]).toContain("shot.png");
+    expect(setup.captureCharFrame()).not.toContain(IMAGE_FAILED_TEXT);
+  });
+
+  it("keeps the caption and says so when the file cannot be decoded", async () => {
+    const file = pngFile("broken.png", 300, 200);
+    const { setup, bridge } = await inConversation({ height: 30 });
+    bridge.emit(toolImage(file));
+    const frame = await setup.waitForFrame((text) => text.includes(IMAGE_FAILED_TEXT));
+    expect(frame).toContain("TOOL IMAGE");
+    expect(frame).toContain("300×200");
+  });
+
+  it("draws no pixels with CREWCODER_TUI_IMAGE_PROTOCOL=none", async () => {
+    process.env[IMAGE_PROTOCOL_ENV] = "none";
+    const file = solidPngFile("shot.png", 400, 100, [255, 0, 0]);
+    const { setup, bridge } = await inConversation({ height: 30 });
+    bridge.emit(toolImage(file));
+    await setup.waitForFrame((text) => text.includes("TOOL IMAGE"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await setup.renderOnce();
+    expect(redRows(setup)).toEqual([]);
+    expect(setup.captureCharFrame()).not.toContain(IMAGE_FAILED_TEXT);
+  });
+
+  it("draws a pasted image in the transcript after sending", async () => {
+    const restore = isolateImageCache();
+    try {
+      const bridge = new FakeBridge();
+      const clipboard = fakeClipboard({ image: solidPng(64, 64, [255, 0, 0]) });
+      const controller = new SessionController(bridge, undefined, new FakeCli(), undefined, null, clipboard, async () => DISABLED_TASKS);
+      const setup = await testRender(
+        <AppThemeProvider theme={slateAppTheme}>
+          <App controller={controller} onQuit={vi.fn()} />
+        </AppThemeProvider>,
+        { width: 80, height: 30 }
+      );
+      active = setup;
+      await setup.renderOnce();
+      setup.mockInput.pressKey("v", { ctrl: true });
+      await setup.waitForFrame((text) => text.includes("IMG 1"));
+      setup.mockInput.pressEnter();
+      expect(await waitForRedRows(setup)).toHaveLength(10);
+    } finally {
+      restore();
+    }
   });
 });
 

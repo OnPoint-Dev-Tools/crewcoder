@@ -30,6 +30,15 @@ code on 2026-11-18. The branch is not pushed until this list is done.
   Ctrl+X clear images, Ctrl+P palette, Tab/Ctrl+I modes picker. Images go to the agent as
   `--image`; the transcript shows an `IMAGE` row (pixels wait for item 11). See
   `docs/ATTACHMENTS.md`.
+- Inline image pixels for sent and tool-result images through OpenTUI's native `<image>`
+  (kitty graphics, sixel, half-block fallback; clipped at the transcript edge),
+  `CREWCODER_TUI_IMAGE_PROTOCOL`, none in remote mode. See
+  `docs/ATTACHMENTS.md#inline-pixels`.
+- Assistant throughput: `CREW CODER 42.3 tok/s` once `message_end` reports timing. The
+  agent now times generation only (`GenerationClock`): tool runs, approvals, and questions
+  inside Claude/Codex calls no longer count, so the rate is real on native providers too
+  (legacy shows the same corrected number). Formatting is shared in tui-core
+  `state/usage` (`formatTokensPerSecond`).
 - Right sidebar: modified files, live crew agents, crew tasks, `<cwd>:<git>` footer,
   `/sidebar`, `/file-changes`, Ctrl+B, draggable divider. Task store reader shared with
   legacy through tui-core `state/crew-tasks`. See `docs/SIDEBAR.md`.
@@ -49,25 +58,28 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 
 ## Open
 
-1. **Transcript search.** Terminal search cannot see the alternate screen.
-2. ~~**Prompt history.**~~ Done.
-3. ~~**`@` path suggestions**~~ Done.
-4. ~~**Composer shortcuts**~~ Done (Ctrl+B with the sidebar).
-5. ~~**Slash commands:** `/repaint`, `/redraw`, `/quit`, `/ext.<name>`.~~ Done.
-6. ~~**Terminal focus reporting** and **`CREWCODER_TUI_MOUSE`**.~~ Done.
-7. ~~**Tree-sitter syntax highlighting.**~~ Done (`docs/SYNTAX.md`).
-8. ~~**Right sidebar**~~ Done (`docs/SIDEBAR.md`).
-9. ~~**Branching from `/sessions`.**~~ Done.
-10. ~~**Themes**~~ Done (`docs/THEMES.md`).
-11. **Image attachments and terminal graphics**, including tool-result images.
-12. **Live UI** (sandboxed extension workers).
-13. **Assistant throughput metadata.**
-14. **Dedicated crew, goal, and review-summary views** (one-line placeholders today).
-15. **Logo color pulse.**
+1. ~~**Prompt history.**~~ Done.
+2. ~~**`@` path suggestions**~~ Done.
+3. ~~**Composer shortcuts**~~ Done (Ctrl+B with the sidebar).
+4. ~~**Slash commands:** `/repaint`, `/redraw`, `/quit`, `/ext.<name>`.~~ Done.
+5. ~~**Terminal focus reporting** and **`CREWCODER_TUI_MOUSE`**.~~ Done.
+6. ~~**Tree-sitter syntax highlighting.**~~ Done (`docs/SYNTAX.md`).
+7. ~~**Right sidebar**~~ Done (`docs/SIDEBAR.md`).
+8. ~~**Branching from `/sessions`.**~~ Done.
+9. ~~**Themes**~~ Done (`docs/THEMES.md`).
+10. ~~**Image attachments and terminal graphics**, including tool-result images.~~ Done.
+11. ~~**Assistant throughput metadata.**~~ Done.
+12. ~~**Live UI** (sandboxed extension workers).~~ Skipped by owner decision (2026-11-19).
+13. **Dedicated crew, goal, and review-summary views** (one-line placeholders today).
+14. **Logo color pulse.**
+15. **Transcript search.** Terminal search cannot see the alternate screen.
 
 16. ~~**Remote target in state.**~~ Done with the sidebar (`cli.tsx`).
 
-Skipped by owner decision: `/crew`.
+Skipped by owner decision: `/crew`; Live UI (`contributes.liveUi[]`). Live UI is
+experimental, off by default (`allowExtensionLiveUi=false`), used by no known extension,
+and unfinished in legacy (no real-worker end-to-end tests, uncolored text frames). Legacy
+`crewcoder-tui` keeps it. Declarative extension components and questions still work here.
 
 ## Order
 
@@ -78,5 +90,6 @@ Skipped by owner decision: `/crew`.
 5. ~~`@` paths and composer shortcuts.~~ Done.
 6. ~~Right sidebar, then `/sessions` branching.~~ Done.
 7. ~~Themes.~~ Done.
-8. Transcript search (moved after themes by owner decision).
-9. Images, Live UI, throughput, dedicated views, logo pulse.
+8. ~~Images, throughput.~~ Done.
+9. Dedicated views, logo pulse. (Live UI skipped.)
+10. Transcript search (moved to the end by owner decision).

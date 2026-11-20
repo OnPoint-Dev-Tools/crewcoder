@@ -83,7 +83,8 @@ Implemented now:
 - **Images and composer shortcuts**: Ctrl+V attaches a clipboard image (else pastes
   clipboard text), image paths typed or dropped into the prompt attach on send, Ctrl+X
   clears them, Ctrl+P toggles the palette, Tab/Ctrl+I opens the modes picker. Images reach
-  the agent as `--image`. See [`docs/ATTACHMENTS.md`](docs/ATTACHMENTS.md).
+  the agent as `--image`. Sent and tool-result images draw inline in the transcript
+  (kitty graphics, sixel, or half-block cells). See [`docs/ATTACHMENTS.md`](docs/ATTACHMENTS.md).
 - **`@` path suggestions**: `@` at the start of a word lists workspace files and folders
   under the composer (Up/Down, Enter or Tab to pick, Esc to close). Not in remote mode.
   See [`docs/MENTIONS.md`](docs/MENTIONS.md).
@@ -115,7 +116,7 @@ Implemented now:
 - Transcript blocks for user (with muted `background` context), assistant, reasoning, tool,
   approval, extension question, compaction, image, error, and system. Text
   is normalized to `\n` and stripped of terminal control sequences.
-- Other structured blocks (goals, crews, review summaries, live UI, ...) render as a
+- Other structured blocks (goals, crews, review summaries, ...) render as a
   labeled placeholder instead of being dropped.
 - New runs, automatic resume of the current session, live follow-ups, approval
   decisions, and abort, all through the shared `crewcoder-tui-core` bridge.
@@ -167,18 +168,16 @@ Unported slash commands report that they are unavailable instead of being sent a
 New components should come from [termcn](https://www.termcn.dev/docs/components/opentui)
 when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 
-**Deferred by owner decision:** `/crew`.
+**Deferred by owner decision:** `/crew`, and Live UI (`contributes.liveUi[]`, experimental
+sandboxed extension panels; use the legacy `crewcoder-tui` for it).
 
-**Next:** transcript search.
+**Next:** dedicated crew, goal, and review-summary views.
 
 **Transcript rendering:**
 
 - Search inside the transcript (terminal search cannot see the alternate screen).
-- Assistant throughput metadata.
-- Image attachments and terminal graphics, including tool-result images.
 - Dedicated goal, crew roster, and review-summary views (these show as one-line
   labeled rows).
-- Live UI (sandboxed extension workers).
 
 **Commands and terminal behavior:**
 
@@ -205,6 +204,7 @@ src/components/MentionList.tsx  @ path suggestions under the composer
 src/mentions.ts             @ list state and request ordering (SessionController.mentions)
 src/attachments.ts          clipboard images, image paths in prompts (injectable ClipboardSource)
 src/components/AttachmentRow.tsx  pending images above the composer
+src/image-view.ts           image pixel mode (CREWCODER_TUI_IMAGE_PROTOCOL, off in remote mode) and cell box
 src/path-suggestions.ts     @ token parsing, replacement, windowing, workspace walker
 src/text-offset.ts          textarea cursor (display cells) <-> JS string index
 src/components/SummaryEditor.tsx  /compact preview summary editor

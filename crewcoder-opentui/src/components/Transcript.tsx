@@ -1,18 +1,20 @@
+import { pathToFileURL } from "node:url";
 import type { BorderCharacters, ScrollBoxRenderable } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
-import type { ReactNode, Ref } from "react";
+import { useMemo, useState, type ReactNode, type Ref } from "react";
 import { reasoningIcon, type GlyphSet } from "../glyphs.js";
 import { useAppColors } from "../hooks/use-app-colors.js";
 import { useGlyphSet } from "../hooks/use-glyph-set.js";
 import { useTheme } from "../hooks/use-theme.js";
 import { codeFence, useCodeStyle, useMarkdownStyle, type MarkdownTextColors } from "../markdown-style.js";
 import { codeFiletype } from "../syntax/filetype.js";
+import { imageBox, type ImageMode } from "../image-view.js";
 import { bodyColor, toneColor } from "../theme.js";
 import { toolDiffs, type FileDiff } from "../tool-diff.js";
 import { clampOutput, COLLAPSED_OUTPUT_LINES, diffLineTone, toolPresentation, type DiffLineTone } from "../tool-presentation.js";
 import { actionLabel, type AppAction } from "../keybindings.js";
-import { blockToRow, isStreaming, normalize, transcriptSections, type ApprovalBlock, type ToolBlock, type ToolExpansion, type WorkBlock } from "../transcript.js";
+import { blockToRow, isStreaming, normalize, throughputLabel, transcriptSections, type ApprovalBlock, type ToolBlock, type ToolExpansion, type WorkBlock } from "../transcript.js";
 import { Spinner } from "./ui/spinner.js";
 import type { Theme } from "./ui/types.js";
 
@@ -21,8 +23,15 @@ export type TranscriptProps = {
   running: boolean;
   cwd: string;
   expansion: ToolExpansion;
+  images: ImageDisplay;
   scrollRef?: Ref<ScrollBoxRenderable>;
 };
+
+/** How image blocks draw: the pixel mode, the columns they may use, and the screen height they are capped against. */
+export type ImageDisplay = { mode: ImageMode; cols: number; screenRows: number };
+
+/** Shown under an image whose pixels could not be drawn (unreadable or undecodable file). */
+export const IMAGE_FAILED_TEXT = "(image could not be drawn)";
 
 /** Dashed rounded border for the Agent work box. */
 export const DASHED_BORDER: BorderCharacters = {
@@ -39,7 +48,7 @@ export const REASONING_LABEL = "Reasoning";
  * output arrives and stays put once the user scrolls up (until they scroll back
  * down). Sections follow event order, divided by a blank row.
  */
-export function Transcript({ blocks, running, cwd, expansion, scrollRef }: TranscriptProps): ReactNode {
+export function Transcript({ blocks, running, cwd, expansion, images, scrollRef }: TranscriptProps): ReactNode {
   const theme = useTheme();
   // Emoji icons only where the terminal draws them whole; single-cell symbols elsewhere.
   const glyphs = useGlyphSet();
@@ -63,26 +72,68 @@ export function Transcript({ blocks, running, cwd, expansion, scrollRef }: Trans
         <box key={`${section.kind}-${section.start}`} flexDirection="column" width="100%" flexShrink={0} marginTop={index === 0 ? 0 : 1}>
           {section.kind === "work"
             ? <AgentWork blocks={section.blocks} cwd={cwd} expansion={expansion} glyphs={glyphs} />
-            : <BlockView block={section.block} streaming={isStreaming(section.block, section.start === lastIndex, running)} glyphs={glyphs} />}
+            : <BlockView block={section.block} streaming={isStreaming(section.block, section.start === lastIndex, running)} glyphs={glyphs} images={images} />}
         </box>
       ))}
     </scrollbox>
   );
 }
 
-function BlockView({ block, streaming, glyphs }: { block: TuiEventBlock; streaming: boolean; glyphs: GlyphSet }): ReactNode {
+function BlockView({ block, streaming, glyphs, images }: { block: TuiEventBlock; streaming: boolean; glyphs: GlyphSet; images: ImageDisplay }): ReactNode {
   if (block.type === "thinking") return <ReasoningPanel text={blockToRow(block).text} streaming={streaming} glyphs={glyphs} />;
-  if (block.type === "assistant") return <AssistantMessage text={blockToRow(block).text} streaming={streaming} />;
+  if (block.type === "assistant") return <AssistantMessage text={blockToRow(block).text} throughput={throughputLabel(block)} streaming={streaming} />;
+  if (block.type === "image") return <ImageView block={block} display={images} />;
   return <RowView block={block} />;
 }
 
-/** `CREW CODER`, then the reply as markdown. */
-function AssistantMessage({ text, streaming }: { text: string; streaming: boolean }): ReactNode {
+type ImageBlock = Extract<TuiEventBlock, { type: "image" }>;
+
+/**
+ * An attached or tool-produced image: label, name and size, the pixels through
+ * OpenTUI's `<image>` (kitty, sixel, or half-block cells, per `display.mode`),
+ * then the file path. A file that cannot be read or decoded keeps the caption
+ * and says so; it never fails the render.
+ */
+function ImageView({ block, display }: { block: ImageBlock; display: ImageDisplay }): ReactNode {
+  const theme = useTheme();
+  const row = blockToRow(block);
+  const { path, width, height } = block.attachment;
+  const [failedPath, setFailedPath] = useState<string>();
+  // A file URL, never a bare string: OpenTUI fetches strings that look like http(s) URLs.
+  const source = useMemo(() => pathToFileURL(path), [path]);
+  const failed = failedPath === path;
+  const box = imageBox(width, height, display.cols, display.screenRows);
+  return (
+    <>
+      <text fg={toneColor(theme, row.tone)} wrapMode="word" width="100%"><b>{row.label}</b></text>
+      <text fg={bodyColor(theme, row.tone)} wrapMode="word" width="100%">{row.text}</text>
+      {display.mode !== "none" && !failed ? (
+        <image
+          source={source}
+          protocol={display.mode}
+          fit="fit"
+          width={box.cols}
+          height={box.rows}
+          flexShrink={0}
+          onError={() => setFailedPath(path)}
+        />
+      ) : null}
+      {failed ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{IMAGE_FAILED_TEXT}</text> : null}
+      {row.detail ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{row.detail}</text> : null}
+    </>
+  );
+}
+
+/** `CREW CODER` and its muted throughput (`42.3 tok/s`), then the reply as markdown. */
+function AssistantMessage({ text, throughput, streaming }: { text: string; throughput?: string; streaming: boolean }): ReactNode {
   const theme = useTheme();
   const { markdown } = useAppColors();
   return (
     <>
-      <text fg={theme.colors.success} wrapMode="none" flexShrink={0}><b>CREW CODER</b></text>
+      <text fg={theme.colors.success} wrapMode="none" flexShrink={0}>
+        <b>CREW CODER</b>
+        {throughput ? <span fg={theme.colors.mutedForeground}>{` ${throughput}`}</span> : null}
+      </text>
       <MarkdownText text={text} streaming={streaming} colors={{ base: bodyColor(theme, "assistant"), heading: markdown.heading }} />
     </>
   );

@@ -1,4 +1,5 @@
 import { describeAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
+import { formatTokensPerSecond } from "@onpoint-dev-tools/crewcoder-tui-core/state/usage";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 export type TranscriptTone = "user" | "assistant" | "thinking" | "tool" | "approval" | "error" | "system" | "muted";
@@ -92,7 +93,7 @@ export function blockToRow(block: TuiEventBlock): TranscriptRow {
       return { label: `COMPACTION · ${block.status}`, tone: "system", text: normalize(block.message) };
     case "image":
       // Tool-result images are labelled apart so they never read as the user's attachment.
-      // Pixels (terminal graphics) are not drawn yet; the row names the file and its size.
+      // The caption; `ImageView` draws the pixels between `text` and `detail`.
       return {
         label: block.attachment.source === "tool" ? "TOOL IMAGE" : "IMAGE",
         tone: "muted",
@@ -108,10 +109,24 @@ export function blockToRow(block: TuiEventBlock): TranscriptRow {
         detail: block.answer !== undefined ? `Answer: ${normalize(block.answer)}` : undefined
       };
     default:
-      // Structured blocks (goals, crews, live UI, ...) are not ported yet. Show
+      // Structured blocks (goals, crews, ...) are not ported yet; live UI is skipped by
+      // owner decision and never mounted here. Show
       // that something happened rather than silently dropping the event.
       return { label: block.type.toUpperCase().replace(/_/g, " "), tone: "muted", text: "(not rendered in the OpenTUI preview yet)" };
   }
+}
+
+/**
+ * A reply's generation speed beside its label (`42.3 tok/s`), once its
+ * `message_end` reported it. The agent times only generation, not tools or
+ * approvals inside the call (`GenerationClock`). Streaming, replayed, and
+ * synthetic replies have none.
+ */
+export function throughputLabel(block: TuiEventBlock): string | undefined {
+  if (block.type !== "assistant") return undefined;
+  const rate = block.tokensPerSecond;
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return undefined;
+  return `${formatTokensPerSecond(rate)} tok/s`;
 }
 
 /** Normalize line endings and strip terminal control sequences from agent text. */
