@@ -21,6 +21,7 @@ Import by subpath (there is no root export):
 | `state/tui-store` | `TuiState`, transcript block types, and `createInitialState()`. |
 | `state/event-reducer` | `applyCrewCoderEvent(state, event)`: the single event-to-state reducer. |
 | `state/usage`, `state/effort-levels`, `state/image-attachment`, `state/git-status` | Usage summaries, effort levels per model, image sniffing/persistence, and Git status labels. |
+| `theme/crewcoder-theme` | Theme loading shared by both UIs: built-ins (`dark`/Gotham, `light`, `slate`), `--theme`/`CREWCODER_THEME` lookup (`$CREWCODER_HOME/themes/<name>.json` or a path), the JSON schema (`extends`, `vars`, `colors`, `syntax`, `markdown`), `listThemeFiles` (every theme file in a set of directories, loaded or with the reason it is unusable), and readable errors. |
 | `theme/logo` | CrewCoder logo text (big block wordmark, compact, mini) used by both UIs' home screens. Plain strings; each UI colors and draws them itself. |
 
 ```ts

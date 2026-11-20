@@ -119,7 +119,7 @@ primary:    #33859e
 ```
 
 Additional derived colors are allowed, but the default base visual identity must stay dark charcoal/teal (Gotham).
-For user-facing rendering, prefer `ctx.theme` tokens over hardcoded hex colors so custom themes work. Theme usage and JSON format are documented in `docs/THEMES.md`.
+For user-facing rendering, prefer `ctx.theme` tokens over hardcoded hex colors so custom themes work. Theme usage and JSON format are documented in `docs/THEMES.md`. The theme loader, built-ins, and JSON schema live in tui-core `theme/crewcoder-theme` and are shared with OpenTUI (`src/theme/theme.ts` only re-exports them); a format change affects both UIs.
 
 ## CLI launch
 
