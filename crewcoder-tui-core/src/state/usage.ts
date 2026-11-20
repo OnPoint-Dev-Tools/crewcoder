@@ -25,6 +25,15 @@ export function formatUsd(value: number): string {
 }
 
 /**
+ * A reply's generation speed (`message_end` outputTokens over durationMs, which
+ * excludes tool and approval time): one decimal below 100, whole numbers above.
+ */
+export function formatTokensPerSecond(rate: number): string {
+  if (rate >= 100) return Math.round(rate).toLocaleString("en-US");
+  return rate.toFixed(1);
+}
+
+/**
  * Compact context-window status shown at the bottom-right of the composer:
  * `◔ 12.4k/200k - 6% | 12.4k tokens`.
  */

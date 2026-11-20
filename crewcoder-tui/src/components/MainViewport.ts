@@ -9,6 +9,7 @@ import { spinnerFrame, renderSpinner } from "./Spinner.js";
 import { renderMarkdown } from "./markdown-renderer.js";
 import { renderExtensionUiErrorBlock } from "./ExtensionUiErrorBlock.js";
 import { describeAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
+import { formatTokensPerSecond } from "@onpoint-dev-tools/crewcoder-tui-core/state/usage";
 import { detectImageProtocol, fitPlacement } from "../tui/image-protocol.js";
 
 const TEXT_PADDING = 2;
@@ -304,11 +305,6 @@ function renderAssistant(lines: string[], block: Extract<TuiEventBlock, { type: 
   for (const line of renderMarkdown(block.text, textWidth(ctx, 4), ctx)) {
     lines.push(padRight(padded(`${fg(ctx.theme.text)}${line.text}${reset()}`), ctx.size.width));
   }
-}
-
-function formatTokensPerSecond(rate: number): string {
-  if (rate >= 100) return Math.round(rate).toLocaleString("en-US");
-  return rate.toFixed(1);
 }
 
 function renderThinking(lines: string[], text: string, ctx: RenderContext): void {
