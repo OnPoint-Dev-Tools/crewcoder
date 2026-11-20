@@ -155,8 +155,11 @@ Implemented now:
   drags to resize. See [`docs/SIDEBAR.md`](docs/SIDEBAR.md).
 - Remote SSH mode, using the same bridge as the legacy UI. The welcome screen and the
   sidebar footer show the remote `<target>:<cwd>`.
-- Minimal slate colors (`#101216` background, `#3b414b` border, `#a7adb7` primary) as
-  termcn theme tokens in `src/theme.ts`.
+- Themes: `/theme` lists every theme with a live preview; Enter applies and remembers it.
+  Also `--theme slate|dark|light|<name>|<path>` or `CREWCODER_THEME`. Slate is the default.
+  Custom JSON themes are shared with the legacy UI and can set syntax and markdown element
+  colors; example: [`examples/themes/ember.json`](examples/themes/ember.json). See
+  [`docs/THEMES.md`](docs/THEMES.md).
 
 ## Not yet ported
 
@@ -179,7 +182,6 @@ when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 
 **Commands and terminal behavior:**
 
-- Themes (`--theme`, `CREWCODER_THEME`, custom JSON themes).
 - The legacy logo color pulse.
 
 ## Architecture
@@ -217,7 +219,7 @@ src/glyphs.ts               emoji vs single-cell icon set from the terminal capa
 src/hooks/use-glyph-set.ts  follows the renderer's capabilities event and resolves the icon set
 src/tool-diff.ts            per-file unified diffs from edit/write tool arguments, all providers
 src/diff-anchors.ts         reads an edited file once to give snippet diffs real line numbers
-src/markdown-style.ts       slate markdown + code scope styles, SyntaxStyle hooks, fenced-code rail
+src/markdown-style.ts       markdown + code scope styles from the theme, SyntaxStyle hooks, fenced-code rail
 src/syntax/grammars.ts      bundled Tree-sitter grammars: pinned list, hashes, registration
 src/syntax/filetype.ts      path -> highlighted filetype; line-numbered read output stays plain
 grammars/                   bundled grammar .wasm + highlights.scm + LICENSE (scripts/update-grammars.mjs)
@@ -226,7 +228,10 @@ src/footer-layout.ts        composer sizing, welcome-screen layout, path shorten
 src/session-controller.ts   owns TuiState + bridge + tool expansion; subscribe/getVersion for useSyncExternalStore
 src/transcript.ts           pure block -> display row, turn sections, streaming flag
 src/keybindings.ts          DEFAULT_APP_KEYBINDINGS and chord matching
-src/theme.ts                slate palette as termcn theme tokens
+src/theme.ts                toAppTheme: shared theme tokens -> termcn tokens, diff and syntax colors
+src/providers/app-theme-provider.tsx  ThemeProvider + AppColorsContext (useAppColors)
+src/theme-controller.ts     startup theme order, /theme list + preview + apply, saved pick (opentui.json)
+src/Root.tsx                App under the controller's current theme (live /theme switches)
 src/components/ui/, src/hooks/, src/providers/, src/lib/   vendored termcn (see docs/TERMCN.md)
 @onpoint-dev-tools/crewcoder-tui-core   bridge, event parser, reducer, state (shared with legacy)
 ```

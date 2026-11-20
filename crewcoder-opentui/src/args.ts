@@ -1,10 +1,15 @@
-export type ParsedArgs = { remote?: string; remoteCwd?: string; remoteBin?: string; help: boolean };
+export type ParsedArgs = { theme?: string; remote?: string; remoteCwd?: string; remoteBin?: string; help: boolean };
 
 export const USAGE = `CrewCoder OpenTUI (preview)
 
 Usage:
-  crewcoder-opentui
+  crewcoder-opentui [--theme <name|path>]
   crewcoder-opentui --remote <user@host> --remote-cwd <path> [--remote-bin <path>]
+
+Theme:
+  --theme slate|dark|light  Built-in theme (default slate; dark is Gotham)
+  --theme <name|path>       Custom JSON theme: a file path, or
+                            $CREWCODER_HOME/themes/<name>.json
 
 Remote agent:
   --remote user@vps         Run the CrewCoder backend through SSH
@@ -12,6 +17,7 @@ Remote agent:
   --remote-bin <path>       Remote CrewCoder binary (defaults to ~/crewcoder-runner/crewcoder)
 
 Environment:
+  CREWCODER_THEME=<name>    Theme when --theme is not given (else the /theme pick, else slate)
   CREWCODER_TUI_MOUSE=0     Leave the mouse to the terminal (native selection;
                             no click toggles, wheel scrolling depends on the terminal)
   CREWCODER_TUI_ICONS=text  Single-cell icons (or emoji; default picks per terminal)
@@ -21,6 +27,7 @@ Requires Node.js >=26.4. The legacy UI remains available as crewcoder-tui
 `;
 
 const VALUE_FLAGS = {
+  "--theme": "theme",
   "--remote": "remote",
   "--remote-cwd": "remoteCwd",
   "--remote-bin": "remoteBin"

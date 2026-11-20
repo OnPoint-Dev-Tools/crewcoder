@@ -1,13 +1,15 @@
 import { BoxRenderable, SyntaxStyle, type RenderContext, type Renderable, type RenderNodeContext, type StyleDefinitionInput } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
+import type { MarkdownColors, SyntaxColors } from "@onpoint-dev-tools/crewcoder-tui-core/theme/crewcoder-theme";
 import type { Theme } from "./components/ui/types.js";
-import { SYNTAX_COLORS } from "./theme.js";
+import { useAppColors } from "./hooks/use-app-colors.js";
 
-export type MarkdownColors = {
+/** Per-block text colors: replies and reasoning differ in body and heading color. */
+export type MarkdownTextColors = {
   /** Body text. */
   base: string;
-  /** Headings (bold). */
+  /** Headings (bold). Replies use the theme's markdown heading; reasoning keeps its body color. */
   heading: string;
 };
 
@@ -15,11 +17,12 @@ const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 
 /**
  * Tree-sitter capture styles for highlighted code (fenced blocks, diffs, read
- * output). Base names only: OpenTUI resolves `keyword.function` to `keyword`.
- * Variables and plain identifiers keep the surrounding text color.
+ * output). OpenTUI's `SyntaxStyle` looks up the exact capture name, then only
+ * its first segment (`keyword.function` -> `keyword`), so base names cover
+ * dotted captures here. Variables and plain identifiers keep the surrounding
+ * text color. Colors come from the active theme's `syntax` palette.
  */
-export function codeStyles(): Record<string, StyleDefinitionInput> {
-  const c = SYNTAX_COLORS;
+export function codeStyles(c: SyntaxColors): Record<string, StyleDefinitionInput> {
   return {
     keyword: { fg: c.keyword },
     conditional: { fg: c.keyword },
@@ -54,49 +57,77 @@ export function codeStyles(): Record<string, StyleDefinitionInput> {
 }
 
 /**
- * Slate styles for the scopes OpenTUI's markdown engine asks for (`markup.*`,
- * `conceal`, `default`), plus the code scopes for fenced blocks.
+ * Markdown element styles (`markup.*`), shared by rendered replies and by
+ * markdown source (`.md` read output, diffs, ```markdown fences). Every full
+ * capture name the markdown grammar emits is listed: OpenTUI would resolve
+ * `markup.raw.block` only to `markup`, which has no style.
  */
-export function markdownStyles(theme: Theme, colors: MarkdownColors): Record<string, StyleDefinitionInput> {
-  const heading: StyleDefinitionInput = { fg: colors.heading, bold: true };
-  const link: StyleDefinitionInput = { fg: theme.colors.info, underline: true };
+export function markupStyles(md: MarkdownColors, heading: string, concealed: string): Record<string, StyleDefinitionInput> {
+  const headingStyle: StyleDefinitionInput = { fg: heading, bold: true };
+  const link: StyleDefinitionInput = { fg: md.link, underline: true };
+  const list: StyleDefinitionInput = { fg: md.listMarker };
+  const code: StyleDefinitionInput = { fg: md.code };
   return {
-    ...codeStyles(),
-    default: { fg: colors.base },
-    conceal: { fg: theme.colors.mutedForeground },
-    "markup.heading": heading,
-    ...Object.fromEntries(HEADING_LEVELS.map((level) => [`markup.heading.${level}`, heading])),
-    "markup.strong": { fg: colors.base, bold: true },
-    "markup.italic": { fg: colors.base, italic: true },
-    "markup.strikethrough": { fg: theme.colors.mutedForeground, strikethrough: true },
-    "markup.raw": { fg: theme.colors.accent },
-    "markup.math": { fg: theme.colors.accent },
+    conceal: { fg: concealed },
+    "markup.heading": headingStyle,
+    ...Object.fromEntries(HEADING_LEVELS.map((level) => [`markup.heading.${level}`, headingStyle])),
+    "markup.strong": { fg: md.strong, bold: true },
+    "markup.italic": { fg: md.emphasis, italic: true },
+    "markup.strikethrough": { fg: md.strikethrough, strikethrough: true },
+    "markup.raw": code,
+    "markup.raw.block": code,
+    "markup.math": code,
     "markup.link": link,
     "markup.link.label": link,
-    "markup.link.url": { fg: theme.colors.mutedForeground },
-    "markup.list": { fg: theme.colors.mutedForeground },
-    "markup.quote": { fg: theme.colors.mutedForeground }
+    "markup.link.url": { fg: md.linkUrl },
+    "markup.link.bracket.close": { fg: md.linkUrl },
+    "markup.list": list,
+    "markup.list.checked": list,
+    "markup.list.unchecked": list,
+    "markup.quote": { fg: md.quote }
   };
 }
 
 /**
- * A native `SyntaxStyle` built once per component and freed on unmount.
- * Colors are read once; the theme does not change at runtime.
+ * Styles for OpenTUI's markdown engine (`markup.*`, `conceal`, `default`) plus
+ * the code scopes for fenced blocks.
  */
-function useSyntaxStyle(build: () => Record<string, StyleDefinitionInput>): SyntaxStyle {
+export function markdownStyles(theme: Theme, colors: MarkdownTextColors, syntax: SyntaxColors, markdown: MarkdownColors): Record<string, StyleDefinitionInput> {
+  return {
+    ...codeStyles(syntax),
+    ...markupStyles(markdown, colors.heading, theme.colors.mutedForeground),
+    default: { fg: colors.base }
+  };
+}
+
+/**
+ * A native `SyntaxStyle`, rebuilt when its colors change (`/theme`) and freed
+ * when replaced or unmounted. `deps` are the colors `build` reads.
+ */
+function useSyntaxStyle(build: () => Record<string, StyleDefinitionInput>, deps: readonly unknown[]): SyntaxStyle {
   const renderer = useRenderer();
-  const [style] = useState(() => SyntaxStyle.fromStyles(build(), renderer.nativeScene));
+  const style = useMemo(() => SyntaxStyle.fromStyles(build(), renderer.nativeScene), [renderer, ...deps]);
   useEffect(() => () => style.destroy(), [style]);
   return style;
 }
 
-export function useMarkdownStyle(theme: Theme, colors: MarkdownColors): SyntaxStyle {
-  return useSyntaxStyle(() => markdownStyles(theme, colors));
+export function useMarkdownStyle(theme: Theme, colors: MarkdownTextColors): SyntaxStyle {
+  const { syntax, markdown } = useAppColors();
+  return useSyntaxStyle(() => markdownStyles(theme, colors, syntax, markdown), [theme, colors.base, colors.heading, syntax, markdown]);
 }
 
-/** Code scopes alone, for `<diff>` and `<code>` (read output). */
+/**
+ * Highlighted source for `<diff>` and `<code>` (read output): code scopes, and
+ * markdown element scopes so `.md` files color their headings, emphasis,
+ * links, and code spans like a rendered reply.
+ */
 export function useCodeStyle(theme: Theme): SyntaxStyle {
-  return useSyntaxStyle(() => ({ ...codeStyles(), default: { fg: theme.colors.foreground } }));
+  const { syntax, markdown } = useAppColors();
+  return useSyntaxStyle(() => ({
+    ...codeStyles(syntax),
+    ...markupStyles(markdown, markdown.heading, theme.colors.mutedForeground),
+    default: { fg: theme.colors.foreground }
+  }), [theme, syntax, markdown]);
 }
 
 /**
@@ -104,7 +135,8 @@ export function useCodeStyle(theme: Theme): SyntaxStyle {
  * default `CodeRenderable`, highlighted by Tree-sitter when the fence's info
  * string names a language with a parser (`infoStringToFiletype`), plain text
  * otherwise. Markdown reuses that renderable across streaming updates and
- * takes it out of the old rail before dropping it.
+ * takes it out of the old rail before dropping it. OpenTUI leaves fenced
+ * code unconcealed, so a ```markdown fence keeps its `#` and `**` markers.
  */
 export function codeFence(ctx: RenderContext, theme: Theme, context: RenderNodeContext): Renderable | undefined {
   const code = context.defaultRender();

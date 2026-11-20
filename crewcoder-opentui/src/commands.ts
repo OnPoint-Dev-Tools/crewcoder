@@ -38,6 +38,7 @@ export const SLASH_COMMANDS: readonly PaletteCommand[] = [
   command("/prompts", "Pick a custom system prompt", "Settings"),
   command("/tool-mode", "Tool mode for new sessions", "Settings"),
   command("/profile", "Standalone or CrewCode-integrated behavior", "Settings"),
+  command("/theme", "Pick a color theme (previews as you move)", "Settings"),
   command("/thinking", "Provider reasoning on, off, or status", "Settings"),
   command("/identity", "Worker identity in prompts on, off, or status", "Settings"),
   command("/full-access", "Approval bypass for this session on or off", "Settings"),

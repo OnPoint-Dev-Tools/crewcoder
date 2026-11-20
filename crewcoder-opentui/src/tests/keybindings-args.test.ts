@@ -33,8 +33,14 @@ describe("parseArgs", () => {
     expect(parseArgs(["-h"]).help).toBe(true);
   });
 
+  it("parses --theme in both forms", () => {
+    expect(parseArgs(["--theme", "dark"])).toEqual({ help: false, theme: "dark" });
+    expect(parseArgs(["--theme=./my theme.json"]).theme).toBe("./my theme.json");
+    expect(() => parseArgs(["--theme"])).toThrow(/--theme requires a value/);
+  });
+
   it("rejects unknown flags and missing values", () => {
-    expect(() => parseArgs(["--theme", "dark"])).toThrow(/Unknown argument/);
+    expect(() => parseArgs(["--colors", "dark"])).toThrow(/Unknown argument/);
     expect(() => parseArgs(["--remote"])).toThrow(/requires a value/);
     expect(() => parseArgs(["--remote="])).toThrow(/requires a value/);
   });

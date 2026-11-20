@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { RGBA } from "@opentui/core";
 import { setRendererCapabilities } from "@opentui/core/testing";
 import { testRender } from "@opentui/react/test-utils";
@@ -9,10 +12,14 @@ import { AGENT_WORK_TITLE } from "../components/Transcript.js";
 import type { PathLister, PathSuggestion } from "../path-suggestions.js";
 import type { ClipboardSource } from "../attachments.js";
 import { fakeClipboard, isolateImageCache, pngBytes, pngFile } from "./fake-images.js";
+import { AppThemeProvider } from "../providers/app-theme-provider.js";
 import { ThemeProvider } from "../providers/theme-provider.js";
 import { SessionController } from "../session-controller.js";
 import { registerBundledGrammars } from "../syntax/grammars.js";
-import { slateTheme, SYNTAX_COLORS } from "../theme.js";
+import { slateAppTheme, slateTheme, toAppTheme, type AppTheme } from "../theme.js";
+import { crewCoderTheme, lightCrewCoderTheme, slateCrewCoderTheme } from "@onpoint-dev-tools/crewcoder-tui-core/theme/crewcoder-theme";
+import { Root } from "../Root.js";
+import { EXAMPLE_THEMES_DIR } from "../theme-controller.js";
 import { COLLAPSED_OUTPUT_LINES } from "../tool-presentation.js";
 import { FakeBridge } from "./fake-bridge.js";
 import { FakeCli, flush } from "./fake-cli.js";
@@ -27,16 +34,18 @@ afterEach(async () => {
   active = undefined;
 });
 
-async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean; width?: number; height?: number; exitOnCtrlC?: boolean; readTasks?: TaskReader } = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
+type RenderOptions = { kittyKeyboard?: boolean; width?: number; height?: number; exitOnCtrlC?: boolean; readTasks?: TaskReader; theme?: AppTheme };
+
+async function renderApp(cli = new FakeCli(), options: RenderOptions = {}): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; onQuit: ReturnType<typeof vi.fn> }> {
   const bridge = new FakeBridge();
   // Never the real task store: the sidebar would read ~/.crewcoder and the cwd.
-  const { readTasks = async () => DISABLED_TASKS, ...renderOptions } = options;
+  const { readTasks = async () => DISABLED_TASKS, theme = slateAppTheme, ...renderOptions } = options;
   const controller = new SessionController(bridge, undefined, cli, undefined, undefined, undefined, readTasks);
   const onQuit = vi.fn();
   const setup = await testRender(
-    <ThemeProvider theme={slateTheme}>
+    <AppThemeProvider theme={theme}>
       <App controller={controller} onQuit={onQuit} />
-    </ThemeProvider>,
+    </AppThemeProvider>,
     { width: 80, height: 24, ...renderOptions }
   );
   active = setup;
@@ -45,7 +54,7 @@ async function renderApp(cli = new FakeCli(), options: { kittyKeyboard?: boolean
 }
 
 /** Send a prompt and wait until the conversation (not the welcome screen) shows. */
-async function inConversation(options: { kittyKeyboard?: boolean; width?: number; height?: number } = {}, prompt = "hi") {
+async function inConversation(options: { kittyKeyboard?: boolean; width?: number; height?: number; theme?: AppTheme } = {}, prompt = "hi") {
   const rendered = await renderApp(new FakeCli(), options);
   await rendered.setup.mockInput.typeText(prompt);
   rendered.setup.mockInput.pressEnter();
@@ -224,7 +233,70 @@ describe("syntax highlighting", () => {
     bridge.emit({ type: "agent_end" });
     const frame = await setup.waitForFrame((text) => text.includes("def greet():"));
     expect(frame).toMatch(/│ def greet\(\):/);
-    await waitForColor(setup, "def", SYNTAX_COLORS.keyword);
+    await waitForColor(setup, "def", slateAppTheme.syntax.keyword);
+  });
+
+  it("colors code with the active theme's syntax palette", async () => {
+    registerBundledGrammars();
+    const theme = toAppTheme({ ...crewCoderTheme, name: "custom", syntax: { ...crewCoderTheme.syntax, keyword: "#ff00aa", string: "#00ffaa" } });
+    const { setup, bridge } = await inConversation({ height: 30, theme });
+    bridge.emit({ type: "assistant_delta", text: "```python\ndef greet():\n    return 'hi'\n```\n" });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("def greet():"));
+    await waitForColor(setup, "def", "#ff00aa");
+    await waitForColor(setup, "'hi'", "#00ffaa");
+  });
+
+  const markdownTheme = toAppTheme({
+    ...crewCoderTheme,
+    name: "md",
+    markdown: { ...crewCoderTheme.markdown, heading: "#ff0001", strong: "#ff0002", code: "#ff0003", link: "#ff0004", listMarker: "#ff0005" }
+  });
+
+  it("draws a reply's markdown elements in the theme's markdown colors", async () => {
+    const { setup, bridge } = await inConversation({ height: 30, theme: markdownTheme });
+    bridge.emit({ type: "assistant_delta", text: "# Plan\n\n- run **tests** with `npm test`\n- see [docs](https://example.com)\n" });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("Plan") && text.includes("npm test"));
+    await waitForColor(setup, "Plan", "#ff0001");
+    // A rendered reply hides the markdown syntax.
+    const frame = setup.captureCharFrame();
+    expect(frame).not.toContain("# Plan");
+    expect(frame).not.toContain("**tests**");
+    await waitForColor(setup, "tests", "#ff0002");
+    await waitForColor(setup, "npm test", "#ff0003");
+    await waitForColor(setup, "docs", "#ff0004");
+    await waitForColor(setup, "-", "#ff0005");
+  });
+
+  it("highlights a read markdown file's elements like a rendered reply", async () => {
+    const { setup, bridge } = await inConversation({ height: 30, theme: markdownTheme });
+    bridge.emit({ type: "tool_execution_start", toolName: "read", toolCallId: "r1", args: { path: "README.md" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "read", toolCallId: "r1", result: toolResult("# Setup\n\nRun **fast** with `npm ci`.\n") });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("Setup") && text.includes("npm ci"));
+    await waitForColor(setup, "Setup", "#ff0001");
+    await waitForColor(setup, "fast", "#ff0002");
+    await waitForColor(setup, "npm ci", "#ff0003");
+    // Read output is the file as written. Checked after highlighting: OpenTUI
+    // conceals markers only once Tree-sitter has answered.
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("# Setup");
+    expect(frame).toContain("**fast**");
+    expect(frame).toContain("`npm ci`");
+  });
+
+  it("keeps a markdown fence in a reply as source, highlighted", async () => {
+    const { setup, bridge } = await inConversation({ height: 30, theme: markdownTheme });
+    bridge.emit({ type: "assistant_delta", text: "Add this:\n\n```markdown\n## Usage\n\nRun **now**.\n```\n" });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("Usage") && text.includes("now"));
+    await waitForColor(setup, "Usage", "#ff0001");
+    await waitForColor(setup, "now", "#ff0002");
+    // After highlighting (concealing would only happen then).
+    const frame = setup.captureCharFrame();
+    expect(frame).toMatch(/│ ## Usage/);
+    expect(frame).toContain("**now**");
   });
 
   it("highlights read output by the read path and edit diffs by the edited path", async () => {
@@ -245,8 +317,8 @@ describe("syntax highlighting", () => {
     bridge.emit({ type: "tool_execution_end", toolName: "edit", toolCallId: "e1", result: toolResult("Edited app.py") });
     bridge.emit({ type: "agent_end" });
     await setup.waitForFrame((text) => text.includes("func main()") && text.includes("x = 'two'"));
-    await waitForColor(setup, "func", SYNTAX_COLORS.keyword);
-    await waitForColor(setup, "'two'", SYNTAX_COLORS.string);
+    await waitForColor(setup, "func", slateAppTheme.syntax.keyword);
+    await waitForColor(setup, "'two'", slateAppTheme.syntax.string);
   });
 
   it("leaves a language without a parser as plain text", async () => {
@@ -979,5 +1051,95 @@ describe("riskLevel", () => {
     expect(riskLevel("dangerous")).toBe("high");
     expect(riskLevel("constructor")).toBeUndefined();
     expect(riskLevel(undefined)).toBeUndefined();
+  });
+});
+
+describe("/theme picker", () => {
+  /** The full root (theme provider follows the controller), with themes from a temp dir and an in-memory store. */
+  async function renderThemed(): Promise<{ setup: Setup; bridge: FakeBridge; controller: SessionController; saved: () => string | undefined }> {
+    const bridge = new FakeBridge();
+    const controller = new SessionController(bridge, undefined, new FakeCli(), undefined, undefined, undefined, async () => DISABLED_TASKS);
+    const themes = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-app-themes-"));
+    fs.writeFileSync(path.join(themes, "neon.json"), JSON.stringify({ name: "neon", extends: "slate", colors: { background: "#200020" } }));
+    let saved: string | undefined;
+    const store = { read: () => saved, write: (selector: string) => { saved = selector; } };
+    controller.themes.configure({ theme: slateCrewCoderTheme, selector: "slate", source: "default" }, store, { themes, examples: EXAMPLE_THEMES_DIR });
+    const setup = await testRender(<Root controller={controller} onQuit={() => {}} />, { width: 90, height: 34 });
+    active = setup;
+    await setup.renderOnce();
+    return { setup, bridge, controller, saved: () => saved };
+  }
+
+  /** Waits until the top-left cell is drawn on `hex`: the whole UI follows the theme background. */
+  async function waitForBackground(setup: Setup, hex: string): Promise<void> {
+    const color = RGBA.fromHex(hex);
+    await vi.waitFor(async () => {
+      await setup.renderOnce();
+      expect(setup.captureSpans().lines[0]?.spans[0]?.bg.equals(color)).toBe(true);
+    });
+  }
+
+  async function openThemePicker(setup: Setup): Promise<void> {
+    await setup.mockInput.typeText("/theme");
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame((text) => text.includes("Enter apply") && text.includes("neon"));
+  }
+
+  it("lists built-ins, your themes, and examples from the palette", async () => {
+    const { setup } = await renderThemed();
+    await openThemePicker(setup);
+    const frame = setup.captureCharFrame();
+    for (const text of ["Built-in", "slate", "dark", "light", "Your themes", "neon", "Examples", "ember", "↑↓ preview · Enter apply · Esc keep current"]) {
+      expect(frame).toContain(text);
+    }
+  });
+
+  it("previews as the cursor moves and keeps the applied theme on Esc", async () => {
+    const { setup, controller, saved } = await renderThemed();
+    await openThemePicker(setup);
+    setup.mockInput.pressArrow("down");
+    await waitForBackground(setup, crewCoderTheme.background);
+    setup.mockInput.pressEscape();
+    await waitForBackground(setup, slateCrewCoderTheme.background);
+    expect(controller.themes.selector).toBe("slate");
+    expect(saved()).toBeUndefined();
+  });
+
+  it("applies and saves the pick with Enter, and recolors code already on screen", async () => {
+    registerBundledGrammars();
+    const { setup, bridge, controller, saved } = await renderThemed();
+    await setup.mockInput.typeText("hi");
+    setup.mockInput.pressEnter();
+    bridge.emit({ type: "assistant_delta", text: "```python\ndef greet():\n    return 'hi'\n```\n" });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("def greet"));
+    const keyword = async (hex: string): Promise<void> => vi.waitFor(async () => {
+      await setup.renderOnce();
+      const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+      expect(spans.some((span) => span.text.includes("def") && span.fg.equals(RGBA.fromHex(hex)))).toBe(true);
+    }, { timeout: 8_000 });
+    await keyword(slateCrewCoderTheme.syntax.keyword);
+    await openThemePicker(setup);
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressEnter();
+    await waitForBackground(setup, lightCrewCoderTheme.background);
+    await keyword(lightCrewCoderTheme.syntax.keyword);
+    expect(controller.themes.selector).toBe("light");
+    expect(saved()).toBe("light");
+    expect(controller.picker).toBeUndefined();
+    expect(setup.captureCharFrame()).toContain("Saved for next launch.");
+  });
+
+  it("applies a theme typed after /theme, and reports a broken one without changing", async () => {
+    const { setup, controller, saved } = await renderThemed();
+    await setup.mockInput.typeText("/theme neon");
+    setup.mockInput.pressEnter();
+    await waitForBackground(setup, "#200020");
+    expect(saved()).toBe("neon");
+    await setup.mockInput.typeText("/theme nope");
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame((text) => text.includes("Theme not found: nope"));
+    expect(controller.themes.selector).toBe("neon");
   });
 });

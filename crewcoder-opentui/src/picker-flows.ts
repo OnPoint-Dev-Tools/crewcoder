@@ -10,6 +10,7 @@ import {
 } from "./crewcoder-cli.js";
 import { actionLabel } from "./keybindings.js";
 import type { PaletteCommand } from "./palette-model.js";
+import type { ThemeController } from "./theme-controller.js";
 import {
   checkpointItems, directoryItems, effortItems, modeItems, modelItems, namedItems, profileItems, providerItems,
   rewindConfirmItems, sessionItems, toolModeItems, workerItems, type Picker, type PickerKind
@@ -30,11 +31,14 @@ export interface PickerHost {
   resumeSession(session: SessionRecord): void;
   setComposerDraft(text: string): void;
   attachSkill(skill: LoadedSkill): void;
+  /** The active theme, the `/theme` list, preview, and the saved pick. */
+  readonly themes: ThemeController;
 }
 
 export type OpenableKind = Exclude<PickerKind, "commands" | "menu" | "rewindConfirm">;
 
 const SESSION_HINT = `↑↓ navigate · Enter resume · ${actionLabel("sessionBranch")} branch · Esc close`;
+const THEME_HINT = "↑↓ preview · Enter apply · Esc keep current";
 
 const picker = (kind: PickerKind, title: string, items: PaletteCommand[] = [], loading = false, emptyText = "Nothing to pick"): Picker =>
   ({ kind, title, placeholder: "Search…", emptyText, items, loading });
@@ -93,6 +97,9 @@ export class PickerFlows {
         if (!hasSavedSession(state)) return this.noSavedSession("handing it off");
         return this.load(picker("handoff", "Hand off to worker", [], true, "No workers. Create one with: crewcoder workers create <name>"), async () =>
           workerItems(await this.loadWorkers()));
+      case "theme":
+        // Local UI files (also in --remote mode: the theme belongs to this terminal, not the workspace).
+        return this.host.openPicker({ ...picker("theme", "Theme", this.host.themes.items()), hint: THEME_HINT });
     }
   }
 
@@ -147,6 +154,8 @@ export class PickerFlows {
         return this.host.alert({ variant: "info", title: "Rewind cancelled" });
       case "handoff":
         return this.handoff(id);
+      case "theme":
+        return this.applyTheme(id);
     }
   }
 
@@ -204,8 +213,14 @@ export class PickerFlows {
       case "systemPrompt":
       case "skill":
       case "removeDir":
+      case "theme":
         return this.select(kind, arg);
     }
+  }
+
+  /** Picker Enter and `/theme <name>`: apply, save, and say where it is saved. */
+  private applyTheme(id: string): void {
+    this.host.alert({ variant: "success", ...this.host.themes.apply(id) });
   }
 
   /** Effort to resume a session with: its saved level when the model supports it. */

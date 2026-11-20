@@ -39,6 +39,13 @@ code on 2026-11-18. The branch is not pushed until this list is done.
   (its history and saved settings); `/branch <id>` does the same by id. Legacy's `b` only
   switched `state.sessionId` and left the old conversation on screen; this loads the
   branch. See `docs/COMMAND_PALETTE.md`.
+- Themes: `--theme`, `CREWCODER_THEME`, built-ins `slate` (default), `dark` (Gotham),
+  `light`, and custom JSON themes shared with legacy (loader moved to tui-core
+  `theme/crewcoder-theme`). Theme files can set syntax and markdown element colors
+  (`syntax`, `markdown` blocks) and pick their base (`extends`); `.md` reads are
+  highlighted with the same colors. Example: `examples/themes/ember.json`. `/theme` lists
+  every theme with a live preview, applies on Enter, and remembers the pick
+  (`$CREWCODER_HOME/opentui.json`). See `docs/THEMES.md`.
 
 ## Open
 
@@ -51,7 +58,7 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 7. ~~**Tree-sitter syntax highlighting.**~~ Done (`docs/SYNTAX.md`).
 8. ~~**Right sidebar**~~ Done (`docs/SIDEBAR.md`).
 9. ~~**Branching from `/sessions`.**~~ Done.
-10. **Themes:** `--theme`, `CREWCODER_THEME`, custom JSON themes.
+10. ~~**Themes**~~ Done (`docs/THEMES.md`).
 11. **Image attachments and terminal graphics**, including tool-result images.
 12. **Live UI** (sandboxed extension workers).
 13. **Assistant throughput metadata.**
@@ -70,5 +77,6 @@ Skipped by owner decision: `/crew`.
 4. ~~Tree-sitter highlighting.~~ Done.
 5. ~~`@` paths and composer shortcuts.~~ Done.
 6. ~~Right sidebar, then `/sessions` branching.~~ Done.
-7. Transcript search.
-8. Images, themes, Live UI, throughput, dedicated views, logo pulse.
+7. ~~Themes.~~ Done.
+8. Transcript search (moved after themes by owner decision).
+9. Images, Live UI, throughput, dedicated views, logo pulse.

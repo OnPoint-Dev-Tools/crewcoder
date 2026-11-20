@@ -8,7 +8,7 @@ import type { PaletteCommand } from "./palette-model.js";
 /** Every list the palette can show. `commands` is the `/` palette itself. */
 export type PickerKind =
   | "commands" | "menu" | "provider" | "model" | "effort" | "mode" | "systemPrompt" | "promptCommand" | "skill"
-  | "profile" | "toolMode" | "removeDir" | "session" | "rewind" | "rewindConfirm" | "handoff";
+  | "profile" | "toolMode" | "removeDir" | "session" | "rewind" | "rewindConfirm" | "handoff" | "theme";
 
 export type Picker = {
   kind: PickerKind;
@@ -28,7 +28,8 @@ export const PICKER_COMMANDS: Readonly<Record<string, Exclude<PickerKind, "comma
   "/modes": "mode", "/mode": "mode", "/workers": "mode", "/worker": "mode",
   "/prompts": "systemPrompt", "/commands": "promptCommand", "/skills": "skill",
   "/profile": "profile", "/tool-mode": "toolMode", "/remove-dir": "removeDir",
-  "/rewind": "rewind", "/handoff": "handoff"
+  "/rewind": "rewind", "/handoff": "handoff",
+  "/theme": "theme", "/themes": "theme"
 };
 
 const EFFORT_DESCRIPTIONS: Readonly<Record<EffortLevel, string>> = {

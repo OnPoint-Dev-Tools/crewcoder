@@ -3,11 +3,12 @@ import { useRenderer } from "@opentui/react";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import type { ReactNode, Ref } from "react";
 import { reasoningIcon, type GlyphSet } from "../glyphs.js";
+import { useAppColors } from "../hooks/use-app-colors.js";
 import { useGlyphSet } from "../hooks/use-glyph-set.js";
 import { useTheme } from "../hooks/use-theme.js";
-import { codeFence, useCodeStyle, useMarkdownStyle, type MarkdownColors } from "../markdown-style.js";
+import { codeFence, useCodeStyle, useMarkdownStyle, type MarkdownTextColors } from "../markdown-style.js";
 import { codeFiletype } from "../syntax/filetype.js";
-import { bodyColor, DIFF_COLORS, toneColor } from "../theme.js";
+import { bodyColor, toneColor } from "../theme.js";
 import { toolDiffs, type FileDiff } from "../tool-diff.js";
 import { clampOutput, COLLAPSED_OUTPUT_LINES, diffLineTone, toolPresentation, type DiffLineTone } from "../tool-presentation.js";
 import { actionLabel, type AppAction } from "../keybindings.js";
@@ -78,10 +79,11 @@ function BlockView({ block, streaming, glyphs }: { block: TuiEventBlock; streami
 /** `CREW CODER`, then the reply as markdown. */
 function AssistantMessage({ text, streaming }: { text: string; streaming: boolean }): ReactNode {
   const theme = useTheme();
+  const { markdown } = useAppColors();
   return (
     <>
       <text fg={theme.colors.success} wrapMode="none" flexShrink={0}><b>CREW CODER</b></text>
-      <MarkdownText text={text} streaming={streaming} colors={{ base: bodyColor(theme, "assistant"), heading: theme.colors.primary }} />
+      <MarkdownText text={text} streaming={streaming} colors={{ base: bodyColor(theme, "assistant"), heading: markdown.heading }} />
     </>
   );
 }
@@ -107,7 +109,7 @@ function ReasoningPanel({ text, streaming, glyphs }: { text: string; streaming: 
   );
 }
 
-function MarkdownText({ text, streaming, colors }: { text: string; streaming: boolean; colors: MarkdownColors }): ReactNode {
+function MarkdownText({ text, streaming, colors }: { text: string; streaming: boolean; colors: MarkdownTextColors }): ReactNode {
   const theme = useTheme();
   const renderer = useRenderer();
   const style = useMarkdownStyle(theme, colors);
@@ -278,6 +280,7 @@ function FileDiffView({ diff, theme }: { diff: FileDiff; theme: Theme }): ReactN
 /** OpenTUI `<diff>`, highlighted by the edited file's language when a parser covers it. */
 function HighlightedDiff({ diff, theme }: { diff: FileDiff; theme: Theme }): ReactNode {
   const style = useCodeStyle(theme);
+  const { diff: colors } = useAppColors();
   const filetype = codeFiletype(diff.path);
   return (
     <diff
@@ -288,15 +291,15 @@ function HighlightedDiff({ diff, theme }: { diff: FileDiff; theme: Theme }): Rea
       wrapMode="word"
       showLineNumbers
       fg={theme.colors.foreground}
-      addedBg={DIFF_COLORS.addedBg}
-      removedBg={DIFF_COLORS.removedBg}
+      addedBg={colors.addedBg}
+      removedBg={colors.removedBg}
       contextBg={theme.colors.background}
       addedSignColor={theme.colors.success}
       removedSignColor={theme.colors.error}
       lineNumberFg={theme.colors.mutedForeground}
-      lineNumberBg={DIFF_COLORS.lineNumberBg}
-      addedLineNumberBg={DIFF_COLORS.addedLineNumberBg}
-      removedLineNumberBg={DIFF_COLORS.removedLineNumberBg}
+      lineNumberBg={colors.lineNumberBg}
+      addedLineNumberBg={colors.addedLineNumberBg}
+      removedLineNumberBg={colors.removedLineNumberBg}
     />
   );
 }
@@ -313,11 +316,12 @@ const LINE_TONE_COLORS: Readonly<Record<DiffLineTone, (theme: Theme) => string>>
 
 /** Diff lines with their +/- signs, tinted like the `<diff>` rows. */
 function DiffLines({ lines, theme }: { lines: readonly string[]; theme: Theme }): ReactNode {
+  const { diff: colors } = useAppColors();
   return (
     <box flexDirection="column" width="100%" flexShrink={0}>
       {lines.map((line, index) => {
         const tone = diffLineTone(line);
-        const bg = tone === "added" ? DIFF_COLORS.addedBg : tone === "removed" ? DIFF_COLORS.removedBg : undefined;
+        const bg = tone === "added" ? colors.addedBg : tone === "removed" ? colors.removedBg : undefined;
         const fg = tone === "plain" ? theme.colors.foreground : LINE_TONE_COLORS[tone](theme);
         return <text key={index} fg={fg} bg={bg} width="100%" wrapMode="word" flexShrink={0}>{line || " "}</text>;
       })}
@@ -345,7 +349,8 @@ function CodeOutput({ text, filetype, theme }: { text: string; filetype: string;
   // `<code>` draws its text buffer from its own left edge, so the indent comes from a box.
   return (
     <box width="100%" paddingLeft={OUTPUT_INDENT} flexShrink={0}>
-      <code content={text} filetype={filetype} syntaxStyle={style} fg={theme.colors.foreground} wrapMode="word" width="100%" />
+      {/* Source, not a rendered document: `# Title` and `**bold**` keep their markers (OpenTUI conceals by default). */}
+      <code content={text} filetype={filetype} syntaxStyle={style} fg={theme.colors.foreground} wrapMode="word" width="100%" conceal={false} />
     </box>
   );
 }

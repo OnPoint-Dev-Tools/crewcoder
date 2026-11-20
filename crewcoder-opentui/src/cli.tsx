@@ -4,13 +4,12 @@ import { readCrewCoderRemoteConnection } from "@onpoint-dev-tools/crewcoder-tui-
 import { readGitLabel, readGitLabelAsync, readGitRepoName } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
 import { createCliRenderer, type Selection } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { App } from "./App.js";
 import { mouseEnabled, parseArgs, USAGE } from "./args.js";
 import { spawnInTerminal } from "./hunk.js";
-import { ThemeProvider } from "./providers/theme-provider.js";
+import { Root } from "./Root.js";
 import { SessionController } from "./session-controller.js";
 import { registerBundledGrammars } from "./syntax/grammars.js";
-import { slateTheme } from "./theme.js";
+import { defaultThemeDirs, fileThemeStore, resolveStartupTheme } from "./theme-controller.js";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -22,11 +21,18 @@ async function main(): Promise<void> {
   if (parsed.remote) process.env.CREWCODER_REMOTE = parsed.remote;
   if (parsed.remoteCwd) process.env.CREWCODER_REMOTE_CWD = parsed.remoteCwd;
   if (parsed.remoteBin) process.env.CREWCODER_REMOTE_BIN = parsed.remoteBin;
+  // Before the renderer starts, so a bad --theme / CREWCODER_THEME fails with a
+  // plain error on a normal screen. A saved pick that broke falls back to slate.
+  const themeStore = fileThemeStore();
+  const themeDirs = defaultThemeDirs();
+  const startupTheme = resolveStartupTheme(parsed.theme, process.env.CREWCODER_THEME, themeStore, themeDirs);
 
   // Bundled Tree-sitter grammars (local files only) must be registered before
   // the first highlight starts OpenTUI's parser worker.
   registerBundledGrammars();
   const controller = new SessionController(new CrewCoderProcessBridge());
+  controller.themes.configure(startupTheme, themeStore, themeDirs);
+  if (startupTheme.warning) controller.alert({ variant: "warning", title: "Theme", body: startupTheme.warning });
   const remote = readCrewCoderRemoteConnection();
   if (remote) {
     // The workspace is `<target>:<cwd>` on the SSH host (sidebar footer, welcome
@@ -45,7 +51,7 @@ async function main(): Promise<void> {
     screenMode: "alternate-screen",
     // CREWCODER_TUI_MOUSE=0 leaves the mouse to the terminal (native selection).
     useMouse: mouseEnabled(),
-    backgroundColor: slateTheme.colors.background,
+    backgroundColor: controller.themes.current.ui.colors.background,
     onDestroy: () => controller.dispose()
   });
   // The mouse belongs to the UI, so a finished drag selection is copied over
@@ -77,11 +83,9 @@ async function main(): Promise<void> {
     process.exit(0);
   };
   controller.quit = quit;
-  createRoot(renderer).render(
-    <ThemeProvider theme={slateTheme}>
-      <App controller={controller} onQuit={quit} />
-    </ThemeProvider>
-  );
+  // /theme previews and picks: the terminal area outside the React tree follows too.
+  controller.themes.onChange = (theme) => renderer.setBackgroundColor(theme.ui.colors.background);
+  createRoot(renderer).render(<Root controller={controller} onQuit={quit} />);
 }
 
 main().catch((error: unknown) => {

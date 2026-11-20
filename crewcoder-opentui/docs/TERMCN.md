@@ -24,8 +24,9 @@ here**; there is no runtime termcn dependency. Attribution is in
 | `src/components/ui/confirm.tsx` | `opentui/confirm` | no global keyboard (upstream answered a bare `y`/`n` from anywhere; controlled `selected`); optional message row; `flexDirection="row"` answer row; answers clickable |
 | `src/components/ui/command-palette.tsx` | `opentui/command-palette` | renders a precomputed `PickerView` (filtering/grouping/windowing in `src/palette-model.ts`); keyboard routed by `App`; border title; current-value marker; theme tokens; per-picker hint row (`/sessions`: Tab branch) |
 
-Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. The slate theme
-(`src/theme.ts`) is CrewCoder's own, expressed as termcn `Theme` tokens.
+Upstream commit: `5a02dae79542add57ba392d2b51785138d0c3b6e`. Themes are
+CrewCoder's own (tui-core `theme/crewcoder-theme`, slate by default); `toAppTheme`
+(`src/theme.ts`) expresses them as termcn `Theme` tokens. See `THEMES.md`.
 
 ## Designs ported, not vendored
 

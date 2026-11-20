@@ -26,6 +26,7 @@ import type { LineAnchors } from "./tool-diff.js";
 import { pickerEntries, pickerMaxRows, pickerView, type PaletteCommand, type PickerView } from "./palette-model.js";
 import { PickerFlows } from "./picker-flows.js";
 import { PICKER_COMMANDS, type Picker } from "./pickers.js";
+import { ThemeController } from "./theme-controller.js";
 import type { ToolExpansion } from "./transcript.js";
 import { choiceAnswer, questionChoices, questionContentWidth, questionMaxRows, questionView, type QuestionAnswer, type QuestionBlock, type QuestionView } from "./question-model.js";
 
@@ -103,6 +104,8 @@ export class SessionController implements CommandHost {
   private readonly clipboard: ClipboardSource;
   /** The right sidebar (Ctrl+B, `/sidebar`): open state, width, crew tasks. */
   readonly sidebar: SidebarController;
+  /** The active theme and `/theme` (preview, apply, saved pick); configured by cli.tsx. */
+  readonly themes: ThemeController;
 
   constructor(
     bridge: SessionBridge,
@@ -116,6 +119,7 @@ export class SessionController implements CommandHost {
     readTasks: TaskReader | null = isCrewCoderRemote() ? null : readCrewTaskSnapshot
   ) {
     this.sidebar = new SidebarController(this, readTasks);
+    this.themes = new ThemeController(this);
     this.clipboard = clipboard;
     this.bridge = bridge;
     this.state = state;
@@ -176,6 +180,7 @@ export class SessionController implements CommandHost {
 
   /** Show a picker. Replacing a loading picker of the same kind keeps the query and a moved cursor. */
   openPicker(next: Picker): void {
+    if (this.picker?.kind === "theme" && next.kind !== "theme") this.themes.endPreview();
     const refresh = this.picker?.kind === next.kind && this.picker.loading;
     if (!refresh) this.pickerQuery = "";
     if (!refresh || this.pickerCursor === 0) {
@@ -188,6 +193,8 @@ export class SessionController implements CommandHost {
 
   closePicker(): void {
     if (!this.picker) return;
+    // Leaving /theme without Enter keeps the applied theme (a no-op after Enter applied one).
+    if (this.picker.kind === "theme") this.themes.endPreview();
     this.picker = undefined;
     this.pickerQuery = "";
     this.pickerCursor = 0;
@@ -198,6 +205,7 @@ export class SessionController implements CommandHost {
     if (!this.picker) return;
     this.pickerQuery = query;
     this.pickerCursor = 0;
+    this.previewHighlightedTheme();
     this.notify();
   }
 
@@ -205,7 +213,14 @@ export class SessionController implements CommandHost {
     if (!this.picker) return;
     const count = pickerEntries(this.picker.items, this.pickerQuery).length;
     this.pickerCursor = Math.max(0, Math.min(Math.max(0, count - 1), this.pickerCursor + delta));
+    this.previewHighlightedTheme();
     this.notify();
+  }
+
+  /** In /theme the highlighted theme is shown live; Esc returns to the applied one. */
+  private previewHighlightedTheme(): void {
+    if (this.picker?.kind !== "theme") return;
+    this.themes.preview(pickerEntries(this.picker.items, this.pickerQuery)[this.pickerCursor]?.id);
   }
 
   /** Apply the highlighted item. Async choices report failures as error alerts. */
@@ -214,6 +229,16 @@ export class SessionController implements CommandHost {
     if (!picker) return;
     const item = pickerEntries(picker.items, this.pickerQuery)[this.pickerCursor];
     if (!item) return;
+    if (picker.kind === "theme") {
+      // Applied synchronously before closing, so the old theme never flashes back for a frame.
+      const applied = this.flows.select("theme", item.id);
+      this.closePicker();
+      applied.then(
+        () => this.notify(),
+        (error: unknown) => this.alert({ variant: "error", title: `Could not apply theme ${item.id}`, body: errorMessage(error) })
+      );
+      return;
+    }
     this.closePicker();
     if (picker.kind === "commands" || picker.kind === "menu") {
       if (item.id.startsWith(DRAFT_PREFIX)) this.setComposerDraft(item.id.slice(DRAFT_PREFIX.length));

@@ -1,75 +1,102 @@
+import { slateCrewCoderTheme, type CrewCoderTheme, type MarkdownColors, type SyntaxColors } from "@onpoint-dev-tools/crewcoder-tui-core/theme/crewcoder-theme";
 import type { Theme } from "./components/ui/types.js";
 import { defaultTheme } from "./lib/terminal-themes/default.js";
 import type { TranscriptTone } from "./transcript.js";
 
-/** Minimal slate palette for the OpenTUI footer and native transcript. */
-export const slateTheme: Theme = {
-  ...defaultTheme,
-  name: "slate",
-  border: { color: "#3b414b", focusColor: "#a7adb7", style: "rounded" },
-  colors: {
-    background: "#101216",
-    foreground: "#d3d6dc",
-    primary: "#a7adb7",
-    primaryForeground: "#101216",
-    secondary: "#292d34",
-    secondaryForeground: "#d3d6dc",
-    accent: "#c0c5ce",
-    accentForeground: "#101216",
-    success: "#aab8ad",
-    successForeground: "#101216",
-    warning: "#c4b99f",
-    warningForeground: "#101216",
-    error: "#c28f91",
-    errorForeground: "#101216",
-    info: "#a7adb7",
-    infoForeground: "#101216",
-    muted: "#181b20",
-    mutedForeground: "#858c97",
-    border: "#3b414b",
-    focusRing: "#a7adb7",
-    selection: "#343942",
-    selectionForeground: "#e0e3e8"
-  }
+/** Inline diff row and gutter colors. */
+export type DiffColors = {
+  addedBg: string;
+  removedBg: string;
+  addedLineNumberBg: string;
+  removedLineNumberBg: string;
+  lineNumberBg: string;
 };
 
-/** Inline diff colors on the slate background: muted green/red row tints, success/error signs. */
-export const DIFF_COLORS = {
-  addedBg: "#18241c",
-  removedBg: "#2a1a1c",
-  addedLineNumberBg: "#1d2b21",
-  removedLineNumberBg: "#321f21",
-  lineNumberBg: "#15181d"
-} as const;
+/**
+ * Everything the UI colors with: termcn component tokens (`ui`, through
+ * `ThemeProvider`) plus the diff, Tree-sitter, and markdown element colors
+ * termcn has no tokens for (through `AppColorsContext`).
+ */
+export type AppTheme = {
+  ui: Theme;
+  diff: DiffColors;
+  syntax: SyntaxColors;
+  markdown: MarkdownColors;
+};
 
 /**
- * Tree-sitter scope colors, muted to sit on the slate background. Keys are
- * base capture names; OpenTUI falls back from `function.method` to `function`.
+ * Map a shared CrewCoder theme (the legacy token set used by theme JSON files)
+ * onto termcn tokens, so one file looks the same in both UIs. Text drawn on a
+ * colored chip uses the theme background.
  */
-export const SYNTAX_COLORS = {
-  keyword: "#b7a6cf",
-  string: "#a9bf9c",
-  number: "#d0b48f",
-  constant: "#d0b48f",
-  comment: "#6f7682",
-  function: "#94b3d1",
-  type: "#89bdb5",
-  property: "#c0c5ce",
-  operator: "#a7adb7",
-  punctuation: "#858c97",
-  tag: "#c99295",
-  attribute: "#d0b48f",
-  escape: "#c4b99f"
-} as const;
+export function toAppTheme(crew: CrewCoderTheme): AppTheme {
+  const onColor = crew.background;
+  const ui: Theme = {
+    ...defaultTheme,
+    name: crew.name,
+    border: { color: crew.border, focusColor: crew.borderStrong, style: "rounded" },
+    colors: {
+      background: crew.background,
+      foreground: crew.text,
+      primary: crew.primary,
+      primaryForeground: onColor,
+      secondary: crew.panelAlt,
+      secondaryForeground: crew.text,
+      accent: crew.accent,
+      accentForeground: onColor,
+      success: crew.success,
+      successForeground: onColor,
+      warning: crew.warning,
+      warningForeground: onColor,
+      error: crew.danger,
+      errorForeground: onColor,
+      // The legacy token set has no info color; links and hints use primary.
+      info: crew.primary,
+      infoForeground: onColor,
+      muted: crew.panel,
+      mutedForeground: crew.muted,
+      border: crew.border,
+      focusRing: crew.borderStrong,
+      selection: crew.selectedBg,
+      selectionForeground: crew.text
+    }
+  };
+  return {
+    ui,
+    diff: {
+      addedBg: crew.diffAddBg,
+      removedBg: crew.diffDelBg,
+      // Gutters are the row tint lifted slightly toward the text color.
+      addedLineNumberBg: mixHex(crew.diffAddBg, crew.text, GUTTER_LIFT),
+      removedLineNumberBg: mixHex(crew.diffDelBg, crew.text, GUTTER_LIFT),
+      lineNumberBg: crew.backgroundAlt
+    },
+    syntax: crew.syntax,
+    markdown: crew.markdown
+  };
+}
 
-/** Muted slate for reasoning text; termcn has no dedicated token for it. */
-export const THINKING_COLOR = "#858c97";
+const GUTTER_LIFT = 0.03;
+
+/** `from` moved `amount` (0..1) of the way to `to`; both `#rrggbb`. */
+export function mixHex(from: string, to: string, amount: number): string {
+  const channel = (hex: string, index: number): number => Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  return `#${[0, 1, 2].map((index) => {
+    const value = Math.round(channel(from, index) + (channel(to, index) - channel(from, index)) * amount);
+    return value.toString(16).padStart(2, "0");
+  }).join("")}`;
+}
+
+/** The default palette (minimal slate). */
+export const slateAppTheme: AppTheme = toAppTheme(slateCrewCoderTheme);
+/** Slate termcn tokens, for components and tests that only need `ui`. */
+export const slateTheme: Theme = slateAppTheme.ui;
 
 export function toneColor(theme: Theme, tone: TranscriptTone): string {
   switch (tone) {
     case "user": return theme.colors.primary;
     case "assistant": return theme.colors.success;
-    case "thinking": return THINKING_COLOR;
+    case "thinking": return theme.colors.mutedForeground;
     case "tool": return theme.colors.info;
     case "approval": return theme.colors.warning;
     case "error": return theme.colors.error;
@@ -78,6 +105,7 @@ export function toneColor(theme: Theme, tone: TranscriptTone): string {
   }
 }
 
+/** Reasoning text is muted; everything else uses the body color. */
 export function bodyColor(theme: Theme, tone: TranscriptTone): string {
-  return tone === "thinking" ? THINKING_COLOR : theme.colors.foreground;
+  return tone === "thinking" ? theme.colors.mutedForeground : theme.colors.foreground;
 }

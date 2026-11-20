@@ -105,6 +105,29 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   the injectable CLI: the agent enforces extension trust, `--` keeps arguments from being
   read as agent options, and it is never sent to the agent as a prompt.
 - Footer rows that must not wrap use `height={1}`, `wrapMode="none"`, `flexShrink={0}`.
+- Themes (`docs/THEMES.md`): slate is the default by owner decision; `dark` is Gotham and
+  `light` as in legacy. The loader, built-ins, and JSON schema are tui-core
+  `theme/crewcoder-theme`, shared with legacy (same names, same files); never fork them
+  here. `toAppTheme` (`src/theme.ts`) maps the shared tokens onto termcn tokens plus diff
+  and syntax colors. Components read colors only through `useTheme()` (termcn tokens) or
+  `useAppColors()` (diff, syntax, markdown); never hardcode a hex color or import a palette
+  in a component. Every built-in carries full `syntax` and `markdown` palettes (slate's
+  markdown colors equal what replies drew before); theme files may override any token and
+  choose their base with `extends` (default `dark`, legacy-compatible). `markupStyles` is
+  the one `markup.*` map for replies and markdown source; list every full capture name
+  (OpenTUI falls back only to the first segment). Read output passes `conceal={false}`:
+  a `.md` read shows its markers, highlighted, never rendered. `examples/themes/ember.json`
+  is the shipped full example; keep it setting every token.
+  Startup order is `--theme` > `CREWCODER_THEME` > saved `/theme` pick > slate
+  (`resolveStartupTheme`); `cli.tsx` resolves it before `createCliRenderer`, so a bad flag
+  or variable is a plain startup error, while a saved pick that broke falls back to slate
+  with a warning. `/theme` (`ThemeController`, `SessionController.themes`): the highlighted
+  theme previews live, Esc (`closePicker`) returns to the applied one, Enter applies before
+  the picker closes and saves to `$CREWCODER_HOME/opentui.json` through the injectable
+  `ThemeStore`. Tests configure temp dirs and an in-memory store; never let a test write the
+  real file. Unusable theme files are listed with the reason, never hidden. `Root` provides
+  `themes.current`, so anything that caches colors (native `SyntaxStyle`s) must rebuild
+  when they change (`useSyntaxStyle` deps).
 - The status line comes from the pure `status-line.ts` and reads only shared state
   (`fullAccess`, mode/worker, provider/model/effort, `gitRepo`, `blocks`, `usage`); usage
   uses tui-core's `formatContextStatus`, not a local copy. Access always shows (safety
@@ -240,7 +263,13 @@ src/tests/tool-presentation.test.ts   tool names across providers, targets, rela
                                       read filetype (never failures or line-numbered output)
 src/tests/grammars.test.ts            bundled grammar hashes + licenses, absolute local paths, missing grammars skipped,
                                       filetype rules, every grammar highlights in OpenTUI's real worker
-src/tests/app.test.tsx (syntax)       fenced block colored behind its rail, read output and <diff> colored by path, unknown language plain
+src/tests/app.test.tsx (syntax)       fenced block colored behind its rail, read output and <diff> colored by path, unknown language plain,
+                                      a custom theme's syntax palette reaches rendered code, reply markdown elements in theme colors
+                                      (markers hidden), .md read highlighted with markers kept, ```markdown fence kept as source
+src/tests/theme.test.ts               slate palette and markdown styles unchanged, shared tokens -> termcn/diff/syntax/markdown,
+                                      every markup capture in OpenTUI's markdown queries styled, ember example loads/full/readable
+../crewcoder-tui-core/src/tests/crewcoder-theme.test.ts  built-ins (slate, Gotham base colors), files, extends, syntax, vars/256,
+                                      readable errors with the file path, $CREWCODER_HOME/themes
 src/tests/path-suggestions.test.ts    @ token parsing (no emails), file vs directory insert, list window, walker order/ignores/matching
 src/tests/attachments.test.ts         clipboard image -> cache, clipboard text naming images, plain text passthrough, source dedupe
 src/tests/app.test.tsx (shortcuts)    Ctrl+V image row + send alone with --image, Ctrl+X clear, Ctrl+V text, dropped path attaches,
@@ -270,7 +299,12 @@ src/tests/command-runner.test.ts      every non-picker command against FakeCli/F
                                       /diff arguments and Hunk failures, /repaint and /redraw, /quit, /ext.* args after --
 src/tests/app.test.tsx                bare "y" never approves; abort, quit; unfocused keys/pastes/Ctrl+C dropped; approval buttons;
                                       welcome screen centered, left on first prompt, restored by /new
-src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags, key labels
+src/tests/keybindings-args.test.ts    chord matching, overrides, CLI flags (--theme), key labels
+src/tests/theme-controller.test.ts    startup order (flag > env > saved > slate), broken saved pick falls back with a warning,
+                                      opentui.json store, list groups/order, unusable + shadowed files, alias, path theme,
+                                      preview/Esc/apply/save, override and save-failure notes
+src/tests/app.test.tsx (/theme)       palette list, live preview on arrows, Esc keeps the applied theme, Enter applies + saves
+                                      and recolors code already on screen, /theme <name>, unknown theme leaves it unchanged
 src/tests/question-model.test.ts      question wrapping, option rows, windowing, answers, height cap
 src/tests/sidebar-model.test.ts       width bounds, exact height, anchored <cwd>:<git> / <target>:<cwd> footer, cell wrapping,
                                       file budget + "… N more", file-changes off, agents only while live, task markers, SSH note

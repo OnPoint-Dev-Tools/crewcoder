@@ -36,6 +36,7 @@ alert; bad values report what is accepted.
 | `/branch <id>` | Branch a saved session (exact id or unique prefix) and open the branch, like Tab in `/sessions`. |
 | `/rewind latest|<id>` | Preview and restore that checkpoint (confirm if it deletes files). |
 | `/handoff worker:<name> [prompt]` | Hand off with an optional continuation prompt. |
+| `/theme ember`, `/theme ./mine.json` | Apply and save that theme (see `THEMES.md`). |
 
 | Command | Picker | On select |
 |---|---|---|
@@ -46,6 +47,7 @@ alert; bad values report what is accepted.
 | `/prompts` | Custom system prompts | Select after confirming it exists. |
 | `/tool-mode` | Provider-native or CrewCoder tools | Saved for new sessions. Refused during a run. |
 | `/profile` | `standalone` or `crewcode` | Saved for the project; standalone leaves `plugin` mode. |
+| `/theme` (`/themes`) | Built-in, your themes, shipped examples; unusable files with the reason | The highlighted theme previews live; **Enter** applies and saves it to `$CREWCODER_HOME/opentui.json`; **Esc** keeps the applied one. See `THEMES.md`. |
 | `/remove-dir` | Granted external directories | Revoke the grant. |
 | `/commands` | Saved prompt commands | Insert into the composer (multi-line kept). |
 | `/skills` | Saved skills | Attach to your next message only. |

@@ -62,8 +62,13 @@ installs (this package is an optional dependency of the umbrella).
 
 ## Colors
 
-`SYNTAX_COLORS` (`src/theme.ts`) holds muted colors for the slate background, and
-`codeStyles()` (`src/markdown-style.ts`) maps capture names to them. OpenTUI resolves a
+Colors come from the active theme's `syntax` palette (`useAppColors().syntax`; every
+built-in has one, and theme files can override any token; see `THEMES.md`). Markdown
+source (`.md` reads and diffs, ```` ```markdown ```` fences) uses OpenTUI's markdown
+grammar and the theme's `markdown` colors through `markupStyles`. Read output is never
+concealed (`<code conceal={false}>`; OpenTUI conceals by default), so `# Title` and
+`**bold**` show exactly as in the file.
+`codeStyles(syntax)` (`src/markdown-style.ts`) maps capture names to them. OpenTUI resolves a
 dotted capture to its first segment (`function.method` to `function`), so base names
 cover most captures. Variables keep the surrounding text color.
 
