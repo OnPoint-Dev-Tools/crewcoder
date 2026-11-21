@@ -15,6 +15,8 @@ export default defineConfig({
     jsxImportSource: "@opentui/react"
   },
   test: {
+    // Private CrewCoder home and no operator CREWCODER_* settings (`src/tests/test-env-setup.ts`).
+    setupFiles: ["src/tests/test-env-setup.ts"],
     pool: "forks",
     testTimeout: 10_000,
     hookTimeout: 10_000

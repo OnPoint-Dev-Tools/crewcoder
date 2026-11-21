@@ -145,7 +145,7 @@ describe("full-screen transcript", () => {
 
     bridge.emit({ type: "usage_update", summary: { turns: 1, contextWindow: 200_000, lastInputTokens: 12_400, totalTokens: 15_000, costUsd: 0.034 } });
     const live = await setup.waitForFrame((text) => statusRow(text).includes("$0.03"));
-    expect(statusRow(live)).toContain("Review · general · claude/");
+    expect(statusRow(live)).toContain("Review · general · codex-cli/");
     expect(statusRow(live).trimEnd().endsWith("◔ 12.4k/200k - 6% | 15k tokens | $0.03")).toBe(true);
 
     controller.state.fullAccess = true;
@@ -158,7 +158,7 @@ describe("full-screen transcript", () => {
     bridge.emit({ type: "agent_end" });
     const frame = await setup.waitForFrame((text) => text.includes("Ask CrewCoder") && !text.includes("Type your first request") && !text.includes("Working"));
     const rows = frame.split("\n").slice(0, 24);
-    expect(rows[23]).toContain("claude");
+    expect(rows[23]).toContain("codex-cli");
     expect(rows[21]).toContain("Ask CrewCoder");
   });
 

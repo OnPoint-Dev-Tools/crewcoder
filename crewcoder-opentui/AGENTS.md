@@ -338,6 +338,11 @@ mise exec node@26 -- npm run typecheck -w @onpoint-dev-tools/crewcoder-opentui
 mise exec node@26 -- npm test -w @onpoint-dev-tools/crewcoder-opentui
 ```
 
+`src/tests/test-env-setup.ts` (vitest `setupFiles`) gives every test file a private
+`CREWCODER_HOME` and removes the operator's `CREWCODER_*` variables, so a local
+`CREWCODER_PROVIDER` cannot make tests pass that fail on CI. Never remove it; tests that need
+a variable set it themselves.
+
 Tests that protect current behavior:
 
 ```txt
