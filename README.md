@@ -26,7 +26,7 @@ This directory is an npm-workspaces monorepo for the CrewCoder Packages. The roo
 
 ## Install CrewCoder
 
-Requires Node.js 22 or newer for the agent. The terminal UI that bare `crewcoder` opens ([`crewcoder-opentui`](crewcoder-opentui/README.md), a preview built on OpenTUI) needs Node.js 26.4 or newer and is an optional part of the install: on older Node.js, unsupported platforms, or headless machines, `crewcoder` still installs and every agent command works. The original UI stays available as the [legacy `crewcoder-tui`](crewcoder-tui/README.md) package on Node.js 22+.
+Requires Node.js 22 or newer for the agent. The terminal UI that bare `crewcoder` opens ([`crewcoder-opentui`](crewcoder-opentui/README.md), a preview built on OpenTUI) needs Node.js 26.4 or newer and is an optional part of the install. On older Node.js or platforms without an OpenTUI native build, bare `crewcoder` opens the bundled [legacy `crewcoder-tui`](crewcoder-tui/README.md) (Node.js 22+) instead and prints how to get the new UI. On headless machines `crewcoder` still installs and every agent command works.
 
 ### Try it with npx
 
@@ -34,7 +34,7 @@ Requires Node.js 22 or newer for the agent. The terminal UI that bare `crewcoder
 npx crewcoder
 ```
 
-`npx` downloads CrewCoder into npm's cache and launches the TUI without creating a persistent global installation. Without Node.js 26.4+ or an interactive terminal, it prints how to continue instead.
+`npx` downloads CrewCoder into npm's cache and launches the TUI without creating a persistent global installation. Without Node.js 26.4+ it opens the legacy UI and says how to get the new one; without an interactive terminal it prints how to continue instead.
 
 ### Install globally
 

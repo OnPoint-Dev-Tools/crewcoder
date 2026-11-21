@@ -1,8 +1,8 @@
 {
    "name": "@onpoint-dev-tools/crewcoder-tui",
-   "version": "0.6.4",
+   "version": "0.6.5",
    "private": false,
-   "description": "Legacy CrewCoder terminal UI (custom renderer). The crewcoder umbrella now ships crewcoder-opentui; install this package directly to keep the legacy UI.",
+   "description": "Legacy CrewCoder terminal UI (custom renderer). The crewcoder umbrella opens crewcoder-opentui and falls back to this UI where OpenTUI cannot run (Node.js below 26.4 or no OpenTUI native build).",
    "license": "Apache-2.0",
    "repository": {
       "type": "git",

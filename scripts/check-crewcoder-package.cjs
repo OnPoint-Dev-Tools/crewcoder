@@ -5,15 +5,17 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+// The legacy terminal UI is the launcher's fallback wherever OpenTUI cannot run.
+const legacyTui = "@onpoint-dev-tools/crewcoder-tui";
 const requiredDependencies = [
   "@onpoint-dev-tools/crewcoder-agent",
+  legacyTui,
   // The published agent currently imports the TypeScript compiler at runtime.
   "typescript"
 ];
 // The OpenTUI terminal UI needs Node.js >=26.4 and native binaries, so it stays
 // optional: headless installs on VPSs and sandboxes must succeed without it.
 const optionalTui = "@onpoint-dev-tools/crewcoder-opentui";
-const legacyTui = "@onpoint-dev-tools/crewcoder-tui";
 
 for (const dependency of requiredDependencies) {
   if (typeof manifest.dependencies?.[dependency] !== "string") {
@@ -25,8 +27,9 @@ if (typeof manifest.optionalDependencies?.[optionalTui] !== "string" || manifest
   console.error(`${optionalTui} must be an optionalDependency of the umbrella, not a required dependency.`);
   process.exit(1);
 }
-if (manifest.dependencies?.[legacyTui] !== undefined || manifest.optionalDependencies?.[legacyTui] !== undefined) {
-  console.error(`${legacyTui} is published separately as the legacy UI and must not be an umbrella dependency.`);
+const legacyTuiVersion = JSON.parse(fs.readFileSync(path.join(root, "crewcoder-tui", "package.json"), "utf8")).version;
+if (manifest.optionalDependencies?.[legacyTui] !== undefined || manifest.dependencies[legacyTui] !== legacyTuiVersion) {
+  console.error(`${legacyTui} must be a required umbrella dependency pinned exactly to ${legacyTuiVersion}: it is the fallback UI where OpenTUI cannot run.`);
   process.exit(1);
 }
 if (manifest.bin?.crewcoder !== "./bin/crewcoder.js" || manifest.bin?.crew !== "./bin/crewcoder.js" || manifest.bin?.cc !== undefined) {

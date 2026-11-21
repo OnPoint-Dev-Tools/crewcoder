@@ -1,9 +1,10 @@
 # CrewCoder TUI (legacy)
 
 CrewCoder TUI is the original custom terminal UI package for CrewCoder. The `crewcoder`
-umbrella package now opens the [OpenTUI-based UI](../crewcoder-opentui/README.md); this
-package remains published and maintained for users who prefer it, and it runs on
-Node.js 22 or newer:
+umbrella package now opens the [OpenTUI-based UI](../crewcoder-opentui/README.md) and
+falls back to this UI where OpenTUI cannot run (Node.js below 26.4, or no OpenTUI native
+build). This package remains published and maintained for users who prefer it, and it
+runs on Node.js 22 or newer:
 
 ```bash
 npm install --global @onpoint-dev-tools/crewcoder-tui
@@ -211,7 +212,7 @@ npm install --global crewcoder   # persistent install
 crewcoder
 ```
 
-For monorepo development, continue linking both workspace packages separately. `crewcoder` with no arguments launches this TUI. Use `crewcoder run ...` and other argument-bearing commands for the agent CLI.
+For monorepo development, continue linking both workspace packages separately. The scoped agent's `crewcoder` with no arguments launches this TUI; the umbrella's launches OpenTUI and falls back to this one. Use `crewcoder run ...` and other argument-bearing commands for the agent CLI.
 
 ## Build
 

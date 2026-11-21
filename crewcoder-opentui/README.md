@@ -18,9 +18,9 @@
 - An interactive terminal.
 
 The umbrella lists this package as an **optional** dependency, so `npm i -g crewcoder` still
-succeeds on Node 22, on other platforms, and in headless sandboxes or VPS images. There,
-bare `crewcoder` prints guidance instead of starting, and agent commands
-(`crewcoder run ...`) work normally.
+succeeds on Node 22, on other platforms, and in headless sandboxes or VPS images. Where
+this UI cannot run, bare `crewcoder` opens the legacy UI instead and prints how to get
+this one; agent commands (`crewcoder run ...`) work normally.
 
 ## Usage
 

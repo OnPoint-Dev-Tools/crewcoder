@@ -3,15 +3,16 @@
 The unscoped `crewcoder` npm package is the supported umbrella launcher. It declares:
 
 - `@onpoint-dev-tools/crewcoder-agent` as a required dependency (Node.js 22+).
+- `@onpoint-dev-tools/crewcoder-tui`, the legacy terminal UI, as a required dependency
+  (Node.js 22+). Bare `crewcoder` falls back to it wherever OpenTUI cannot run.
 - `@onpoint-dev-tools/crewcoder-opentui`, the OpenTUI terminal UI (preview), as an
   **optional** dependency. It needs Node.js 26.4+ and an OpenTUI native build for the
   platform (Linux x64/arm64 glibc or musl, macOS x64/arm64, Windows x64/arm64). npm
   skips it when it cannot be installed, so headless servers and sandboxes still get a
   working agent.
 
-The original terminal UI is published separately as the legacy
-`@onpoint-dev-tools/crewcoder-tui` package (Node.js 22+) and is no longer part of the
-umbrella.
+The legacy UI is also published on its own (`crewcoder-tui` command) for users who
+prefer it.
 
 ## Try without a persistent install
 
@@ -50,25 +51,28 @@ npm install --global crewcoder@latest
 crew
 ```
 
-Node.js 22 or newer is required; the terminal UI additionally needs Node.js 26.4 or newer.
+Node.js 22 or newer is required; the new terminal UI additionally needs Node.js 26.4 or newer.
 
-## When bare `crewcoder` does not open the TUI
+## Which UI bare `crewcoder` opens
 
-A bare `crewcoder` exits with status 1 and a short explanation instead of starting the
-UI when:
+| Situation | Result |
+|---|---|
+| Interactive terminal, Node.js 26.4+, OpenTUI installed | The new OpenTUI UI. |
+| Node.js older than OpenTUI's `engines.node` floor (`>=26.4.0`) | The legacy UI, with a notice. |
+| `@onpoint-dev-tools/crewcoder-opentui` not installed (npm skipped the optional dependency) | The legacy UI, with a notice. |
+| stdin or stdout is not an interactive terminal (CI, pipes, `ssh host crewcoder`) | Exits with status 1 and a short explanation. |
+| Neither UI installed (a damaged install) | Exits with status 1 and says to reinstall. |
 
-- stdin or stdout is not an interactive terminal (CI, pipes, `ssh host crewcoder`);
-- `@onpoint-dev-tools/crewcoder-opentui` is not installed (npm skipped the optional
-  dependency); or
-- the running Node.js is older than the UI's `engines.node` floor (`>=26.4.0`).
+The notice goes to stderr before the legacy UI starts and again after it exits. It says
+why the new UI did not open and how to get it, for example:
 
-Agent commands with arguments are unaffected. To keep a terminal UI on Node.js 22,
-install the legacy UI:
-
-```sh
-npm install --global @onpoint-dev-tools/crewcoder-tui
-crewcoder-tui
+```txt
+crewcoder: The new terminal UI needs Node.js >=26.4.0 (current 22.13.1). Using the legacy terminal UI instead. To use the new UI, upgrade Node.js to 26.4.0 or newer and run `crewcoder` again.
 ```
+
+If npm skipped OpenTUI because Node.js was too old at install time, upgrade Node.js and
+reinstall (`npm install --global crewcoder`) so npm installs it. Agent commands with
+arguments are unaffected in every case.
 
 ## Update a global installation
 

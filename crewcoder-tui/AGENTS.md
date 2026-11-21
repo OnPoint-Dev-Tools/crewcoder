@@ -5,7 +5,8 @@
 This package is `@onpoint-dev-tools/crewcoder-tui`.
 
 It is the **legacy** custom-renderer terminal UI for CrewCoder. The `crewcoder` umbrella
-now launches `@onpoint-dev-tools/crewcoder-opentui`; this package stays published for
+now launches `@onpoint-dev-tools/crewcoder-opentui` and falls back to this package (a
+required umbrella dependency) where OpenTUI cannot run; it also stays published for
 users who prefer it (`npm i -g @onpoint-dev-tools/crewcoder-tui`, then `crewcoder-tui`).
 Keep it working; do not deprecate or delete it without the owner's decision.
 
@@ -123,7 +124,7 @@ For user-facing rendering, prefer `ctx.theme` tokens over hardcoded hex colors s
 
 ## CLI launch
 
-The scoped agent package's bare `crewcoder` launches the `crewcoder-tui` binary from `PATH`. The `crewcoder` umbrella's bare invocation launches `crewcoder-opentui` instead (see the root `AGENTS.md`). Keep the TUI's backend invocations argument-bearing (`crewcoder run`, `crewcoder session ...`) so they continue to target the agent CLI instead of reopening the TUI.
+The scoped agent package's bare `crewcoder` launches the `crewcoder-tui` binary from `PATH`. The `crewcoder` umbrella's bare invocation launches `crewcoder-opentui` instead, and this UI only as its Node.js 22+ fallback (see the root `AGENTS.md`); keep this package's `engines.node` at `>=22.0.0`. Keep the TUI's backend invocations argument-bearing (`crewcoder run`, `crewcoder session ...`) so they continue to target the agent CLI instead of reopening the TUI.
 
 ## Remote SSH agents
 
