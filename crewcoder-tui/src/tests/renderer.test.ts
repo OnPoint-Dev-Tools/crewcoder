@@ -96,6 +96,60 @@ describe("Renderer terminal integration", () => {
     expect(out.output).toContain("\x1b[3;1H");
   });
 
+  it("clears a full-screen frame on stop after restoring terminal colors", () => {
+    const out = fakeWriteStream();
+    const renderer = new Renderer(new StaticRoot(), crewCoderTheme, out);
+    renderer.start();
+
+    out.output = "";
+    renderer.stop();
+
+    // The cleared screen must use the terminal's own background, and nothing may
+    // follow the clear: the shell prompt (or a launcher notice) starts at the top.
+    expect(out.output.endsWith("\x1b]111\x07\x1b[2J\x1b[H")).toBe(true);
+  });
+
+  it("erases only the live tail on stop in conversation view, keeping transcript history", () => {
+    const out = fakeWriteStream();
+    const root = new ScrollbackRoot();
+    root.live = ["working", "composer"];
+    const renderer = new Renderer(root, crewCoderTheme, out);
+    renderer.start();
+
+    out.output = "";
+    renderer.stop();
+
+    expect(out.output.endsWith("\x1b]111\x07\x1b[1G\x1b[1A\x1b[J\x1b[1G")).toBe(true);
+    expect(out.output).not.toContain("\x1b[2J");
+    expect(out.output).not.toContain("\x1b[3J");
+  });
+
+  it("restores the terminal only once when stop runs from both an explicit stop and the exit hook", () => {
+    const out = fakeWriteStream();
+    const renderer = new Renderer(new StaticRoot(), crewCoderTheme, out);
+    renderer.start();
+    renderer.stop();
+
+    out.output = "";
+    renderer.stop();
+
+    expect(out.output).toBe("");
+  });
+
+  it("clears the full-screen frame when stopping from an overlay opened over the conversation", () => {
+    const out = fakeWriteStream();
+    const root = new ScrollbackRoot();
+    const renderer = new Renderer(root, crewCoderTheme, out);
+    renderer.start();
+    root.screen = true;
+    renderer.render();
+
+    out.output = "";
+    renderer.stop();
+
+    expect(out.output.endsWith("\x1b[2J\x1b[H")).toBe(true);
+  });
+
   it("enables and resets terminal focus reporting for instance-local input", () => {
     const out = fakeWriteStream();
     const renderer = new Renderer(new StaticRoot(), crewCoderTheme, out);

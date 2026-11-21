@@ -35,6 +35,7 @@ export class Renderer {
   }
 
   stop(): void {
+    if (!this.running) return;
     this.running = false;
     this.cancelImageRedraw();
     this.deleteKittyImages(this.previousImagePlacements);
@@ -44,7 +45,29 @@ export class Renderer {
     this.drawnImageSignature = "";
     this.setMouseEnabled(false);
     this.setAutowrap(true);
-    this.out.write(disableKeyboardProtocol() + disableBracketedPaste() + disableFocusReporting() + showCursor() + reset() + resetTerminalBackground() + "\n");
+    // Restore terminal colors first so the cleared area takes the user's own background.
+    this.out.write(disableKeyboardProtocol() + disableBracketedPaste() + disableFocusReporting() + showCursor() + reset() + resetTerminalBackground());
+    this.clearOnExit();
+  }
+
+  /**
+   * Leave the terminal clean for the shell (and anything printed after exit, such as the
+   * umbrella launcher's fallback notice). A full-screen frame is cursor-addressed and
+   * would otherwise stay on screen under the prompt, so it is cleared. Conversation view
+   * keeps its committed transcript in native scrollback as the user's history; only the
+   * live tail (streaming block, working indicator, composer) is erased.
+   */
+  private clearOnExit(): void {
+    if (this.writeMode === "scrollback") {
+      this.eraseLive();
+      this.out.write(cursorToColumn(1));
+    } else {
+      this.out.write(clearScreen());
+    }
+    this.previousLines = [];
+    this.previousSettled = [];
+    this.previousLive = [];
+    this.liveHeight = 0;
   }
 
   render(force = false): void {

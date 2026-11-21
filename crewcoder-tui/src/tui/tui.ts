@@ -14,6 +14,7 @@ export class CrewCoderTui {
   private readonly renderer: Renderer;
   private readonly input = new InputRouter();
   private renderTimer: NodeJS.Timeout | undefined;
+  private cleanedUp = false;
 
   constructor(themeSelector?: string) {
     this.state = createInitialState();
@@ -39,15 +40,25 @@ export class CrewCoderTui {
     this.input.onInput((event) => { this.overlays.handleInput?.(event); this.renderer.render(); });
     process.on("SIGINT", () => this.stop());
     process.on("SIGTERM", () => this.stop());
+    // Ctrl+C in the composer and /quit call process.exit() directly. Restoring the
+    // terminal (raw mode, mouse/focus/keyboard protocols, background, screen) on the
+    // synchronous exit hook covers those paths and any other exit as well.
+    process.once("exit", () => this.cleanup());
     process.stdout.on("resize", () => this.renderer.render(true));
     this.renderTimer = setInterval(() => this.renderer.render(), 120);
   }
 
   stop(): void {
+    this.cleanup();
+    process.exit(0);
+  }
+
+  private cleanup(): void {
+    if (this.cleanedUp) return;
+    this.cleanedUp = true;
     this.app.stop();
     if (this.renderTimer) clearInterval(this.renderTimer);
     this.input.stop();
     this.renderer.stop();
-    process.exit(0);
   }
 }

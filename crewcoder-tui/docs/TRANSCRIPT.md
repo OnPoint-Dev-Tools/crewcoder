@@ -42,6 +42,23 @@ characters so output cannot overwrite neighboring rows.
 
 Regression coverage: `src/tests/transcript-containment.test.ts`.
 
+## Exit
+
+Every exit path (Ctrl+C in the composer, `/quit`, SIGINT/SIGTERM) restores the
+terminal through `CrewCoderTui.cleanup()`, which also runs on the process `exit`
+hook because Ctrl+C and `/quit` call `process.exit()` directly. `Renderer.stop()`
+is idempotent: it turns off mouse, focus, keyboard, and bracketed-paste reporting,
+shows the cursor, resets the background (OSC 111), and then:
+
+- in conversation view, erases only the live tail (composer, working indicator),
+  so the committed transcript stays in scrollback and the shell prompt follows the
+  last reply;
+- in a full-screen view (home, sidebar, overlays), clears the screen and homes the
+  cursor, so nothing is left under the prompt or under the umbrella launcher's
+  fallback notice.
+
+Regression coverage: `src/tests/renderer.test.ts`.
+
 ## Limitations
 
 - New output (streaming tokens, spinner ticks) typically jumps the terminal
