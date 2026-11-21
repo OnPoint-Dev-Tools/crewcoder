@@ -1,5 +1,6 @@
 import {
   isCrewCoderRemote,
+  parseExtensionRendererRecords,
   type CrewCoderCrewOptions,
   type CrewCoderCrewTarget,
   type CrewCoderEventHandler,
@@ -29,6 +30,7 @@ import { pickerEntries, pickerMaxRows, pickerView, type PaletteCommand, type Pic
 import { PickerFlows } from "./picker-flows.js";
 import { PICKER_COMMANDS, type Picker } from "./pickers.js";
 import { TranscriptSearch } from "./search-controller.js";
+import { editGoalField, GOAL_FIELDS, initialGoalForm, selectGoalField, submitGoalForm, type GoalDefaults, type GoalFormState } from "./goal-form.js";
 import { ThemeController } from "./theme-controller.js";
 import { handoffEnv, removeCrewHandoff, tmuxAttachHint, writeCrewHandoff, type TmuxLauncher } from "./tmux.js";
 import type { ToolExpansion } from "./transcript.js";
@@ -94,6 +96,8 @@ export class SessionController implements CommandHost {
   currentAlert: FooterAlert | undefined;
   /** The compaction summary being edited, if any. */
   editor: SummaryEditorState | undefined;
+  /** The bare `/goal` preflight form, if open (`goal-form.ts`). */
+  goalForm: GoalFormState | undefined;
   /** Hands the terminal to a full-screen program such as Hunk (`/diff`); wired by cli.tsx. */
   runInTerminal: TerminalRun | undefined;
   /** `/repaint`: redraws every cell, discarding whatever else wrote to the terminal; wired by cli.tsx. */
@@ -303,10 +307,13 @@ export class SessionController implements CommandHost {
     return this.picker ? pickerView(this.picker.items, this.pickerQuery, this.pickerCursor, pickerMaxRows(terminalHeight)) : undefined;
   }
 
-  /** Rows the alert and composer take; the welcome screen hides the logo when they do not fit. */
-  footerExtras(): FooterExtras {
+  /**
+   * Rows the alert and composer take; the welcome screen hides the logo when they do not
+   * fit. `alertWidth` is the alert box's width, since long alert text wraps.
+   */
+  footerExtras(alertWidth: number): FooterExtras {
     return {
-      alertRows: alertRows(this.currentAlert),
+      alertRows: alertRows(this.currentAlert, alertWidth),
       composerRows: composerRows(this.composerLines),
       mentionRows: this.mention ? mentionRows(this.mention.items.length) : 0,
       attachmentRows: this.state.attachments.length > 0 ? 1 : 0
@@ -374,6 +381,23 @@ export class SessionController implements CommandHost {
           this.notify();
         }, () => undefined);
       }
+  }
+
+  /**
+   * Extension tool renderers (`docs/TRANSCRIPT.md#extension-tool-renderers`): declarative
+   * templates from `crewcoder extension renderers --json`, through the injectable CLI so
+   * remote mode asks the SSH host. Loaded at startup and by `/reload`; a failure keeps the
+   * previous list (tools then draw as usual) and says why.
+   */
+  async loadExtensionRenderers(): Promise<void> {
+    try {
+      const { stdout, stderr, exitCode } = await this.cli.exec(["extension", "renderers", "--json"]);
+      if (exitCode !== 0) throw new Error(stderr.trim() || `extension renderers exited with code ${exitCode}`);
+      this.state.rendererHooks = parseExtensionRendererRecords(JSON.parse(stdout || "[]"));
+      this.notify();
+    } catch (error) {
+      this.alert({ variant: "warning", title: "Could not load extension tool renderers", body: errorMessage(error) });
+    }
   }
 
   /**
@@ -523,6 +547,62 @@ export class SessionController implements CommandHost {
     const next = Math.max(1, lines);
     if (next === this.composerLines) return;
     this.composerLines = next;
+    this.notify();
+  }
+
+  // ── /goal preflight form ─────────────────────────────────────────────────────
+
+  /** Bare `/goal`: settings for this goal only, prefilled from `config.goals`. The draft is kept. */
+  openGoalForm(defaults: GoalDefaults): void {
+    this.preserveComposerDraft();
+    this.picker = undefined;
+    this.goalForm = initialGoalForm(defaults);
+    this.notify();
+  }
+
+  selectGoalField(index: number): void {
+    if (!this.goalForm) return;
+    this.goalForm = selectGoalField(this.goalForm, index);
+    this.notify();
+  }
+
+  moveGoalField(delta: number): void {
+    if (this.goalForm) this.selectGoalField(this.goalForm.selected + delta);
+  }
+
+  editGoalField(value: string): void {
+    if (!this.goalForm) return;
+    this.goalForm = editGoalField(this.goalForm, value);
+    this.notify();
+  }
+
+  /** Enter: the next field, or start the goal from the last one (legacy). */
+  goalFormEnter(): void {
+    if (!this.goalForm) return;
+    if (this.goalForm.selected < GOAL_FIELDS.length - 1) this.moveGoalField(1);
+    else this.submitGoalForm();
+  }
+
+  /** Ctrl+S: start the goal, or show what is wrong on that field. */
+  submitGoalForm(): void {
+    if (!this.goalForm) return;
+    const result = submitGoalForm(this.goalForm);
+    if ("form" in result) {
+      this.goalForm = result.form;
+      this.notify();
+      return;
+    }
+    this.goalForm = undefined;
+    this.notify();
+    this.commands.startGoal(result.start).then(
+      () => this.notify(),
+      (error: unknown) => this.alert({ variant: "error", title: "Could not start the goal", body: errorMessage(error) })
+    );
+  }
+
+  closeGoalForm(): void {
+    if (!this.goalForm) return;
+    this.goalForm = undefined;
     this.notify();
   }
 

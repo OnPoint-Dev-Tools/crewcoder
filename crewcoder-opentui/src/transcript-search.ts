@@ -4,6 +4,10 @@ import { blockPanel, isPanelBlock } from "./block-panels.js";
 import { toolDiffs, type LineAnchors } from "./tool-diff.js";
 import { COLLAPSED_OUTPUT_LINES, toolPresentation } from "./tool-presentation.js";
 import { blockToRow, normalize, type ToolBlock } from "./transcript.js";
+import { workflowTexts, workflowView } from "./workflow-tools.js";
+import { renderedTool } from "./tool-renderer-view.js";
+import { findToolRenderer } from "@onpoint-dev-tools/crewcoder-tui-core/state/tool-renderers";
+import type { TuiRendererHook } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 /**
  * Transcript search (`docs/TRANSCRIPT.md#search`): which blocks match a query,
@@ -60,8 +64,8 @@ function exactOccurrences(text: string, query: string): Array<[number, number]> 
 }
 
 /** The searchable text of one block, in the order the transcript draws it. */
-export function searchableParts(block: TuiEventBlock, cwd: string, anchors?: LineAnchors): SearchPart[] {
-  if (block.type === "tool") return toolParts(block, cwd, anchors);
+export function searchableParts(block: TuiEventBlock, cwd: string, anchors?: LineAnchors, renderers: readonly TuiRendererHook[] = []): SearchPart[] {
+  if (block.type === "tool") return toolParts(block, cwd, anchors, renderers);
   if (block.type === "approval") {
     const status = block.status === "pending" ? "waiting for approval" : block.status;
     return parts([`Approval · ${block.toolName ?? "tool"} · ${status}`, block.resolutionReason ? normalize(block.resolutionReason) : undefined]);
@@ -79,9 +83,21 @@ function parts(texts: ReadonlyArray<string | undefined>): SearchPart[] {
 }
 
 /** Title row (title, target, status), then the output or the edit's diff lines. */
-function toolParts(block: ToolBlock, cwd: string, anchors?: LineAnchors): SearchPart[] {
+function toolParts(block: ToolBlock, cwd: string, anchors: LineAnchors | undefined, renderers: readonly TuiRendererHook[]): SearchPart[] {
   const tool = toolPresentation(block, cwd, "text");
   const status = block.status === "running" ? "running…" : tool.failed ? "failed" : undefined;
+  // An extension renderer replaces the whole view: its title, source, and filled-in template.
+  const renderer = findToolRenderer(block, renderers);
+  if (renderer) {
+    const view = renderedTool(block, renderer);
+    return parts([[view.title, view.source, status].filter(Boolean).join(" "), view.body]);
+  }
+  const workflow = workflowView(block);
+  // A plan or clarify step shows its arguments, never collapsed, instead of a target and output.
+  if (workflow) {
+    const header = [workflow.title, status].filter(Boolean).join(" ");
+    return [header, ...workflowTexts(workflow)].map((text): SearchPart => ({ kind: "text", text }));
+  }
   const header = [tool.title || block.name, tool.layout === "inline" ? tool.target : undefined, status].filter(Boolean).join(" ");
   const result: SearchPart[] = [{ kind: "text", text: header }];
   if (tool.layout === "stacked" && tool.target) result.push({ kind: "text", text: tool.target });
@@ -101,12 +117,18 @@ function stripSign(line: string): string {
 }
 
 /** Every match of `query` across the transcript, oldest first, capped at `MAX_SEARCH_MATCHES`. */
-export function findMatches(blocks: readonly TuiEventBlock[], query: string, cwd: string, anchors?: (block: ToolBlock) => LineAnchors | undefined): SearchMatch[] {
+export function findMatches(
+  blocks: readonly TuiEventBlock[],
+  query: string,
+  cwd: string,
+  anchors?: (block: ToolBlock) => LineAnchors | undefined,
+  renderers: readonly TuiRendererHook[] = []
+): SearchMatch[] {
   const matches: SearchMatch[] = [];
   if (!query) return matches;
   for (const [index, block] of blocks.entries()) {
     let ordinal = 0;
-    for (const part of searchableParts(block, cwd, block.type === "tool" ? anchors?.(block) : undefined)) {
+    for (const part of searchableParts(block, cwd, block.type === "tool" ? anchors?.(block) : undefined, renderers)) {
       for (const [line, text] of part.text.split("\n").entries()) {
         for (const [start, end] of occurrences(text, query)) {
           matches.push({ block: index, ordinal, kind: part.kind, line, text, start, end });

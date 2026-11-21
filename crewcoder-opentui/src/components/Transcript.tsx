@@ -17,6 +17,10 @@ import { clampOutput, COLLAPSED_OUTPUT_LINES, diffLineTone, toolPresentation, ty
 import { actionLabel, type AppAction } from "../keybindings.js";
 import { blockElementId, chromeId } from "../search-jump.js";
 import { SEARCH_MARKER } from "../glyphs.js";
+import { workflowView, type WorkflowView } from "../workflow-tools.js";
+import { renderedTool } from "../tool-renderer-view.js";
+import { findToolRenderer } from "@onpoint-dev-tools/crewcoder-tui-core/state/tool-renderers";
+import type { TuiRendererHook } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { blockToRow, isStreaming, normalize, throughputLabel, transcriptSections, workerOf, type ApprovalBlock, type ToolBlock, type ToolExpansion, type WorkBlock } from "../transcript.js";
 import { Spinner } from "./ui/spinner.js";
 import type { Theme } from "./ui/types.js";
@@ -30,6 +34,8 @@ export type TranscriptProps = {
   scrollRef?: Ref<ScrollBoxRenderable>;
   /** Content row of the current search match; a marker points at it from the left margin. */
   markRow?: number;
+  /** Extension tool renderers (`crewcoder extension renderers`); a match draws the tool from its template. */
+  renderers?: readonly TuiRendererHook[];
 };
 
 /** How image blocks draw: the pixel mode, the columns they may use, and the screen height they are capped against. */
@@ -53,7 +59,7 @@ export const REASONING_LABEL = "Reasoning";
  * output arrives and stays put once the user scrolls up (until they scroll back
  * down). Sections follow event order, divided by a blank row.
  */
-export function Transcript({ blocks, running, cwd, expansion, images, scrollRef, markRow }: TranscriptProps): ReactNode {
+export function Transcript({ blocks, running, cwd, expansion, images, scrollRef, markRow, renderers = [] }: TranscriptProps): ReactNode {
   const theme = useTheme();
   // Emoji icons only where the terminal draws them whole; single-cell symbols elsewhere.
   const glyphs = useGlyphSet();
@@ -84,7 +90,7 @@ export function Transcript({ blocks, running, cwd, expansion, images, scrollRef,
           marginTop={index === 0 ? 0 : 1}
         >
           {section.kind === "work"
-            ? <AgentWork blocks={section.blocks} start={section.start} cwd={cwd} expansion={expansion} glyphs={glyphs} />
+            ? <AgentWork blocks={section.blocks} start={section.start} cwd={cwd} expansion={expansion} glyphs={glyphs} renderers={renderers} />
             : <BlockView block={section.block} index={section.start} streaming={isStreaming(section.block, section.start === lastIndex, running)} glyphs={glyphs} images={images} />}
         </box>
       ))}
@@ -284,7 +290,7 @@ function RowView({ block, index }: { block: TuiEventBlock; index: number }): Rea
  * Consecutive tool calls and approvals in one dashed box titled `Agent work`.
  * Running tools show here live, with a spinner, as soon as they start.
  */
-function AgentWork({ blocks, start, cwd, expansion, glyphs }: { blocks: readonly WorkBlock[]; start: number; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet }): ReactNode {
+function AgentWork({ blocks, start, cwd, expansion, glyphs, renderers }: { blocks: readonly WorkBlock[]; start: number; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet; renderers: readonly TuiRendererHook[] }): ReactNode {
   const theme = useTheme();
   // A box holds one worker's tools (transcriptSections splits on a worker change).
   const worker = blocks.map(workerOf).find(Boolean);
@@ -303,7 +309,7 @@ function AgentWork({ blocks, start, cwd, expansion, glyphs }: { blocks: readonly
       {blocks.map((block, index) => (
         <box key={block.type === "tool" ? (block.id ?? `tool-${index}`) : (block.id ?? `approval-${index}`)} id={blockElementId(start + index)} flexDirection="column" width="100%" flexShrink={0} marginTop={index === 0 ? 0 : 1}>
           {block.type === "tool"
-            ? <ToolEntry block={block} index={start + index} cwd={cwd} expansion={expansion} glyphs={glyphs} />
+            ? <ToolEntry block={block} index={start + index} cwd={cwd} expansion={expansion} glyphs={glyphs} renderers={renderers} />
             : <ApprovalEntry block={block} />}
         </box>
       ))}
@@ -316,16 +322,23 @@ function AgentWork({ blocks, start, cwd, expansion, glyphs }: { blocks: readonly
  * file diff of an edit (`DiffSection`) or its output, collapsed to
  * COLLAPSED_OUTPUT_LINES with a clickable toggle.
  */
-function ToolEntry({ block, index, cwd, expansion, glyphs }: { block: ToolBlock; index: number; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet }): ReactNode {
+function ToolEntry({ block, index, cwd, expansion, glyphs, renderers }: { block: ToolBlock; index: number; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet; renderers: readonly TuiRendererHook[] }): ReactNode {
   const theme = useTheme();
-  const tool = toolPresentation(block, cwd, glyphs);
+  // An extension's declarative renderer replaces the whole view, as in legacy.
+  const renderer = findToolRenderer(block, renderers);
+  if (renderer) return <RenderedTool block={block} renderer={renderer} />;
+  // A CrewCoder-mode plan or clarify step reads from its arguments, never collapsed;
+  // its title replaces the tool name and it has no target (that would repeat an argument).
+  const workflow = workflowView(block);
+  const presented = toolPresentation(block, cwd, glyphs);
+  const tool = workflow ? { ...presented, title: workflow.title, target: undefined } : presented;
   const running = block.status === "running";
   const expanded = expansion.isExpanded(block);
   const onToggle = (): void => expansion.toggle(block);
-  const diffs = toolDiffs(block, cwd, expansion.lineAnchors(block));
+  const diffs = workflow ? [] : toolDiffs(block, cwd, expansion.lineAnchors(block));
   // An edit's diff replaces its output ("Edited src/a.ts" says nothing more).
   // Only edit/write tools have diffs; commands show their output alone.
-  const text = diffs.length > 0 ? undefined : tool.output;
+  const text = diffs.length > 0 || workflow ? undefined : tool.output;
   // The highlighted title: dark text on a light chip, so each step stands out in the box.
   const chipBg = tool.failed ? theme.colors.error : theme.colors.primary;
   const chipFg = tool.failed ? theme.colors.errorForeground : theme.colors.primaryForeground;
@@ -347,12 +360,95 @@ function ToolEntry({ block, index, cwd, expansion, glyphs }: { block: ToolBlock;
       {tool.layout === "stacked" && tool.target
         ? <text fg={theme.colors.accent} wrapMode="word" width="100%" paddingLeft={OUTPUT_INDENT}>{tool.target}</text>
         : null}
+      {workflow ? <WorkflowBody view={workflow} index={index} theme={theme} /> : null}
       {output ? <ToolOutput lines={output.lines} diff={tool.diff} failed={tool.failed} filetype={tool.filetype} theme={theme} /> : null}
       {output ? <ExpandRow id={chromeId("output-toggle", index)} hidden={output.hidden} canCollapse={canCollapse} onToggle={onToggle} theme={theme} /> : null}
       {diffs.length > 0
         ? <DiffSection index={index} diffs={diffs} shown={expansion.isDiffShown(block)} onToggleShown={() => expansion.toggleDiff(block)} expanded={expanded} onToggle={onToggle} theme={theme} />
         : null}
     </>
+  );
+}
+
+/**
+ * A tool drawn by an extension's template (`renderToolTemplate`, values only; no extension
+ * code runs): status, the renderer's title chip and its extension, then the filled-in
+ * template as markdown. Not collapsed, as in legacy: the template decides what shows.
+ */
+function RenderedTool({ block, renderer }: { block: ToolBlock; renderer: TuiRendererHook }): ReactNode {
+  const theme = useTheme();
+  const view = renderedTool(block, renderer);
+  const failed = block.status === "error";
+  return (
+    <>
+      <box flexDirection="row" width="100%" flexShrink={0}>
+        {block.status === "running"
+          ? <Spinner color={theme.colors.warning} flexShrink={0} />
+          : <text fg={failed ? theme.colors.error : theme.colors.success} flexShrink={0}>{failed ? "✗" : "✓"}</text>}
+        <text marginLeft={1} wrapMode="word" flexGrow={1} flexShrink={1}>
+          <span bg={failed ? theme.colors.error : theme.colors.primary} fg={failed ? theme.colors.errorForeground : theme.colors.primaryForeground}><b>{` ${view.title} `}</b></span>
+          <span fg={theme.colors.mutedForeground}>{` ${view.source}`}</span>
+          {block.status === "running" ? <span fg={theme.colors.mutedForeground}> running…</span> : null}
+          {failed ? <span fg={theme.colors.error}> failed</span> : null}
+        </text>
+      </box>
+      {view.body ? (
+        <box width="100%" paddingLeft={OUTPUT_INDENT} flexShrink={0}>
+          <MarkdownText text={view.body} streaming={false} colors={{ base: theme.colors.foreground, heading: theme.colors.foreground }} />
+        </box>
+      ) : null}
+    </>
+  );
+}
+
+const FILE_ACTION_TONES: Readonly<Record<string, (theme: Theme) => string>> = {
+  create: (theme) => theme.colors.success,
+  delete: (theme) => theme.colors.error,
+  modify: (theme) => theme.colors.warning
+};
+
+/**
+ * A plan's sections (Requirements, Investigation, File changes, Plan, Acceptance
+ * criteria) or the clarify questions, then the approval hint. Headings and the hint are
+ * labels (`chromeId`), so search skips them as `workflowTexts` does.
+ */
+function WorkflowBody({ view, index, theme }: { view: WorkflowView; index: number; theme: Theme }): ReactNode {
+  return (
+    <box flexDirection="column" width="100%" paddingLeft={OUTPUT_INDENT} flexShrink={0}>
+      {view.sections.map((section, at) => (
+        <box key={at} flexDirection="column" width="100%" flexShrink={0} marginTop={at === 0 ? 0 : 1}>
+          {section.heading ? <text id={chromeId("workflow-heading", `${index}-${at}`)} fg={theme.colors.primary} wrapMode="word" width="100%"><b>{section.heading}</b></text> : null}
+          {section.kind === "text" ? <text fg={theme.colors.foreground} wrapMode="word" width="100%">{section.text}</text> : null}
+          {section.kind === "list" ? section.items.map((item, number) => (
+            <text key={number} fg={theme.colors.foreground} wrapMode="word" width="100%">{`${number + 1}. ${item}`}</text>
+          )) : null}
+          {section.kind === "files" ? section.files.map((file, fileIndex) => (
+            <box key={`${file.path}-${fileIndex}`} flexDirection="column" width="100%" flexShrink={0} marginTop={fileIndex === 0 ? 0 : 1}>
+              <text wrapMode="word" width="100%">
+                <span fg={(FILE_ACTION_TONES[file.action] ?? ((value: Theme) => value.colors.info))(theme)}>{file.action}</span>
+                <span fg={theme.colors.accent}>{` ${file.path}`}</span>
+              </text>
+              {file.description ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{file.description}</text> : null}
+              {file.snippet ? <SnippetView snippet={file.snippet} path={file.path} theme={theme} /> : null}
+            </box>
+          )) : null}
+        </box>
+      ))}
+      {view.hint ? <text id={chromeId("workflow-hint", index)} fg={theme.colors.warning} wrapMode="word" width="100%" marginTop={1}>{view.hint}</text> : null}
+    </box>
+  );
+}
+
+/** A planned change's code, highlighted by its path's language when a parser covers it. */
+function SnippetView({ snippet, path, theme }: { snippet: string; path: string; theme: Theme }): ReactNode {
+  const style = useCodeStyle(theme);
+  const filetype = codeFiletype(path);
+  return (
+    <box width="100%" border={["left"]} borderStyle="single" borderColor={theme.colors.border} paddingLeft={1} flexShrink={0}>
+      {filetype
+        ? <code content={snippet} filetype={filetype} syntaxStyle={style} fg={theme.colors.foreground} wrapMode="word" width="100%" conceal={false} />
+        : <text fg={theme.colors.foreground} wrapMode="word" width="100%">{snippet}</text>}
+    </box>
   );
 }
 

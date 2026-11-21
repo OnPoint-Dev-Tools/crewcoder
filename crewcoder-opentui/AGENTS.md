@@ -80,6 +80,19 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   `/why`) stay footer alerts by owner decision; do not push them into the transcript.
   `blockToRow` stays exhaustive (`PanelBlock` assignment) so a new block type fails the
   build until it has a view. See `docs/TRANSCRIPT.md#status-panels`.
+- CrewCoder-mode workflow tools (`docs/TRANSCRIPT.md#plans-and-questions`): `crewcoder_propose_plan`
+  and `crewcoder_clarify` draw from their arguments through the pure `workflow-tools.ts`
+  (`workflowView`), never collapsed and without a target; the plan ends with
+  `PLAN_APPROVAL_HINT`. Failed calls fall back to the error view. Section headings and the
+  hint are `chromeId` labels; keep `workflowTexts` equal to the drawn content.
+- Extension tool renderers (`docs/TRANSCRIPT.md#extension-tool-renderers`): loaded into
+  `state.rendererHooks` by `SessionController.loadExtensionRenderers` (startup in `cli.tsx`,
+  `/reload`) through the injectable CLI, never from local files. Matching and templates are
+  tui-core `state/tool-renderers` (shared with legacy; never copy them here); a renderer
+  replaces the whole tool view (`RenderedTool`), checked before workflow tools. Templates
+  only substitute values: never evaluate extension code or expressions. An empty `match`
+  matches nothing. Whether a renderer may match another extension's or a built-in tool
+  (`toolName: "bash"`) is an open owner question; it still can, as in legacy.
 - Replies and reasoning render through OpenTUI's native `<markdown>` with styles from
   `markdown-style.ts` (owner decision over termcn `markdown`). Reasoning follows termcn's
   `thinking-block` design and stays expanded (summaries must stay visible).
@@ -200,8 +213,11 @@ break the tsc/NodeNext build. When vendoring or updating a component:
 - Agent text must pass through `normalize()` before rendering.
 - Non-picker slash commands live in `command-runner.ts` behind `CommandHost`; the palette
   catalog and menus are in `commands.ts`. Status, on/off, and text-output results are
-  footer alerts (`controller.alert`, vendored termcn `alert`) that last until the next key;
-  they never go into the transcript. Only `/approve-plan` sends a prompt. `/why` is a
+  footer alerts (`controller.alert`, vendored termcn `alert`) that last until the next key.
+  Alert text wraps, never truncates: rows come from `alertView(alert, width)` at the alert's
+  real width (the main column, or `homeComposerWidth` on the welcome screen), and
+  `footerExtras(alertWidth)` sizes the footer from the same rows. Alerts never go into the
+  transcript. Only `/approve-plan` sends a prompt. `/why` is a
   one-shot `session why` call and must never push a turn. Live UI (`contributes.liveUi[]`,
   sandboxed extension worker panels) is skipped by owner decision: never mount or run an
   extension `entry` module here; ask the owner before porting it. Picker commands take
@@ -258,7 +274,11 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   question with `null`; it must not abort the run. Question text, option labels, and
   descriptions wrap (never truncate), all rows come from `question-model.ts` so
   `questionView().height` equals what renders, and the card never shows extension or
-  request ids. Overlay precedence in `App` is summary editor, then question, then picker.
+  request ids. Overlay precedence in `App` is summary editor, then question, then the
+  `/goal` form, then picker. The bare `/goal` form (`goal-form.ts` pure, `GoalForm` draws,
+  `SessionController.goalForm`) prefills from `config.goals`, starts through
+  `CommandRunner.startGoal` (the same path as typed flags), and a blank check model sends
+  `--no-check-model`.
   An overlay that opens on its own must preserve the composer draft. See
   `docs/QUESTIONS.md`.
 - Right sidebar (`docs/SIDEBAR.md`): the only persistent place for workspace/git state,
@@ -365,6 +385,11 @@ src/tests/tool-diff.test.ts           edit shapes per provider, single-file patc
 src/tests/app.test.tsx (diffs)        inline diff replaces output, click/Ctrl+T hide, real line numbers, long diff collapse
 src/tests/footer-layout.test.ts       composer sizing, approval height, home logo rule, path shortening
 src/tests/logo-pulse.test.ts          pulse ends from accent/glow (built-in peak = primary), peak/trough timing, freeze clock
+src/tests/workflow-tools.test.ts      plan sections (incl. investigation, file changes), running/failed calls, clarify numbering, search text
+../crewcoder-tui-core/src/tests/tool-renderers.test.ts  renderer match rules (empty match never matches), template values, record parsing
+src/tests/goal-form.test.ts           /goal defaults from config.goals, field edits, bounds and errors on their field, blank check model
+src/tests/command-runner.test.ts      bare /goal form -> goal start args (--no-check-model), bad field starts nothing; renderers on /reload
+src/tests/app.test.tsx (audit ports)  plan shown whole with hint, clarify numbered, renderer template as markdown, /goal form keys
 src/tests/transcript-search.test.ts   smart case, searchable text per block (no labels, full output, diff lines, panels), order, cap, snippet widths
 src/tests/search-controller.test.ts   newest first, older/newer wrap, re-search on step, reveal of collapsed output and hidden diffs
 src/tests/app.test.tsx (search)       Ctrl+F bar in the composer's place, jump + marker on the match line, Esc closes without abort,
@@ -381,7 +406,9 @@ src/tests/app.test.tsx (transcript)   reply + Reasoning panel, composer/status a
 src/tests/app.test.tsx (pickers)      palette below the transcript; fast "/commands" typing reaches the palette, not the composer
 src/tests/app.test.tsx (composer)     Shift+Enter / Ctrl+J newline, Enter sends every line; alert until next key;
                                       summary editor opens at the end and applies with Ctrl+S
-src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts, compaction preview,
+src/tests/text-wrap.test.ts           indent kept, hanging list items, long words broken, width never exceeded
+src/tests/app.test.tsx (alerts)       a long error wraps inside its border in the conversation and on the welcome screen
+src/tests/command-runner.test.ts      every non-picker command against FakeCli/FakeBridge, alerts (wrapping, indent, clamp after wrap), compaction preview,
                                       /diff arguments and Hunk failures, /repaint and /redraw, /quit, /ext.* args after --
 src/tests/app.test.tsx                bare "y" never approves; abort, quit; unfocused keys/pastes/Ctrl+C dropped; approval buttons;
                                       welcome screen centered, left on first prompt, restored by /new

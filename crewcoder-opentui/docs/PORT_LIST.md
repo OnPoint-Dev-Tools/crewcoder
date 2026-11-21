@@ -69,6 +69,10 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 - Logo color pulse (2026-11-20): the welcome wordmark breathes from `accent` at half
   brightness to `glow` (legacy timing: 2.2 s breath, frozen after 3 minutes without a key),
   steady on `glow` under `NO_MOTION=1`/`CI=true` (`src/logo-pulse.ts`, `PulsingLogo`).
+- Audit ports (2026-11-20): plan/clarify view from tool arguments (also investigation and
+  file changes), extension tool renderers (helpers shared in tui-core; an empty match now
+  matches nothing), and the bare `/goal` preflight form. See `docs/TRANSCRIPT.md` and
+  `docs/COMMAND_PALETTE.md#goal`.
 - Transcript search (2026-11-20): Ctrl+F / `/find [text]`, newest match first, jumps to the
   exact wrapped line (expanding collapsed output) and marks it; the bar shows the match line.
   No in-text highlight by owner decision (OpenTUI only allows it through internals). See
@@ -95,6 +99,21 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 15. ~~**Transcript search.**~~ Done.
 
 16. ~~**Remote target in state.**~~ Done with the sidebar (`cli.tsx`).
+
+Found in the 2026-11-20 audit (commands, keys, flags, events outside the reducer,
+components), not on the original list:
+
+17. ~~**CrewCoder-mode plan and clarify view.**~~ Done. Legacy draws `crewcoder_propose_plan` as
+    Requirements / Plan / Acceptance criteria with the `/approve-plan` hint, and
+    `crewcoder_clarify` as numbered questions; OpenTUI shows plain output collapsed at 12
+    lines.
+18. ~~**Extension tool renderers.**~~ Done. Legacy loads `crewcoder extension renderers` templates and
+    draws matching tool results with them (declarative, no extension code runs).
+19. ~~**`/goal` preflight form.**~~ Done. Bare `/goal` opens objective / max turns / check model /
+    timeout fields in legacy; OpenTUI opens a menu that takes flags.
+20. **Token budget handoff.** On `token_budget_exceeded` legacy offers Stay or Handoff
+    (provider, model, effort, then a child session from the compacted summary with the
+    budget carried over); OpenTUI only shows the error row. Not scheduled yet.
 
 Skipped by owner decision: Live UI (`contributes.liveUi[]`). (`/crew` was skipped too, then
 ported with live crews by owner decision on 2026-11-20.) Live UI is

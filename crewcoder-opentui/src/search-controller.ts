@@ -86,7 +86,8 @@ export class TranscriptSearch {
   }
 
   private find(): SearchMatch[] {
-    return findMatches(this.host.state.blocks, this.query, this.host.state.cwd, (block) => this.host.toolExpansion.lineAnchors(block));
+    const state = this.host.state;
+    return findMatches(state.blocks, this.query, state.cwd, (block) => this.host.toolExpansion.lineAnchors(block), state.rendererHooks);
   }
 
   /** Make the current match drawable (expand collapsed output, show a hidden diff), then ask App to scroll. */

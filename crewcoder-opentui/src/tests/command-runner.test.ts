@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { DISABLED_TASKS } from "@onpoint-dev-tools/crewcoder-tui-core/state/crew-tasks";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { alertLines, alertRows, MAX_ALERT_BODY_LINES } from "../alert-model.js";
+import stringWidth from "string-width";
+import { ALERT_CHROME_COLUMNS, ALERT_ICON_COLUMNS, alertRows, alertView, MAX_ALERT_BODY_LINES } from "../alert-model.js";
 import { SLASH_COMMANDS } from "../commands.js";
 import { pickerEntries } from "../palette-model.js";
 import { SessionController } from "../session-controller.js";
@@ -285,6 +286,25 @@ describe("session commands", () => {
     expect(controller.currentAlert).toMatchObject({ variant: "success", title: "Reloaded CrewCoder" });
   });
 
+  it("/reload loads extension tool renderers through the CLI, and a failure keeps the old list with a warning", async () => {
+    const { controller, cli } = setup();
+    const record = { extensionId: "ext.ship", id: "card", title: "Deploy", target: "tool", match: { toolName: "deploy" }, template: "{{text}}" };
+    cli.json("extension renderers --json", [record, { junk: true }]);
+    await controller.loadExtensionRenderers();
+    expect(controller.state.rendererHooks).toEqual([expect.objectContaining({ extensionId: "ext.ship", id: "card", template: "{{text}}" })]);
+
+    cli.fail("extension renderers --json", "extensions are broken");
+    await controller.loadExtensionRenderers();
+    expect(controller.state.rendererHooks).toHaveLength(1);
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "Could not load extension tool renderers", body: "extensions are broken" });
+
+    cli.json("config show", {});
+    cli.json("extension renderers --json", []);
+    await run(controller, "/reload");
+    expect(cli.ran("extension renderers --json")).toBe(true);
+    expect(controller.state.rendererHooks).toEqual([]);
+  });
+
   it("/clear empties the conversation and returns to the welcome screen", async () => {
     const { controller } = setup();
     controller.state.blocks.push({ type: "system", text: "old" });
@@ -431,6 +451,37 @@ describe("goals", () => {
     expect(controller.currentAlert?.body).toContain("g-1 · running · turn 0/5");
   });
 
+  it("bare /goal opens the preflight form prefilled from config.goals, and starting it uses the same path as flags", async () => {
+    const { controller, cli } = setup();
+    controller.setComposerText("half typed");
+    cli.json("config show", { goals: { maxTurns: 40, timeoutMinutes: 60 } });
+    await run(controller, "/goal");
+    expect(controller.goalForm?.values).toEqual({ objective: "", maxTurns: "40", checkModel: "", timeoutMinutes: "60" });
+    expect(controller.composerDraft).toBe("half typed");
+
+    // Enter walks the fields; on the last one it starts. The blank check model turns the verifier off.
+    controller.editGoalField("ship it");
+    for (let field = 0; field < 3; field += 1) controller.goalFormEnter();
+    const args = "goal start ship it --provider codex-cli --model gpt-6-luna --mode general --effort low --approval review --json --max-turns 40 --timeout-minutes 60 --no-check-model";
+    cli.json(args, { id: "g-2", objective: "ship it", status: "running", provider: "codex-cli", model: "gpt-6-luna", cycle: 0, maxTurns: 40 });
+    controller.goalFormEnter();
+    await flush();
+    expect(controller.goalForm).toBeUndefined();
+    expect(cli.ran(args)).toBe(true);
+    expect(controller.currentAlert?.body).toContain("g-2 · running");
+  });
+
+  it("keeps the form open on a bad field and starts nothing", async () => {
+    const { controller, cli } = setup();
+    cli.json("config show", {});
+    await run(controller, "/goal");
+    controller.submitGoalForm();
+    expect(controller.goalForm).toMatchObject({ selected: 0, error: "Objective is required." });
+    controller.closeGoalForm();
+    expect(controller.goalForm).toBeUndefined();
+    expect(cli.calls.map((call) => call.join(" "))).toEqual(["config show"]);
+  });
+
   it("reports flag errors instead of starting", async () => {
     const { controller, cli } = setup();
     await run(controller, "/goal --max-turns nope do it");
@@ -512,23 +563,51 @@ describe("compaction preview", () => {
 describe("alerts", () => {
   it("clamps long output and sizes the footer for it", () => {
     const body = Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n");
-    const lines = alertLines({ variant: "info", title: "t", body });
+    const { lines } = alertView({ variant: "info", title: "t", body }, 80);
     expect(lines).toHaveLength(MAX_ALERT_BODY_LINES);
     expect(lines.at(-1)).toBe(`… ${30 - (MAX_ALERT_BODY_LINES - 1)} more lines`);
-    expect(alertRows({ variant: "info", title: "t", body })).toBe(3 + MAX_ALERT_BODY_LINES);
-    expect(alertRows({ variant: "info", title: "t" })).toBe(3);
-    expect(alertRows(undefined)).toBe(0);
+    expect(alertRows({ variant: "info", title: "t", body }, 80)).toBe(3 + MAX_ALERT_BODY_LINES);
+    expect(alertRows({ variant: "info", title: "t" }, 80)).toBe(3);
+    expect(alertRows(undefined, 80)).toBe(0);
   });
 
   it("strips terminal control sequences from CLI text", () => {
-    expect(alertLines({ variant: "info", title: "t", body: "\u001b[31mred\u001b[0m" })).toEqual(["red"]);
+    expect(alertView({ variant: "info", title: "t", body: "\u001b[31mred\u001b[0m" }, 80).lines).toEqual(["red"]);
+  });
+
+  it("wraps long titles and body lines to the box instead of cutting them, and counts the wrapped rows", () => {
+    const alert = { variant: "error" as const, title: "Could not start the goal because the supervisor is busy", body: "unscripted: goal start ship it --provider claude --model claude-opus-5-5 --json" };
+    const width = 30;
+    const view = alertView(alert, width);
+    const inner = width - ALERT_CHROME_COLUMNS;
+    expect(view.title.join(" ")).toBe(alert.title);
+    expect(view.lines.join(" ")).toBe(alert.body);
+    for (const row of view.title) expect(stringWidth(row)).toBeLessThanOrEqual(inner - ALERT_ICON_COLUMNS);
+    for (const row of view.lines) expect(stringWidth(row)).toBeLessThanOrEqual(inner);
+    expect(alertRows(alert, width)).toBe(2 + view.title.length + view.lines.length);
+  });
+
+  it("keeps indented commands and hangs wrapped bullets under their text", () => {
+    const body = "• Shift+Enter sends instead of adding a line (Ctrl+J still works)\n\n  set -g extended-keys on";
+    const { lines } = alertView({ variant: "warning", title: "tmux", body }, 34);
+    expect(lines[0]).toBe("• Shift+Enter sends instead of");
+    expect(lines[1]?.startsWith("  adding")).toBe(true);
+    expect(lines).toContain("");
+    expect(lines.at(-1)).toBe("  set -g extended-keys on");
+  });
+
+  it("clamps after wrapping, so a few long lines cannot push the footer past the cap", () => {
+    const body = Array.from({ length: 6 }, () => "word ".repeat(40)).join("\n");
+    const { lines } = alertView({ variant: "info", title: "t", body }, 40);
+    expect(lines).toHaveLength(MAX_ALERT_BODY_LINES);
+    expect(lines.at(-1)).toMatch(/^… \d+ more lines$/);
   });
 
   it("is part of the footer height and goes away when dismissed", () => {
     const { controller } = setup();
     controller.alert({ variant: "info", title: "x", body: "a\nb" });
-    expect(controller.footerExtras().alertRows).toBe(5);
+    expect(controller.footerExtras(80).alertRows).toBe(5);
     controller.dismissAlert();
-    expect(controller.footerExtras().alertRows).toBe(0);
+    expect(controller.footerExtras(80).alertRows).toBe(0);
   });
 });

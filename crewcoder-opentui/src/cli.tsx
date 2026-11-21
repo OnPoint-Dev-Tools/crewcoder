@@ -109,6 +109,7 @@ async function main(): Promise<void> {
   createRoot(renderer).render(<Root controller={controller} onQuit={quit} />);
   // The handed-over crew starts right away, with the settings it was launched with.
   if (crew) controller.startCrew(crew.target, crew.task, crew.command);
+  void controller.loadExtensionRenderers();
 }
 
 /** The launching UI's provider, model, effort, mode, system prompt, and access. */

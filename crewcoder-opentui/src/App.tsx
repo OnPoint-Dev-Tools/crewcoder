@@ -2,7 +2,7 @@ import os from "node:os";
 import type { InputRenderable, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { alertLines } from "./alert-model.js";
+import { alertView } from "./alert-model.js";
 import { Alert } from "./components/ui/alert.js";
 import { AttachmentRow } from "./components/AttachmentRow.js";
 import { Spinner } from "./components/ui/spinner.js";
@@ -10,13 +10,14 @@ import { ToolApproval, type RiskLevel } from "./components/ui/tool-approval.js";
 import { CommandPalette } from "./components/ui/command-palette.js";
 import { Composer } from "./components/Composer.js";
 import { ExtensionQuestion } from "./components/ExtensionQuestion.js";
+import { GoalForm } from "./components/GoalForm.js";
 import { Home } from "./components/Home.js";
 import { MentionList } from "./components/MentionList.js";
 import { SearchBar } from "./components/SearchBar.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { SummaryEditor } from "./components/SummaryEditor.js";
 import { Transcript } from "./components/Transcript.js";
-import { COMPOSER_ROWS, isHome, shortenPath } from "./footer-layout.js";
+import { COMPOSER_ROWS, homeComposerWidth, isHome, shortenPath } from "./footer-layout.js";
 import { useTerminalFocus } from "./hooks/use-terminal-focus.js";
 import { resolveImageMode } from "./image-view.js";
 import { useTheme } from "./hooks/use-theme.js";
@@ -49,6 +50,7 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
   const questionInputRef = useRef<InputRenderable>(null);
   const scrollRef = useRef<ScrollBoxRenderable>(null);
   const searchInputRef = useRef<InputRenderable>(null);
+  const goalInputRef = useRef<InputRenderable>(null);
   const renderer = useRenderer();
   const terminalFocused = useTerminalFocus();
   const state = controller.state;
@@ -56,9 +58,12 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
   const editor = controller.editor;
   const question = controller.question();
   const questionView = controller.questionView(height, width);
-  const overlayOpen = picker !== undefined || editor !== undefined || question !== undefined;
-  const extras = controller.footerExtras();
+  const goalForm = controller.goalForm;
+  const overlayOpen = picker !== undefined || editor !== undefined || question !== undefined || goalForm !== undefined;
   const home = isHome(state.blocks, state.running);
+  // The alert sits in the composer's column: the main column, or the narrower home composer.
+  const alertWidth = home ? homeComposerWidth(width) : width;
+  const extras = controller.footerExtras(alertWidth);
   const approval = state.running ? controller.pendingApproval() : undefined;
   const search = controller.search;
   const searching = search.isOpen && !home;
@@ -129,6 +134,10 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     const pending = controller.question();
     if (pending) {
       handleQuestionKey(key, pending.uiKind);
+      return;
+    }
+    if (controller.goalForm) {
+      handleGoalFormKey(key);
       return;
     }
     // Read overlays live, not from this render: keys typed right after "/"
@@ -263,6 +272,17 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     return true;
   }
 
+  /** The `/goal` form's keys; anything else edits the selected field's input. */
+  function handleGoalFormKey(key: KeyLike): void {
+    if (matchesAction(key, "goalFormSubmit")) controller.submitGoalForm();
+    else if (matchesAction(key, "goalFormCancel")) controller.closeGoalForm();
+    else if (matchesAction(key, "goalFormPrev")) controller.moveGoalField(-1);
+    else if (matchesAction(key, "goalFormNext")) controller.moveGoalField(1);
+    else if (matchesAction(key, "goalFormEnter")) controller.goalFormEnter();
+    else return;
+    key.preventDefault?.();
+  }
+
   function handleEditorKey(key: KeyLike): void {
     const current = controller.editor;
     if (!current) return;
@@ -330,7 +350,7 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
   const attachmentRow = state.attachments.length > 0 ? <AttachmentRow attachments={state.attachments} /> : null;
 
   const alert = controller.currentAlert
-    ? <Alert variant={controller.currentAlert.variant} title={controller.currentAlert.title} lines={alertLines(controller.currentAlert)} />
+    ? <Alert variant={controller.currentAlert.variant} view={alertView(controller.currentAlert, alertWidth)} />
     : null;
 
   // Overlays replace the footer (and the welcome screen); the transcript stays above them.
@@ -339,6 +359,14 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
     <SummaryEditor editor={editor} editorRef={editorRef} textRows={summaryEditorTextRows(height)} />
   ) : question && questionView ? (
     <ExtensionQuestion block={question} view={questionView} inputRef={questionInputRef} onChoose={(choice) => controller.chooseQuestion(choice)} />
+  ) : goalForm ? (
+    <GoalForm
+      form={goalForm}
+      maker={`${state.provider}/${state.model}`}
+      inputRef={goalInputRef}
+      onInput={(value) => controller.editGoalField(value)}
+      onSelect={(index) => controller.selectGoalField(index)}
+    />
   ) : picker && view ? (
     <box width="100%" alignItems="center" flexShrink={0}>
       <box width={Math.max(1, Math.min(width - 2, 80))} flexShrink={0}>
@@ -390,6 +418,7 @@ export function App({ controller, onQuit }: AppProps): ReactNode {
         images={{ mode: resolveImageMode(process.env, Boolean(state.remoteTarget)), cols: width - TRANSCRIPT_CHROME_COLUMNS, screenRows: height }}
         scrollRef={scrollRef}
         markRow={searching ? markRow : undefined}
+        renderers={state.rendererHooks}
       />
       <box flexDirection="column" width="100%" flexShrink={0} marginTop={1}>
         {overlay ?? (

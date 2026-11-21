@@ -544,6 +544,108 @@ describe("approvals", () => {
   });
 });
 
+describe("/goal preflight form", () => {
+  it("replaces the footer, types into the selected field, moves with Tab, and starts with Ctrl+S", async () => {
+    const cli = new FakeCli();
+    cli.json("config show", { goals: { maxTurns: 40, timeoutMinutes: 60, checkModel: "judge" } });
+    const { setup, controller } = await renderApp(cli, { height: 30 });
+    await setup.mockInput.typeText("/goal");
+    setup.mockInput.pressEnter();
+    const open = await setup.waitForFrame((text) => text.includes("Start durable goal"));
+    for (const label of ["Objective", "Max turns", "Check model", "Timeout", "(required)", "judge", "Existing goals: /goal status"]) expect(open).toContain(label);
+    expect(open).not.toContain("Ask CrewCoder");
+
+    await setup.mockInput.typeText("ship it");
+    await setup.waitForFrame((text) => text.includes("ship it"));
+    setup.mockInput.pressTab();
+    await setup.waitForFrame(() => controller.goalForm?.selected === 1);
+    expect(controller.goalForm?.values.objective).toBe("ship it");
+
+    const { provider, model, effort } = controller.state;
+    const args = `goal start ship it --provider ${provider} --model ${model} --mode general --effort ${effort} --approval review --json --max-turns 40 --timeout-minutes 60 --check-model judge`;
+    cli.json(args, { id: "g-3", objective: "ship it", status: "running", provider, model, cycle: 0, maxTurns: 40 });
+    setup.mockInput.pressKey("s", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("g-3") && text.includes("Ask CrewCoder"));
+    expect(cli.ran(args)).toBe(true);
+  });
+
+  it("shows the error on its field, and Esc cancels without starting", async () => {
+    const cli = new FakeCli();
+    cli.json("config show", {});
+    const { setup, controller } = await renderApp(cli);
+    await setup.mockInput.typeText("/goal");
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame((text) => text.includes("Start durable goal"));
+    setup.mockInput.pressKey("s", { ctrl: true });
+    await setup.waitForFrame((text) => text.includes("Objective is required."));
+    setup.mockInput.pressEscape();
+    await vi.waitFor(async () => {
+      await setup.renderOnce();
+      expect(controller.goalForm).toBeUndefined();
+    }, { timeout: 2_000 });
+    expect(cli.calls.map((call) => call.join(" "))).toEqual(["config show"]);
+  });
+});
+
+describe("extension tool renderers", () => {
+  it("draws a matching tool from its template as markdown, and other tools as usual", async () => {
+    const { setup, bridge, controller } = await inConversation();
+    controller.state.rendererHooks = [{
+      extensionId: "ext.ship", id: "card", title: "Deploy card", target: "tool", match: { toolName: "deploy" },
+      template: "## Shipped to {{args.env}}\n\n- result: **{{text}}**"
+    }];
+    bridge.emit({ type: "tool_execution_start", toolName: "deploy", toolCallId: "d1", args: { env: "prod" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "deploy", toolCallId: "d1", result: toolResult("ok \x1b[31mred\x1b[0m") });
+    bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "b1", args: { command: "ls" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "bash", toolCallId: "b1", result: toolResult("plain listing") });
+
+    const frame = await setup.waitForFrame((text) => text.includes("Shipped to prod") && text.includes("plain listing"));
+    expect(frame).toContain("Deploy card");
+    expect(frame).toContain("ext.ship");
+    // Rendered markdown: markers hidden, terminal controls stripped.
+    expect(frame).toContain("result: ok red");
+    expect(frame).not.toContain("**");
+    expect(frame).not.toContain("##");
+    expect(frame).toContain("Run Command");
+  });
+});
+
+describe("CrewCoder-mode plan and questions", () => {
+  it("shows a proposed plan as sections from its arguments, never collapsed, with the approval hint", async () => {
+    const { setup, bridge } = await inConversation({ height: 70 });
+    const args = {
+      requirements: "Search the transcript",
+      investigation: "Keys route through App",
+      fileChanges: [{ action: "create", path: "src/search.ts", description: "Pure matching", snippet: "export const x = 1;" }],
+      plan: lines(20, "step"),
+      acceptanceCriteria: "All tests pass"
+    };
+    bridge.emit({ type: "tool_execution_start", toolName: "crewcoder_propose_plan", toolCallId: "p1", args });
+    bridge.emit({ type: "tool_execution_end", toolName: "crewcoder_propose_plan", toolCallId: "p1", result: toolResult(`Plan proposed.\n${lines(40, "raw")}`) });
+    bridge.emit({ type: "agent_end" });
+
+    const frame = await setup.waitForFrame((text) => text.includes("All tests pass"));
+    for (const heading of ["Proposed plan", "Requirements", "Investigation", "File changes", "Plan", "Acceptance criteria"]) expect(frame).toContain(heading);
+    expect(frame).toContain("create src/search.ts");
+    expect(frame).toContain("export const x = 1;");
+    expect(frame).toContain("step 19");
+    expect(frame).toContain("Approve with /approve-plan");
+    // The arguments replace the tool's text; nothing hides behind a toggle.
+    expect(frame).not.toContain("raw 0");
+    expect(frame).not.toContain("more lines");
+  });
+
+  it("lists clarify questions, numbered", async () => {
+    const { setup, bridge } = await inConversation();
+    bridge.emit({ type: "tool_execution_start", toolName: "crewcoder_clarify", toolCallId: "c1", args: { questions: ["Which file?", "Keep the API?"] } });
+    bridge.emit({ type: "tool_execution_end", toolName: "crewcoder_clarify", toolCallId: "c1", result: toolResult("1. Which file?\n2. Keep the API?") });
+    const frame = await setup.waitForFrame((text) => text.includes("2. Keep the API?"));
+    expect(frame).toContain("Clarifying questions");
+    expect(frame).toContain("1. Which file?");
+    expect(frame.match(/Which file\?/g)).toHaveLength(1);
+  });
+});
+
 describe("transcript search", () => {
   const openSearch = (setup: Setup): void => setup.mockInput.pressKey("f", { ctrl: true });
 
@@ -1247,6 +1349,29 @@ describe("alerts", () => {
     await setup.mockInput.typeText("x");
     await setup.waitForFrame((text) => !text.includes("Provider thinking: on"));
     expect(controller.currentAlert).toBeUndefined();
+  });
+
+  it("wraps a long error inside its border instead of cutting it, in the conversation and on the welcome screen", async () => {
+    const message = "unscripted: goal start ship it --provider claude --model claude-opus-5-5 --mode general --json END";
+    const inConvo = await inConversation({ width: 60, height: 30 });
+    inConvo.bridge.emit({ type: "agent_end" });
+    await inConvo.setup.waitForFrame((text) => text.includes("Ask CrewCoder"));
+    inConvo.controller.alert({ variant: "error", title: "Could not start the goal because the supervisor refused it", body: message });
+    const frame = await inConvo.setup.waitForFrame((text) => text.includes("END"));
+    // Every word is on screen, and every alert row closes with its border.
+    const flat = frame.replace(/[│\s]+/g, " ");
+    expect(flat).toContain("supervisor refused it");
+    expect(flat).toContain("--mode general --json END");
+    const alertRows = frame.split("\n").filter((row) => row.includes("│") && !row.includes("Ask CrewCoder"));
+    for (const row of alertRows) expect(row.trimEnd().endsWith("│")).toBe(true);
+    await inConvo.setup.dispose();
+
+    // On the welcome screen the alert is as wide as the composer; the logo gives way when it no longer fits.
+    const home = await renderApp(new FakeCli(), { width: 80, height: 24 });
+    home.controller.alert({ variant: "error", title: "Could not start the goal", body: message });
+    const homeFrame = await home.setup.waitForFrame((text) => text.includes("END"));
+    expect(homeFrame.replace(/[│\s]+/g, " ")).toContain("--mode general --json END");
+    expect(homeFrame).toContain("Ask CrewCoder");
   });
 });
 

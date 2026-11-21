@@ -19,7 +19,7 @@ here**; there is no runtime termcn dependency. Attribution is in
 | `src/hooks/use-animation.ts` | `ink/use-animation` | Ink import and screen-reader check removed (see below) |
 | `src/components/ui/tool-call.tsx` | `opentui/tool-call` | see file header; not rendered now that running tools live in the transcript's Agent work box |
 | `src/components/ui/tool-approval.tsx` | `opentui/tool-approval` | see file header |
-| `src/components/ui/alert.tsx` | `opentui/alert` | inline row `flexDirection="row"`; bordered variant sets `border`; fixed one-row body `lines`; trimmed props |
+| `src/components/ui/alert.tsx` | `opentui/alert` | inline row `flexDirection="row"`; bordered variant sets `border`; title and body pre-wrapped to the box (`alertView`) and drawn as one-row lines; trimmed props |
 | `src/components/ui/select.tsx` | `opentui/select` | no global keyboard (controlled `active`); renders precomputed wrapped `OptionRow`s from `src/question-model.ts` with indented descriptions; `flexDirection="row"`, height-1 rows; `#666` replaced with theme tokens; rows clickable |
 | `src/components/ui/confirm.tsx` | `opentui/confirm` | no global keyboard (upstream answered a bare `y`/`n` from anywhere; controlled `selected`); optional message row; `flexDirection="row"` answer row; answers clickable |
 | `src/components/ui/command-palette.tsx` | `opentui/command-palette` | renders a precomputed `PickerView` (filtering/grouping/windowing in `src/palette-model.ts`); keyboard routed by `App`; border title; current-value marker; theme tokens; per-picker hint row (`/sessions`: Tab branch) |
@@ -68,7 +68,12 @@ CrewCoder's own (tui-core `theme/crewcoder-theme`, slate by default); `toAppThem
 - **`alert` draws no border and stacks its title.** Upstream passes `borderColor` and
   `borderStyle` without `border`, and its icon/title row is a `<box gap={1}>` with no
   `flexDirection`. Its body was wrapping `children`, so its height was unknown to the footer
-  sizer; ours renders fixed one-row `lines` (`alertRows()` in `src/alert-model.ts`).
+  sizer; ours renders fixed one-row lines (`alertRows()` in `src/alert-model.ts`). Those
+  lines are wrapped first by `alertView(alert, width)` to the box's inner width (border and
+  padding, `ALERT_CHROME_COLUMNS`), keeping indentation and hanging list items
+  (`wrapIndented`, `src/text-wrap.ts`), so long text wraps instead of being cut at the
+  border and the height stays exact. The body is clamped after wrapping
+  (`MAX_ALERT_BODY_LINES`, 16 rows).
 - **`select` and `confirm` own global keyboard input upstream**, like `tool-approval`:
   `confirm` answered on a bare `y`/`n` anywhere, and `select` moved and submitted on every
   arrow/Enter even while another field had focus. Our copies are controlled and keyless;

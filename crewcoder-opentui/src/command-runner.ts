@@ -11,10 +11,11 @@ import { normalizeTuiMode, type TuiState } from "@onpoint-dev-tools/crewcoder-tu
 import type { FooterAlert } from "./alert-model.js";
 import { cliOutputAlert, goalsAlert, reviewSummaryAlert, whyAlert } from "./command-format.js";
 import {
-  BUDGET_MENU, CONFIG_TOGGLES, configToggleOn, GOAL_MENU, MEMORY_MENU_EXTRAS, TASK_MENU_EXTRAS, toggleMenu, type ConfigToggle
+  BUDGET_MENU, CONFIG_TOGGLES, configToggleOn, MEMORY_MENU_EXTRAS, TASK_MENU_EXTRAS, toggleMenu, type ConfigToggle
 } from "./commands.js";
 import { cliJson, cliText, errorMessage } from "./crewcoder-cli.js";
 import { HUNK_COMMAND, HUNK_INSTALL_HINT, hunkDiffArgs, type TerminalRun } from "./hunk.js";
+import { goalDefaults, type GoalDefaults } from "./goal-form.js";
 import type { PaletteCommand } from "./palette-model.js";
 import type { PickerFlows, PickerHost } from "./picker-flows.js";
 import { MIN_SIDEBAR_TERMINAL_WIDTH } from "./sidebar-model.js";
@@ -50,6 +51,10 @@ export interface CommandHost extends PickerHost {
   readonly sidebar: SidebarController;
   /** `/find [text]`: open transcript search, like Ctrl+F. */
   openSearch(query?: string): void;
+  /** Reload extension tool renderers (`/reload`). */
+  loadExtensionRenderers(): Promise<void>;
+  /** Bare `/goal`: the preflight form, prefilled from `config.goals`. */
+  openGoalForm(defaults: GoalDefaults): void;
 }
 
 type Handler = (rest: string) => void | Promise<void>;
@@ -499,7 +504,8 @@ export class CommandRunner {
     const [config, providers, profile] = await Promise.all([
       this.readConfig(),
       this.flows.reloadProviders(),
-      cliText(this.host.cli, ["profile", "show"]).then((text) => text.trim(), () => undefined)
+      cliText(this.host.cli, ["profile", "show"]).then((text) => text.trim(), () => undefined),
+      this.host.loadExtensionRenderers()
     ]);
     const state = this.state;
     if (profile === "crewcode" || profile === "standalone") state.integrationProfile = profile;
@@ -522,7 +528,7 @@ export class CommandRunner {
   }
 
   private async goal(input: string): Promise<void> {
-    if (!input) return this.host.openMenu("Goal", [...GOAL_MENU]);
+    if (!input) return this.host.openGoalForm(goalDefaults(await this.readConfig()));
     const parts = tokenizeGoalCommand(input);
     const action = parts[0]?.toLowerCase();
     const approval = this.state.fullAccess ? "full-access" : "review";
@@ -541,7 +547,7 @@ export class CommandRunner {
   }
 
   /** Detached goals run in CrewCoder's supervisor; closing the TUI does not stop them. */
-  private startGoal(start: GoalStartInput): Promise<void> {
+  startGoal(start: GoalStartInput): Promise<void> {
     const state = this.state;
     const args = ["goal", "start", start.objective, "--provider", state.provider, "--model", state.model, "--mode", state.mode,
       "--effort", state.effort, "--approval", state.fullAccess ? "full-access" : "review", "--json"];

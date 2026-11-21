@@ -546,7 +546,7 @@ function parseProviders(stdout: string): ProviderRecord[] {
   return providers;
 }
 
-function parseExtensionRendererRecords(value: unknown): ExtensionRendererRecord[] {
+export function parseExtensionRendererRecords(value: unknown): ExtensionRendererRecord[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     if (!item || typeof item !== "object") return [];

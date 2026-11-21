@@ -302,6 +302,10 @@ Live UI (`contributes.liveUi[]`) runs in isolated `worker_threads` workers. The 
   error block when a worker errors or exits unexpectedly.
 ```
 
+Extension tool renderer matching and templates (`findToolRenderer`, `renderToolTemplate`)
+live in tui-core `state/tool-renderers`, shared with OpenTUI; `MainViewport` only draws. A
+renderer whose `match` sets no field matches nothing.
+
 Keep live UI wiring separate from `ExtensionUiOverlay`: the overlay handles declarative
 request/response UI, while live UI modal surfaces are long-running sandboxed workers.
 Generic `extension_ui_request` events must not mount `surface: "transcript"` contributions

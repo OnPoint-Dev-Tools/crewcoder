@@ -10,6 +10,7 @@ import { renderMarkdown } from "./markdown-renderer.js";
 import { renderExtensionUiErrorBlock } from "./ExtensionUiErrorBlock.js";
 import { describeAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import { formatTokensPerSecond } from "@onpoint-dev-tools/crewcoder-tui-core/state/usage";
+import { findToolRenderer, renderToolTemplate } from "@onpoint-dev-tools/crewcoder-tui-core/state/tool-renderers";
 import { detectImageProtocol, fitPlacement } from "../tui/image-protocol.js";
 
 const TEXT_PADDING = 2;
@@ -593,54 +594,11 @@ function renderCustomTool(lines: string[], block: Extract<TuiEventBlock, { type:
   const suffix = block.status === "running" ? " running" : block.status === "error" ? " failed" : "";
   lines.push(blockPaddingLine(ctx, ctx.theme.panel));
   lines.push(backgroundLine(`${fg(statusColor)}${bold()}${renderer.title.toUpperCase()}${reset()} ${fg(ctx.theme.muted)}[${renderer.extensionId}:${renderer.id}]${suffix}${reset()}`, ctx.size.width, ctx.theme.panel));
-  const rendered = renderTemplate(renderer.template, block);
+  const rendered = renderToolTemplate(renderer.template, block);
   for (const line of renderMarkdown(rendered, textWidth(ctx, 4), ctx)) {
     lines.push(backgroundLine(`${fg(ctx.theme.text)}${line.text}${reset()}`, ctx.size.width, ctx.theme.panel));
   }
   lines.push(blockPaddingLine(ctx, ctx.theme.panel));
-}
-
-function findToolRenderer(block: Extract<TuiEventBlock, { type: "tool" }>, renderers: TuiState["rendererHooks"]): TuiState["rendererHooks"][number] | undefined {
-  return renderers.find((renderer) => renderer.target === "tool" && rendererMatchesTool(renderer.match, block));
-}
-
-function rendererMatchesTool(match: TuiState["rendererHooks"][number]["match"], block: Extract<TuiEventBlock, { type: "tool" }>): boolean {
-  const metadata = block.metadata ?? {};
-  if (match.extensionId !== undefined && metadata.extensionId !== match.extensionId) return false;
-  if (match.toolId !== undefined && metadata.toolId !== match.toolId) return false;
-  if (match.renderer !== undefined && metadata.renderer !== match.renderer) return false;
-  if (match.toolName !== undefined && block.name !== match.toolName) return false;
-  return true;
-}
-
-function renderTemplate(template: string, block: Extract<TuiEventBlock, { type: "tool" }>): string {
-  return template.replaceAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_placeholder, rawPath: string) => templateValue(rawPath, block));
-}
-
-function templateValue(path: string, block: Extract<TuiEventBlock, { type: "tool" }>): string {
-  if (path === "name") return block.name;
-  if (path === "status") return block.status;
-  if (path === "text") return block.text ?? "";
-  if (path.startsWith("metadata.")) return stringifyTemplateValue(nestedValue(block.metadata, path.slice("metadata.".length)));
-  if (path.startsWith("args.")) return stringifyTemplateValue(nestedValue(block.args, path.slice("args.".length)));
-  return "";
-}
-
-function nestedValue(record: Record<string, unknown> | undefined, path: string): unknown {
-  if (!record) return undefined;
-  let current: unknown = record;
-  for (const part of path.split(".")) {
-    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-  return current;
-}
-
-function stringifyTemplateValue(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
 }
 
 function renderToolBodyLine(line: ToolBodyLine, ctx: RenderContext): string {

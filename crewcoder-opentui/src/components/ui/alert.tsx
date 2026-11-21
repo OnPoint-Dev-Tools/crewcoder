@@ -4,11 +4,12 @@
 //   them in OpenTUI, whose boxes default to column.
 // - The bordered variant sets `border`; upstream passed only borderColor/style,
 //   which draws no border in OpenTUI.
-// - Body renders as fixed one-row lines (`lines`) instead of wrapping children,
-//   so the height is exactly `alertRows()` and the footer can be sized for it.
+// - Title and body come pre-wrapped (`alertView`, `alert-model.ts`) and draw as
+//   one-row lines, so long text wraps instead of being cut at the border and the
+//   height is exactly `alertRows()`, which sizes the footer.
 // - Unused props (custom icon/color/padding/borderless) removed.
 import type { ReactNode } from "react";
-import type { AlertVariant } from "../../alert-model.js";
+import { ALERT_ICON_COLUMNS, type AlertVariant, type AlertView } from "../../alert-model.js";
 import { useTheme } from "../../hooks/use-theme.js";
 
 export type { AlertVariant } from "../../alert-model.js";
@@ -22,11 +23,10 @@ const ICONS: Record<AlertVariant, string> = {
 
 export interface AlertProps {
   variant?: AlertVariant;
-  title: string;
-  lines?: readonly string[];
+  view: AlertView;
 }
 
-export function Alert({ variant = "info", title, lines = [] }: AlertProps): ReactNode {
+export function Alert({ variant = "info", view }: AlertProps): ReactNode {
   const theme = useTheme();
   const color = variant === "success" ? theme.colors.success
     : variant === "error" ? theme.colors.error
@@ -34,12 +34,14 @@ export function Alert({ variant = "info", title, lines = [] }: AlertProps): Reac
         : theme.colors.info;
   return (
     <box border borderColor={color} borderStyle={theme.border.style} flexDirection="column" paddingLeft={1} paddingRight={1} flexShrink={0}>
-      <box flexDirection="row" gap={1} height={1} flexShrink={0}>
-        <text fg={color} wrapMode="none" flexShrink={0}><b>{ICONS[variant]}</b></text>
-        <text fg={color} wrapMode="none"><b>{title}</b></text>
-      </box>
-      {lines.map((line, index) => (
-        <text key={index} fg={theme.colors.foreground} height={1} wrapMode="none" flexShrink={0}>{line}</text>
+      {view.title.map((line, index) => (
+        <box key={`title-${index}`} flexDirection="row" height={1} flexShrink={0}>
+          <text fg={color} wrapMode="none" width={ALERT_ICON_COLUMNS} flexShrink={0}><b>{index === 0 ? ICONS[variant] : " "}</b></text>
+          <text fg={color} wrapMode="none"><b>{line}</b></text>
+        </box>
+      ))}
+      {view.lines.map((line, index) => (
+        <text key={index} fg={theme.colors.foreground} height={1} wrapMode="none" flexShrink={0}>{line || " "}</text>
       ))}
     </box>
   );

@@ -127,6 +127,10 @@ Implemented now:
   terminal behind the UI (a stray process, a system message, a glitch after `/diff`).
   Silent on success; the transcript and session are untouched.
 - `/quit`: exits like Ctrl+C.
+- CrewCoder-mode plans read as Requirements / Investigation / File changes / Plan /
+  Acceptance criteria with the `/approve-plan` hint, never collapsed; clarify questions are
+  numbered. Extension tool renderers draw matching tools from their templates. Bare
+  `/goal` opens the preflight form. See [`docs/TRANSCRIPT.md`](docs/TRANSCRIPT.md#plans-and-questions).
 - Transcript search: Ctrl+F or `/find [text]`. Jumps to the match's line (expanding
   collapsed output), marks it, and shows the line in the search bar; Enter/Up older,
   Shift+Enter/Down newer, Esc closes. See [`docs/TRANSCRIPT.md`](docs/TRANSCRIPT.md#search).
@@ -182,8 +186,9 @@ when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 **Deferred by owner decision:** Live UI (`contributes.liveUi[]`, experimental
 sandboxed extension panels; use the legacy `crewcoder-tui` for it).
 
-Everything on the port list is ported or skipped by owner decision
-([`docs/PORT_LIST.md`](docs/PORT_LIST.md)).
+**Not ported yet:** the token budget handoff. When a session's budget runs out, legacy
+offers to continue in a new session from the compacted summary; here the session shows the
+"Token budget reached" error and stops. See [`docs/PORT_LIST.md`](docs/PORT_LIST.md).
 
 ## Architecture
 
@@ -231,6 +236,10 @@ src/logo-pulse.ts           welcome-logo pulse timing and color (pure)
 src/transcript-search.ts    transcript search matching and the match-line snippet (pure)
 src/search-controller.ts    transcript search state: query, matches, current, reveal
 src/search-jump.ts          match -> wrapped content row in the laid-out transcript
+src/workflow-tools.ts       CrewCoder-mode plan and clarify views (pure)
+src/tool-renderer-view.ts   extension tool renderer view (pure)
+src/goal-form.ts            bare /goal preflight form state and validation (pure)
+src/components/GoalForm.tsx the /goal form
 src/session-controller.ts   owns TuiState + bridge + tool expansion; subscribe/getVersion for useSyncExternalStore
 src/transcript.ts           pure block -> display row, turn sections, streaming flag
 src/keybindings.ts          DEFAULT_APP_KEYBINDINGS and chord matching

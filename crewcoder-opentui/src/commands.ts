@@ -121,9 +121,3 @@ export const BUDGET_MENU: readonly PaletteCommand[] = [
   { id: "/set-budget off", label: "off", description: "Clear the budget (unbounded)" }
 ];
 
-export const GOAL_MENU: readonly PaletteCommand[] = [
-  { id: `${DRAFT_PREFIX}/goal `, label: "start…", description: "Type an objective; flags: --max-turns N --check-model M --timeout-minutes N" },
-  { id: "/goal status", label: "status", description: "The latest goal" },
-  { id: "/goal list", label: "list", description: "Goals in this workspace" },
-  { id: "/goal logs", label: "logs", description: "Recent goal events" }
-];

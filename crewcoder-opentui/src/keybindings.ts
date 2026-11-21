@@ -8,7 +8,8 @@ export type AppAction =
   | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
   | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown"
   | "transcriptPageUp" | "transcriptPageDown" | "transcriptTop" | "transcriptBottom" | "toggleToolOutput" | "toggleDiffs"
-  | "searchOpen" | "searchOlder" | "searchNewer" | "searchClose";
+  | "searchOpen" | "searchOlder" | "searchNewer" | "searchClose"
+  | "goalFormNext" | "goalFormPrev" | "goalFormEnter" | "goalFormSubmit" | "goalFormCancel";
 
 export type KeyLike = {
   name: string;
@@ -85,7 +86,14 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   searchOpen: ["ctrl+f"],
   searchOlder: ["return", "kpenter", "up"],
   searchNewer: ["shift+return", "down"],
-  searchClose: ["escape"]
+  searchClose: ["escape"],
+  // The bare /goal form (legacy keys): fields with Tab/Up/Down, Enter for the next field
+  // or start on the last, Ctrl+S to start from anywhere, Esc to cancel.
+  goalFormNext: ["tab", "down"],
+  goalFormPrev: ["shift+tab", "up"],
+  goalFormEnter: ["return", "kpenter"],
+  goalFormSubmit: ["ctrl+s"],
+  goalFormCancel: ["escape"]
 };
 
 /** An OpenTUI textarea key binding (`@opentui/core` `KeyBinding`). */

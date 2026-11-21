@@ -107,6 +107,34 @@ Output longer than `COLLAPSED_OUTPUT_LINES` (12) shows its first 12 lines and a 
 The state lives in `SessionController.toolExpansion`, keyed by block identity in a
 `WeakSet` (the reducer mutates blocks in place, so identity is stable for a block's life).
 
+## Plans and questions
+
+CrewCoder mode's workflow tools are drawn from their arguments, not their output
+(`workflow-tools.ts`, pure, ported from legacy `MainViewport`):
+
+- `crewcoder_propose_plan` shows **Requirements**, **Investigation**, **File changes**
+  (action, path, why, and the snippet highlighted by the path's language), **Plan**, and
+  **Acceptance criteria**, then the `/approve-plan` hint. Legacy drew only requirements,
+  plan, and acceptance criteria; investigation and file changes are part of what you
+  approve, so they show too.
+- `crewcoder_clarify` lists its questions, numbered.
+
+Neither collapses (you approve what you can read) and neither shows a target (it would
+repeat an argument). Without usable arguments the tool's own text shows; a failed call
+shows its error like any tool. Transcript search sees the same text (`workflowTexts`).
+
+## Extension tool renderers
+
+Extensions can declare tool renderers (`contributes.renderers`). OpenTUI loads them with
+`crewcoder extension renderers --json` at startup and on `/reload`, through the injectable
+CLI (the SSH host in remote mode); a failure keeps the previous list with a warning alert.
+A tool whose name or metadata matches (`findToolRenderer`, tui-core
+`state/tool-renderers`, shared with legacy) is drawn as the renderer's title chip, its
+extension id, and the filled-in template as markdown (`{{name}}`, `{{status}}`,
+`{{text}}`, `{{args.x}}`, `{{metadata.x}}`). Templates only substitute values: no extension
+code runs. A renderer whose `match` sets no field matches nothing, so one extension cannot
+redraw every tool (legacy matched everything). Rendered text goes through `normalize()`.
+
 ## Inline diffs
 
 Files an edit or write tool **created or modified** show as a diff inside its tool entry, in
@@ -262,6 +290,12 @@ The alternate screen gives up what native scrollback provided for free:
   escape stripping, why badge, no crew session ids).
 - `src/tests/app.test.tsx` ("structured panels"): a background job, validation, and crew
   roster driven by agent events, live then settled.
+- `src/tests/workflow-tools.test.ts`: plan sections and order, file changes, running and
+  failed calls, clarify numbering, control stripping, what search sees.
+- `../crewcoder-tui-core/src/tests/tool-renderers.test.ts`: match rules (empty match never
+  matches), template values, record parsing.
+- `src/tests/app.test.tsx` ("extension tool renderers", "CrewCoder-mode plan"): a template
+  drawn as markdown beside an ordinary tool; a long plan fully shown with the hint.
 - `src/tests/transcript-search.test.ts`: smart case, what each block makes searchable (no
   labels, full output, diff lines, panels), order and cap, snippet widths.
 - `src/tests/search-controller.test.ts`: newest first, older/newer wrap, re-search on step,
