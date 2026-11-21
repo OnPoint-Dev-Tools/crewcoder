@@ -24,6 +24,22 @@ This directory is an npm-workspaces monorepo for the CrewCoder Packages. The roo
 
 **CrewCoder is an extensible, security-conscious coding-agent platform designed for interactive development, multi-worker orchestration, durable sessions, detached goals, and remote execution. Can also be used for the CrewCode ecosystem.**
 
+## Screenshots
+
+The OpenTUI terminal UI that bare `crewcoder` opens (Node.js 26.4+, slate theme). These were captured from the real UI replaying a scripted demo session; regenerate them with `npm run screenshots` ([how](scripts/screenshots/README.md)).
+
+**Welcome screen.** Each new session opens on the CrewCoder wordmark, with the provider, model, and workspace under the composer.
+
+<img src="assets/screenshots/opentui-welcome.png" alt="CrewCoder OpenTUI welcome screen with the CrewCoder wordmark, the Ask CrewCoder composer, and the provider, model, and workspace line" width="820" />
+
+**A full agent turn.** The reasoning panel comes first. The Agent work box groups tool calls: a file read, a search, an edit with an inline diff on the real line numbers, and the test run. The markdown reply follows, and the status line under the composer shows access, mode, model, context use, tokens, and cost.
+
+<img src="assets/screenshots/opentui-agent-turn.png" alt="CrewCoder OpenTUI transcript showing a reasoning panel, an Agent work box with read, search, inline diff, and test output, and a markdown reply with a table" width="820" />
+
+**Approvals and the sidebar.** In Review mode a risky command stops at an approval card with selectable Approve and Deny buttons. The right sidebar (Ctrl+B) lists the files this session modified and the workspace's `<cwd>:<branch>`.
+
+<img src="assets/screenshots/opentui-approval-sidebar.png" alt="CrewCoder OpenTUI tool approval card for a git commit with Approve and Deny buttons, next to the right sidebar listing modified files and the workspace branch" width="820" />
+
 ## Install CrewCoder
 
 Requires Node.js 22 or newer for the agent. The terminal UI that bare `crewcoder` opens ([`crewcoder-opentui`](crewcoder-opentui/README.md), a preview built on OpenTUI) needs Node.js 26.4 or newer and is an optional part of the install. On older Node.js or platforms without an OpenTUI native build, bare `crewcoder` opens the bundled [legacy `crewcoder-tui`](crewcoder-tui/README.md) (Node.js 22+) instead and prints how to get the new UI. On headless machines `crewcoder` still installs and every agent command works.
