@@ -162,6 +162,10 @@ const handoff = await orchestrator.handoff({
 Crew workers execute sequentially in the supplied order and each receives a separate durable session. A terminal provider/stall result is reported through lifecycle events and later workers still run; a thrown runtime error stops the crew. `runTeam()` reads a normalized team from `crewcoder.json` and applies role prompts, handoff rules, and shared memory. `handoff()` creates a child session and inherits the source transcript, mutation log, usage, compactions, checkpoints, and extension entries. It is not a detached or parallel operation.
 
 The orchestrator rejects overlapping operations. `approve()` and `abort()` are accepted only while it is running. Custom `modelClient` and `heuristic` options are supported for controlled hosts and tests.
+Such a client has no provider-native tool executor, so unless you also pass `provider`, the
+session runs with CrewCoder's own tools (`read`, `write`, `edit`, `bash`, ...) whatever the
+configured tool mode. Pass `provider` only when your client really is that provider's
+executor (for example a wrapper around its model client), so native mode applies.
 
 ## Session options
 

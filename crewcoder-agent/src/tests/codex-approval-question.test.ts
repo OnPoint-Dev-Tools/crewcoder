@@ -18,9 +18,13 @@ const provider: ProviderDefinition = {
 describe("native approval questions", () => {
   it.each(["accept", "acceptForSession", "decline", undefined])("keeps the reason as title, includes permission detail, and preserves decision %s", async (answer) => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "crew-question-"));
-    // Node runs this extensionless fixture on Windows as well as POSIX.
-    process.env.CREWCODER_CODEX_PATH = process.execPath;
-    fs.writeFileSync(path.join(cwd, "app-server"), `
+    // An executable fake CLI, like codex-cli-provider.test.ts: the provider passes `-c` config
+    // overrides before `app-server` (features.default_mode_request_user_input when a host can
+    // answer questions), which `node <script>` would read as its own --check flag.
+    const fakeCodex = path.join(cwd, "fake-codex.cjs");
+    process.env.CREWCODER_CODEX_PATH = fakeCodex;
+    fs.writeFileSync(fakeCodex, `#!/usr/bin/env node
+if (!process.argv.includes("app-server")) process.exit(2);
 const readline = require("node:readline");
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
@@ -37,7 +41,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     send({ method: "turn/completed", params: { turn: { status: "completed" } } });
   }
 });
-`);
+`, { mode: 0o755 });
     const questions: ModelQuestion[] = [];
     try {
       const result = await runCodexCliProvider({

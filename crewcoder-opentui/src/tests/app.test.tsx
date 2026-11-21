@@ -1289,7 +1289,14 @@ describe("inline images", () => {
     const file = pngFile("broken.png", 300, 200);
     const { setup, bridge } = await inConversation({ height: 30 });
     bridge.emit(toolImage(file));
-    const frame = await setup.waitForFrame((text) => text.includes(IMAGE_FAILED_TEXT));
+    // The decode error comes back from OpenTUI's native image loader asynchronously; under CI
+    // load that can take longer than waitForFrame's 20 quick passes, so wait on time instead.
+    let frame = "";
+    await vi.waitFor(async () => {
+      await setup.renderOnce();
+      frame = setup.captureCharFrame();
+      expect(frame).toContain(IMAGE_FAILED_TEXT);
+    }, { timeout: 8_000, interval: 50 });
     expect(frame).toContain("TOOL IMAGE");
     expect(frame).toContain("300×200");
   });

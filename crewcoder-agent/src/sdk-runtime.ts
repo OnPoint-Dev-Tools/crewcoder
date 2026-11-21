@@ -73,7 +73,12 @@ export async function runCrewCoderRuntimeTurn(
 
   const modelClient = options.modelClient
     ?? (options.heuristic ? new HeuristicModelClient() : new ProviderModelClient(providerId, cwd, model, undefined, config.thinkingEnabled ? options.effort : "none"));
+  // A caller's own client (or the heuristic one) has no provider-native tool executor unless the
+  // caller names its provider. The fallback providerId above (env/config default, e.g. codex-cli)
+  // would otherwise select native mode and drop CrewCoder's file tools (`read`, `write`, ...).
+  const ownClientWithoutProvider = Boolean(options.modelClient || options.heuristic) && !options.provider;
   const common = {
+    ...(ownClientWithoutProvider ? { toolMode: "crewcoder" as const } : {}),
     providerId,
     model,
     contextWindow: resolvedModel?.metadata?.contextWindow,
