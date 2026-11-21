@@ -50,11 +50,12 @@
       "dev:tui": "npm run dev -w @onpoint-dev-tools/crewcoder-tui",
       "start:agent": "npm run start -w @onpoint-dev-tools/crewcoder-agent",
       "start:tui": "npm run start -w @onpoint-dev-tools/crewcoder-tui",
-      "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk"
+      "release:check:sdk": "node scripts/check-sdk-release.cjs && npm run release:check && npm run release:check -w @onpoint-dev-tools/crewcoder-agent && npm run release:check -w @onpoint-dev-tools/crewcoder-client && npm run release:check -w @onpoint-dev-tools/crewcoder-sdk",
+      "dev:opentui": "npm run dev -w @onpoint-dev-tools/crewcoder-opentui",
+      "start:opentui": "npm run start -w @onpoint-dev-tools/crewcoder-opentui"
    },
    "dependencies": {
       "@onpoint-dev-tools/crewcoder-agent": "0.7.8",
-      "@onpoint-dev-tools/crewcoder-tui": "0.6.4",
       "typescript": "^5.7.2"
    },
    "devDependencies": {
@@ -65,5 +66,8 @@
    },
    "engines": {
       "node": ">=22.0.0"
+   },
+   "optionalDependencies": {
+      "@onpoint-dev-tools/crewcoder-opentui": "0.1.0"
    }
 }

@@ -6,7 +6,7 @@ import { padRight, truncate } from "../tui/layout.js";
 
 const listCrewCoderSessions = vi.fn();
 
-vi.mock("../bridge/crewcoder-process.js", () => ({
+vi.mock("@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process", () => ({
   listCrewCoderSessions
 }));
 

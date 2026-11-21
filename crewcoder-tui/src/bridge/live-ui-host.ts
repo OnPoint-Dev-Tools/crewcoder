@@ -30,7 +30,7 @@ import {
   type CrewCoderLiveUiSurface,
   type CrewCoderLiveUiWorkerData,
   type LiveUiFrame
-} from "./live-ui-protocol.js";
+} from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export type LiveUiSpawnOptions = {
   /** Extension-relative-resolved absolute path to the built live UI entry module. */

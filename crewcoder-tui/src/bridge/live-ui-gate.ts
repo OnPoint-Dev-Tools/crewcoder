@@ -22,7 +22,7 @@ import type {
   CrewCoderLiveUiPermissions,
   CrewCoderLiveUiProps,
   CrewCoderLiveUiSurface
-} from "./live-ui-protocol.js";
+} from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export const SUPPORTED_LIVE_UI_SURFACES: readonly CrewCoderLiveUiSurface[] = ["modal", "transcript", "status"];
 

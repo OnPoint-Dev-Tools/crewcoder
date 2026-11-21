@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LiveUiTrustGate } from "../bridge/live-ui-trust-gate.js";
 import { LiveUiHost } from "../bridge/live-ui-host.js";
 import type { LiveUiSpawnOptions, LiveUiWorkerLike, LiveUiWorkerSpec } from "../bridge/live-ui-host.js";
-import type { CrewCoderLiveUiHost, CrewCoderLiveUiProps } from "../bridge/live-ui-protocol.js";
+import type { CrewCoderLiveUiHost, CrewCoderLiveUiProps } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 function props(): CrewCoderLiveUiProps {
   return { extensionId: "review-pack", contributionId: "review-panel", surface: "modal", event: { type: "x" } };

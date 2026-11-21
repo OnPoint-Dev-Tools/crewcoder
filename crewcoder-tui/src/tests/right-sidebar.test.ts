@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RightSidebar } from "../components/RightSidebar.js";
-import { applyCrewCoderEvent } from "../state/event-reducer.js";
-import { createInitialState } from "../state/tui-store.js";
+import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { stripAnsi } from "../tui/ansi.js";
 import { crewCoderTheme } from "../theme/theme.js";
 

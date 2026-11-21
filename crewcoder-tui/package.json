@@ -2,7 +2,7 @@
    "name": "@onpoint-dev-tools/crewcoder-tui",
    "version": "0.6.4",
    "private": false,
-   "description": "CrewCoder custom terminal UI connected to crewcoder-agent with wired backend process bridge.",
+   "description": "Legacy CrewCoder terminal UI (custom renderer). The crewcoder umbrella now ships crewcoder-opentui; install this package directly to keep the legacy UI.",
    "license": "Apache-2.0",
    "repository": {
       "type": "git",
@@ -26,13 +26,21 @@
    },
    "scripts": {
       "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+      "predev": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
       "dev": "tsx src/cli.ts",
+      "prebuild": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
       "build": "tsc -p tsconfig.json",
+      "pretypecheck": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
       "typecheck": "tsc -p tsconfig.json --noEmit",
+      "pretest": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
       "test": "vitest run",
       "start": "node dist/cli.js"
    },
    "dependencies": {
+      "@onpoint-dev-tools/crewcoder-tui-core": "0.1.0",
       "zod": "^3.23.8"
+   },
+   "engines": {
+      "node": ">=22.0.0"
    }
 }

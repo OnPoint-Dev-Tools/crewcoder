@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { App, parseGoalStartInput, tokenizeGoalCommand } from "../components/App.js";
 import { GoalOverlay } from "../components/GoalOverlay.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 const originalBin = process.env.CREWCODER_BIN;
 

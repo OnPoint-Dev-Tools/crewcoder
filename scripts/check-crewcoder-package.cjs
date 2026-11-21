@@ -7,16 +7,27 @@ const root = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const requiredDependencies = [
   "@onpoint-dev-tools/crewcoder-agent",
-  "@onpoint-dev-tools/crewcoder-tui",
   // The published agent currently imports the TypeScript compiler at runtime.
   "typescript"
 ];
+// The OpenTUI terminal UI needs Node.js >=26.4 and native binaries, so it stays
+// optional: headless installs on VPSs and sandboxes must succeed without it.
+const optionalTui = "@onpoint-dev-tools/crewcoder-opentui";
+const legacyTui = "@onpoint-dev-tools/crewcoder-tui";
 
 for (const dependency of requiredDependencies) {
   if (typeof manifest.dependencies?.[dependency] !== "string") {
     console.error(`Missing runtime dependency: ${dependency}`);
     process.exit(1);
   }
+}
+if (typeof manifest.optionalDependencies?.[optionalTui] !== "string" || manifest.dependencies?.[optionalTui] !== undefined) {
+  console.error(`${optionalTui} must be an optionalDependency of the umbrella, not a required dependency.`);
+  process.exit(1);
+}
+if (manifest.dependencies?.[legacyTui] !== undefined || manifest.optionalDependencies?.[legacyTui] !== undefined) {
+  console.error(`${legacyTui} is published separately as the legacy UI and must not be an umbrella dependency.`);
+  process.exit(1);
 }
 if (manifest.bin?.crewcoder !== "./bin/crewcoder.js" || manifest.bin?.crew !== "./bin/crewcoder.js" || manifest.bin?.cc !== undefined) {
   console.error("The crewcoder and crew bins must point to ./bin/crewcoder.js, and cc must remain available to the system compiler.");

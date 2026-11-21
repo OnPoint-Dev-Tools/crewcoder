@@ -16,7 +16,7 @@
  * `dispose()` can be tracked (which keeps this unit-testable with a fake host).
  */
 
-import type { CrewCoderLiveUiInstance, CrewCoderLiveUiSurface } from "./live-ui-protocol.js";
+import type { CrewCoderLiveUiInstance, CrewCoderLiveUiSurface } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export type LiveUiDisposeReason =
   | "scroll_away"

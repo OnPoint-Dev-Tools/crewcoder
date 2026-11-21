@@ -42,7 +42,9 @@ jobs:
         run: npm install --global npm@11.8.0
       - run: npm ci --ignore-scripts
       - run: npm run build -w @onpoint-dev-tools/crewcoder-agent
+      - run: npm run build -w @onpoint-dev-tools/crewcoder-tui-core
       - run: npm run build -w @onpoint-dev-tools/crewcoder-tui
+      - run: npm run build -w @onpoint-dev-tools/crewcoder-opentui
       - run: npm run build -w @onpoint-dev-tools/crewcoder-client
       - run: npm run build -w @onpoint-dev-tools/crewcoder-sdk
       - name: Verify explicit publish gates
@@ -59,7 +61,17 @@ jobs:
           fi
       - name: Verify published agent runtime
         run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-agent crewcoder-agent/package.json
-      - name: Publish terminal UI
+      - name: Publish TUI core
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-tui-core/package.json').version")"
+          if npm view "@onpoint-dev-tools/crewcoder-tui-core@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "TUI core ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish -w @onpoint-dev-tools/crewcoder-tui-core --access public --provenance
+          fi
+      - name: Verify published TUI core
+        run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-tui-core crewcoder-tui-core/package.json
+      - name: Publish legacy terminal UI
         run: |
           PACKAGE_VERSION="$(node -p "require('./crewcoder-tui/package.json').version")"
           if npm view "@onpoint-dev-tools/crewcoder-tui@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
@@ -67,8 +79,18 @@ jobs:
           else
             npm publish -w @onpoint-dev-tools/crewcoder-tui --access public --provenance
           fi
-      - name: Verify published terminal UI
+      - name: Verify published legacy terminal UI
         run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-tui crewcoder-tui/package.json
+      - name: Publish OpenTUI terminal UI
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./crewcoder-opentui/package.json').version")"
+          if npm view "@onpoint-dev-tools/crewcoder-opentui@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "OpenTUI terminal UI ${PACKAGE_VERSION} is already published; continuing the partial release."
+          else
+            npm publish -w @onpoint-dev-tools/crewcoder-opentui --access public --provenance
+          fi
+      - name: Verify published OpenTUI terminal UI
+        run: node scripts/wait-for-npm-package.cjs @onpoint-dev-tools/crewcoder-opentui crewcoder-opentui/package.json
       - name: Publish browser client
         run: |
           PACKAGE_VERSION="$(node -p "require('./crewcoder-client/package.json').version")"

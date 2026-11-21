@@ -502,6 +502,16 @@ User-message `background` is deliberate. It should be passed to the model and vi
 
 Interactive approvals are part of the live JSON-events control channel. `src/core/stdin-control.ts` accepts `{"type":"control","action":"approval","approvalId":"...","approved":true|false}` and `src/core/agent-loop.ts` waits for matching decisions when an approval signal is available. Do not replace this with saved-session polling; approvals must control the active run.
 
+## Reply throughput timing
+
+`message_end.durationMs` is generation time from `GenerationClock` (`src/core/generation-clock.ts`), not
+wall-clock around `modelClient.complete()`. Claude Agent SDK and Codex run tools inside that call, so
+every non-generation interval must stay excluded: provider-native tools (start to end, including the
+diff snapshot), `executeTool`, `requestQuestion`, follow-up delivery, and `onUsage` pricing. A new
+stream callback that waits on tools, the user, or disk must run inside `generationClock.excluding`.
+An unmatched native tool start means the duration is omitted, never guessed. Guarded by
+`src/tests/generation-clock.test.ts` and the throughput tests in `src/tests/agent-loop.test.ts`.
+
 ## Session durability
 
 Sessions are saved **after every completed turn**, not just at the end of the run
@@ -843,9 +853,25 @@ iterationCapReached  -> an explicit --max-iterations truncated the task
 
 Guarded by `src/tests/stall-detector.test.ts` and `src/tests/agent-loop.test.ts`.
 
+## Per-tool file diffs
+
+Only file edit/write tools (CrewCoder `edit`/`write`/`edit_transaction`/`edit_symbol`,
+Claude `Edit`/`MultiEdit`/`Write`/`NotebookEdit`, Codex `Codex file change`/`apply_patch`;
+`isFileEditTool`) emit `file_diff`, with per-file unified git patches for **created and
+modified files only**, before `tool_execution_end` (`src/core/workspace-diffs.ts`). Shell
+commands, git primitives, generators, and delegation are never diffed and deletions are never
+reported (owner decision: command diffs are not practical). Snapshots use a private git directory under
+`<CREWCODER_HOME>/snapshots`; never point it at, or let it read or write, the user's own
+repository, index, or hooks, and keep dropping inherited `GIT_*` variables. Await the
+baseline before CrewCoder-executed tools run; provider-native tools use the `prime()`
+baseline taken before each model turn because they may write before they are announced.
+Tracking must fail closed: any git problem disables it for the run with one `backend_debug`
+warning and never fails or delays a tool beyond the snapshot timeout. Off for virtual/hosted
+filesystems and `fileDiffs: false`. See `docs/FILE_DIFFS.md`.
+
 ## Runtime guardrails
 
-Filesystem checkpoints are default-on full bounded snapshots (up to 2,000 files/25 MB) and retain only the 10 newest per session; creating another checkpoint removes the oldest snapshot and its session metadata. `config.checkpointsEnabled=false` disables automatic pre-mutation snapshots for future runs without deleting existing checkpoints.
+Filesystem checkpoints are opt-in (default off; `crewcoder config set checkpointsEnabled true` or `/checkpoints on`) full bounded snapshots (up to 2,000 files/25 MB) and retain only the 10 newest per session; creating another checkpoint removes the oldest snapshot and its session metadata. A missing or non-`true` `config.checkpointsEnabled` means off; turning it off again stops pre-mutation snapshots for future runs without deleting existing checkpoints.
 
 Per-session token budgets are cumulative provider-reported totals, distinct from `currentContextTokens()` live context occupancy. `--budget`/`--max-tokens` persist through `UsageSummary.tokenBudget`; emit warning at 80%, compact before continued tool-driven work when possible, and stop before pending tools or another model turn after the limit. Budget-exhaustion handoff creates a fresh parent-linked session whose only conversation input is the bounded compact summary; never copy the original transcript or exhausted usage into that child. Never change auto-compaction to use cumulative budget totals. `--verify` runs package typecheck/test scripts plus executable trusted extension `validators` and emits `verification_start`/`verification_end`. See `docs/RUNTIME_GUARDRAILS.md`.
 

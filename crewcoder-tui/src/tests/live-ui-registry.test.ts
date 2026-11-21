@@ -4,7 +4,7 @@ import {
   type LiveUiDisposeReason,
   type LiveUiTrackable
 } from "../bridge/live-ui-registry.js";
-import type { CrewCoderLiveUiSurface } from "../bridge/live-ui-protocol.js";
+import type { CrewCoderLiveUiSurface } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 function makeTrackable(overrides: Partial<LiveUiTrackable> = {}): LiveUiTrackable & { disposed: number } {
   const surface: CrewCoderLiveUiSurface = overrides.surface ?? "modal";

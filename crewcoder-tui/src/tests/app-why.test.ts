@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../components/App.js";
 import { MainViewport } from "../components/MainViewport.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { crewCoderTheme } from "../theme/theme.js";
 import { parseInputEvents } from "../tui/input.js";
 import { stripAnsi } from "../tui/ansi.js";

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Header } from "../components/Header.js";
 import { firstLiveBlockIndex, MainViewport } from "../components/MainViewport.js";
 import { SPINNER_FRAMES } from "../components/Spinner.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bg, bold, fg, italic, stripAnsi } from "../tui/ansi.js";
-import { compactCrewCodeLogoLines, miniCrewCodeLogoLines } from "../theme/logo.js";
+import { compactCrewCodeLogoLines, miniCrewCodeLogoLines } from "@onpoint-dev-tools/crewcoder-tui-core/theme/logo";
 import { crewCoderTheme, lightCrewCoderTheme } from "../theme/theme.js";
 
 describe("Header", () => {

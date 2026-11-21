@@ -17,7 +17,7 @@
 
 import { stripAnsi } from "../tui/ansi.js";
 import { box, padRight, truncate } from "../tui/layout.js";
-import type { LiveUiFrame } from "./live-ui-protocol.js";
+import type { LiveUiFrame } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 export type LiveUiFrameTheme = {
   border: string;

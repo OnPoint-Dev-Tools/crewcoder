@@ -6,6 +6,8 @@ on:
       - "crewcoder-agent/**"
       - "crewcoder-client/**"
       - "crewcoder-tui/**"
+      - "crewcoder-tui-core/**"
+      - "crewcoder-opentui/**"
       - "crewcoder-sdk/**"
       - "bin/**"
       - "lib/**"
@@ -23,6 +25,8 @@ on:
       - "crewcoder-agent/**"
       - "crewcoder-client/**"
       - "crewcoder-tui/**"
+      - "crewcoder-tui-core/**"
+      - "crewcoder-opentui/**"
       - "crewcoder-sdk/**"
       - "bin/**"
       - "lib/**"
@@ -50,3 +54,18 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run release:check:sdk
+
+  opentui:
+    # OpenTUI's native layer needs Node.js >=26.4, so its renderer tests run on a
+    # separate runtime from the Node 22 packages.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run test -w @onpoint-dev-tools/crewcoder-tui-core
+      - run: npm run typecheck -w @onpoint-dev-tools/crewcoder-opentui
+      - run: npm run test -w @onpoint-dev-tools/crewcoder-opentui

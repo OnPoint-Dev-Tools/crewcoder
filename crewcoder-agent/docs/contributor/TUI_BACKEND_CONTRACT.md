@@ -43,6 +43,7 @@ tool_execution_start
 tool_delta
 tool_execution_end
 file_changed
+file_diff
 background_job_start / background_job_output / background_job_status / background_job_end
 approval_required
 approval_resolved
@@ -87,11 +88,12 @@ Interactive JSON-event hosts receive `approval_required` before tool execution a
 - `message_start`: no-op, or use it to prepare per-message UI state.
 - `assistant_delta`: append to the current assistant bubble.
 - `thinking_delta`: append to a streaming thinking/reasoning block. CrewCoder forwards provider-supplied reasoning for every provider that exposes it; hosts should render rather than suppress these events. Claude effort levels explicitly enable adaptive thinking, and completed Claude thinking blocks are forwarded when partial deltas are unavailable. `/thinking off` persists `thinkingEnabled=false` and requests `none`/disabled reasoning from all built-in provider paths; `/thinking on` restores the selected effort.
-- `message_end`: commit the final user or assistant message if it was not already streamed. Model-generated assistant events optionally include `durationMs` and `outputTokens`; divide output tokens by wall-clock seconds to display the turn's generation throughput. Synthetic and historical messages omit these fields.
+- `message_end`: commit the final user or assistant message if it was not already streamed. Model-generated assistant events optionally include `durationMs` and `outputTokens`; divide output tokens by `durationMs` seconds to display the turn's generation throughput. `durationMs` is generation time, not wall-clock: `GenerationClock` (`src/core/generation-clock.ts`) times the model call minus everything inside it that is not the provider producing output (provider-native tools between `onProviderToolStart`/`onProviderToolEnd` and their diff snapshots, CrewCoder tools run through `executeTool` including their approvals, `requestQuestion` waits, follow-up delivery, and usage pricing). It still includes time to first token, and `outputTokens` includes reasoning tokens. Without this, Claude Agent SDK and Codex turns counted their own tool runs as generation and reported a fraction of the real speed. If a provider tool never reports its end, `durationMs` is omitted rather than guessed. Synthetic and historical messages omit both fields.
 - `tool_execution_start`: open a running tool block with the tool name and arguments.
 - `tool_delta`: append to the matching tool block output.
 - `tool_execution_end`: mark the matching tool block success/error and append result details.
 - `file_changed`: add the path to the changed-files panel.
+- `file_diff`: attach the files an edit/write tool created or modified (unified git patches from workspace snapshots; never shell commands, never deletions) to the matching running tool block, before its `tool_execution_end`. See `docs/FILE_DIFFS.md`.
 - `approval_required`: open an approval UI/block with risk, reason, and arguments.
 - `approval_resolved`: record the approval outcome in system/status metadata.
 - `validation_start`: open a running validation block for the target.

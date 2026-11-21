@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Header } from "../components/Header.js";
-import { compactCrewCodeLogoLines, miniCrewCodeLogoLines } from "../theme/logo.js";
+import { compactCrewCodeLogoLines, miniCrewCodeLogoLines } from "@onpoint-dev-tools/crewcoder-tui-core/theme/logo";
 import { crewCoderTheme } from "../theme/theme.js";
 import { stripAnsi } from "../tui/ansi.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 
 describe("Header", () => {
   it("renders standalone header branding without session status", () => {

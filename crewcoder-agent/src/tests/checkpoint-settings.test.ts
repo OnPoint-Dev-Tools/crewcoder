@@ -16,12 +16,14 @@ afterEach(() => {
 });
 
 describe("checkpoint settings", () => {
-  it("keeps automatic checkpoints enabled for existing configs", () => {
+  it("keeps automatic checkpoints off until the user turns them on", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "crewcoder-checkpoint-config-"));
     process.env.CREWCODER_HOME = home;
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(home, "config.json"), JSON.stringify({ defaultProvider: "codex" }), "utf8");
 
+    expect(readConfig().checkpointsEnabled).toBe(false);
+    expect(setConfigValue("checkpointsEnabled", "true").checkpointsEnabled).toBe(true);
     expect(readConfig().checkpointsEnabled).toBe(true);
     expect(setConfigValue("checkpointsEnabled", "false").checkpointsEnabled).toBe(false);
     expect(readConfig().checkpointsEnabled).toBe(false);

@@ -10,7 +10,7 @@ import {
   type LiveUiWorkerLike,
   type LiveUiWorkerSpec
 } from "../bridge/live-ui-host.js";
-import type { CrewCoderLiveUiHost, CrewCoderLiveUiInstance, CrewCoderLiveUiProps, LiveUiFrame } from "../bridge/live-ui-protocol.js";
+import type { CrewCoderLiveUiHost, CrewCoderLiveUiInstance, CrewCoderLiveUiProps, LiveUiFrame } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 class FakeWorker implements LiveUiWorkerLike {
   posted: unknown[] = [];

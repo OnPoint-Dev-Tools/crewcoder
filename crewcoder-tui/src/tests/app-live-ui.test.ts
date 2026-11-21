@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { App } from "../components/App.js";
-import { createInitialState } from "../state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { LiveUiHost, type LiveUiHostCallbacks, type LiveUiSpawnOptions, type LiveUiWorkerLike } from "../bridge/live-ui-host.js";
 import { crewCoderTheme } from "../theme/theme.js";
 import { stripAnsi } from "../tui/ansi.js";
-import type { SessionRecord } from "../bridge/crewcoder-process.js";
-import type { CrewCoderLiveUiHost, LiveUiFrame } from "../bridge/live-ui-protocol.js";
+import type { SessionRecord } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
+import type { CrewCoderLiveUiHost, LiveUiFrame } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 
 function host(): CrewCoderLiveUiHost {
   return {

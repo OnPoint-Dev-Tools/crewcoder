@@ -1,8 +1,8 @@
 import type { Component, RenderContext } from "../tui/component.js";
-import type { TuiState } from "../state/tui-store.js";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bold, fg, reset, visibleLength } from "../tui/ansi.js";
 import { padRight, truncate } from "../tui/layout.js";
-import { compactCrewCodeLogoLines, miniCrewCodeLogoLines } from "../theme/logo.js";
+import { compactCrewCodeLogoLines, miniCrewCodeLogoLines } from "@onpoint-dev-tools/crewcoder-tui-core/theme/logo";
 
 export class Header implements Component {
   constructor(_state?: TuiState) {}

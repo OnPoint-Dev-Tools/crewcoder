@@ -1,6 +1,6 @@
 import type { Component, RenderContext } from "../tui/component.js";
-import type { TuiState } from "../state/tui-store.js";
-import type { CrewCoderLiveUiPermissions } from "../bridge/live-ui-protocol.js";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import type { CrewCoderLiveUiPermissions } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/live-ui-protocol";
 import { bold, fg, reset } from "../tui/ansi.js";
 import { padRight, truncate } from "../tui/layout.js";
 

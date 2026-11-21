@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import * as bridge from "../crewcoder-tui/src/bridge/crewcoder-process.js";
+import * as bridge from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import { App } from "../crewcoder-tui/src/components/App.js";
 import { builtinPaletteItems } from "../crewcoder-tui/src/components/CommandPalette.js";
-import { createInitialState } from "../crewcoder-tui/src/state/tui-store.js";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { parseInputEvents } from "../crewcoder-tui/src/tui/input.js";
 import { stripAnsi } from "../crewcoder-tui/src/tui/ansi.js";
 import { crewCoderTheme } from "../crewcoder-tui/src/theme/theme.js";

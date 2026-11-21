@@ -4,7 +4,18 @@
 
 This package is `@onpoint-dev-tools/crewcoder-tui`.
 
-It is the custom terminal UI for CrewCoder.
+It is the **legacy** custom-renderer terminal UI for CrewCoder. The `crewcoder` umbrella
+now launches `@onpoint-dev-tools/crewcoder-opentui`; this package stays published for
+users who prefer it (`npm i -g @onpoint-dev-tools/crewcoder-tui`, then `crewcoder-tui`).
+Keep it working; do not deprecate or delete it without the owner's decision.
+
+The agent process bridge, event parser, remote-connection quoting, Live UI protocol
+types, reducer, `state/*` modules, and the logo text (`theme/logo`) live in `@onpoint-dev-tools/crewcoder-tui-core`
+and are shared with the OpenTUI UI. Import them by subpath
+(`@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process`,
+`.../state/event-reducer`, ...). Paths below such as `src/bridge/remote-connection.ts`,
+`state/tui-store.ts`, and the event-reducer/image/usage tests now refer to that package.
+Behavior changes there affect both UIs; run both suites.
 
 DISCLAIMER:
 crewcoder and crewcode are 2 different apps, CrewCoder harness has knowledge and plugin logic for crewcode, but everything else is for 'CrewCoder or crewcoder' dont get it confused, if you in doubt double check with me
@@ -32,14 +43,11 @@ crewcoder-tui/
 │   └── LIVE_UI_SANDBOX.md
 ├── src/
 │   ├── cli.ts
-│   ├── bridge/
-│   │   ├── crewcoder-process.ts
-│   │   ├── event-parser.ts
+│   ├── bridge/            # agent bridge, event parser, live-ui-protocol: crewcoder-tui-core
 │   │   ├── live-ui-controller.ts
 │   │   ├── live-ui-frame.ts
 │   │   ├── live-ui-gate.ts
 │   │   ├── live-ui-host.ts
-│   │   ├── live-ui-protocol.ts
 │   │   ├── live-ui-registry.ts
 │   │   ├── live-ui-runtime.ts
 │   │   └── live-ui-trust-gate.ts
@@ -60,11 +68,6 @@ crewcoder-tui/
 │   │   ├── markdown-renderer.ts
 │   │   ├── modal-view.ts
 │   │   └── path-suggestions.ts
-│   ├── state/
-│   │   ├── effort-levels.ts
-│   │   ├── event-reducer.ts
-│   │   ├── tui-store.ts
-│   │   └── usage.ts
 │   ├── tests/
 │   │   ├── app-home.test.ts
 │   │   ├── app-input.test.ts
@@ -90,8 +93,7 @@ crewcoder-tui/
 │   │   ├── spinner.test.ts
 │   │   ├── status-bar.test.ts
 │   │   └── theme.test.ts
-│   ├── theme/
-│   │   ├── logo.ts
+│   ├── theme/             # logo.ts lives in crewcoder-tui-core
 │   │   └── theme.ts
 │   └── tui/
 │       ├── ansi.ts
@@ -117,11 +119,11 @@ primary:    #33859e
 ```
 
 Additional derived colors are allowed, but the default base visual identity must stay dark charcoal/teal (Gotham).
-For user-facing rendering, prefer `ctx.theme` tokens over hardcoded hex colors so custom themes work. Theme usage and JSON format are documented in `docs/THEMES.md`.
+For user-facing rendering, prefer `ctx.theme` tokens over hardcoded hex colors so custom themes work. Theme usage and JSON format are documented in `docs/THEMES.md`. The theme loader, built-ins, and JSON schema live in tui-core `theme/crewcoder-theme` and are shared with OpenTUI (`src/theme/theme.ts` only re-exports them); a format change affects both UIs.
 
 ## CLI launch
 
-When both workspace packages are installed, bare `crewcoder` launches the `crewcoder-tui` binary. Keep the TUI's backend invocations argument-bearing (`crewcoder run`, `crewcoder session ...`) so they continue to target the agent CLI instead of reopening the TUI.
+The scoped agent package's bare `crewcoder` launches the `crewcoder-tui` binary from `PATH`. The `crewcoder` umbrella's bare invocation launches `crewcoder-opentui` instead (see the root `AGENTS.md`). Keep the TUI's backend invocations argument-bearing (`crewcoder run`, `crewcoder session ...`) so they continue to target the agent CLI instead of reopening the TUI.
 
 ## Remote SSH agents
 
@@ -204,17 +206,17 @@ When resuming from `/sessions` or its `/resume` alias, apply the selected sessio
 
 `Renderer.start()` sets the terminal background color with OSC 11 so terminal padding matches the active theme, and `Renderer.stop()` resets it with OSC 111. Conversation view commits settled transcript lines into the terminal scrollback and only rewrites the live tail (streaming block, working indicator, composer). Mouse reporting is off in that mode so Ghostty/Kitty/xterm own wheel and selection; it turns back on for home, modal overlays, the sidebar, and Live UI. `CREWCODER_TUI_MOUSE=0` still forces mouse reporting off everywhere. See `docs/TRANSCRIPT.md`.
 
-The `/checkpoints on|off|status` command persists the backend `checkpointsEnabled` setting. Automatic checkpoints default on; turning them off affects future runs and never deletes existing rewind points. `checkpoint_created` events must still populate `state.checkpoints` for `/rewind`, but must not add checkpoint-save blocks to the main viewport.
+The `/checkpoints on|off|status` command persists the backend `checkpointsEnabled` setting. Automatic checkpoints are off by default until the user runs `/checkpoints on`; turning them off affects future runs and never deletes existing rewind points. `checkpoint_created` events must still populate `state.checkpoints` for `/rewind`, but must not add checkpoint-save blocks to the main viewport.
 
 The `/file-changes on|off|status` setting controls the file-changes section in the right sidebar. Hiding the display must not discard `file_changed` events or clear `state.changedFiles`; turning it back on restores the tracked list. The preference remains across `/new` because it is TUI display state, not session state. It is process-local and must never affect another TUI instance. See `docs/SETTINGS.md` for Settings command scope and persistence.
 
-The right sidebar is the sole persistent UI for workspace CWD, Git state, tracked file changes, live crew workers, and crew tasks. Its upper sections order modified files, live workers, and tasks; its workspace footer stays anchored at the bottom. The task section must reread the project task store on render, filter to `state.sessionId`, show completed/total progress in the `CREW TASKS` heading, show `activeForm` for in-progress tasks when present, and prioritize recently updated tasks within each status so stale project/session history cannot hide current work. Task rows use semantic state markers (`◉` active, `○` queued, `!` blocked, `✓` completed); completed descriptions are struck through while their ids remain readable. The AGENTS section comes from `state.crewWorkers`, names currently running workers in its heading (for example `AGENTS: builder`), and shows pending/completed/failed lifecycle states while that crew is still active. Hide the section after no workers remain pending or running so completed crews do not become stale persistent chrome. Bound each list so every section remains readable. Long file paths, worker labels, and task text must wrap within their section rather than truncate. `Ctrl+B` and bare `/sidebar` toggle it; `/sidebar on|off|status` provides explicit control. Its vertical divider is mouse-draggable with bounded instance-local width. It reserves horizontal space across home and conversation views, uses theme backgrounds/borders, and is suppressed below 60 terminal columns so the main UI remains usable. Keep sidebar mouse and resize events from reaching the composer or viewport.
+The right sidebar is the sole persistent UI for workspace CWD, Git state, tracked file changes, live crew workers, and crew tasks. Its upper sections order modified files, live workers, and tasks; its workspace footer stays anchored at the bottom. The task store reader and ordering helpers live in tui-core `state/crew-tasks` (shared with OpenTUI); `TaskWidget` only draws. The task section must reread the project task store on render, filter to `state.sessionId`, show completed/total progress in the `CREW TASKS` heading, show `activeForm` for in-progress tasks when present, and prioritize recently updated tasks within each status so stale project/session history cannot hide current work. Task rows use semantic state markers (`◉` active, `○` queued, `!` blocked, `✓` completed); completed descriptions are struck through while their ids remain readable. The AGENTS section comes from `state.crewWorkers`, names currently running workers in its heading (for example `AGENTS: builder`), and shows pending/completed/failed lifecycle states while that crew is still active. Hide the section after no workers remain pending or running so completed crews do not become stale persistent chrome. Bound each list so every section remains readable. Long file paths, worker labels, and task text must wrap within their section rather than truncate. `Ctrl+B` and bare `/sidebar` toggle it; `/sidebar on|off|status` provides explicit control. Its vertical divider is mouse-draggable with bounded instance-local width. It reserves horizontal space across home and conversation views, uses theme backgrounds/borders, and is suppressed below 60 terminal columns so the main UI remains usable. Keep sidebar mouse and resize events from reaching the composer or viewport.
 
 Every TUI enables terminal focus reporting (`DECSET 1004`). `InputRouter` tracks `CSI I`/`CSI O` and discards ordinary input while its terminal surface is unfocused, preventing duplicated terminal-emulator input from mutating another CrewCoder tab, pane, or window. Focus reports themselves must never reach App or the composer, and focus reporting must be disabled on renderer shutdown.
 
 `/task on|off` is an instance-local TUI override, represented by `CREWCODER_TASKS_ENABLED` only in that TUI process and inherited by its local or remote backend children. It must not invoke `crewcoder task on|off` or rewrite the shared task config. Direct agent CLI `crewcoder task on|off` retains its shared-default contract.
 
-Crew runs use explicit `crew_start` / `crew_worker_start` / `crew_worker_end` / `crew_end` events. Keep `state.crewWorkers` as the source for the transcript `crew` block roster; do not infer worker identity from nested `agent_start` events. The right sidebar AGENTS section and transcript roster both display crew progress; do not restore a bottom runtime bar. Nested `agent_end` temporarily marks the process idle, so every `crew_worker_start` must restore `state.running` until `crew_end` finalizes the crew. The TUI exposes `/handoff`, `/crew`, `/teams`, and `/team`; these one-shot CLI paths currently render command output rather than attaching the bridge to each child event stream. See `docs/WORKER_CREWS.md`.
+Crew runs use explicit `crew_start` / `crew_worker_start` / `crew_worker_end` / `crew_end` events. Keep `state.crewWorkers` as the source for the transcript `crew` block roster; do not infer worker identity from nested `agent_start` events. The right sidebar AGENTS section and transcript roster both display crew progress; do not restore a bottom runtime bar. The shared reducer keeps the crew live from `crew_start` to `crew_end` (`state.crewRunning`): a worker's `agent_end` no longer marks the process idle, worker `agent_start`/`session_saved` never replace `state.sessionId`, blocks carry the producing `worker`, and `stopCrew` finishes a crew that stopped early. The TUI exposes `/handoff`, `/crew`, `/teams`, and `/team`; here these remain one-shot CLI paths that render command output rather than attaching the bridge to the crew's event stream, so a review-mode crew still has no way to answer approvals (gated tools are denied as non-interactive). The OpenTUI UI streams crews through `CrewCoderProcessBridge.crew` (see `../crewcoder-opentui/docs/CREWS.md`); porting that here is the fix if legacy crews need approvals. See `docs/WORKER_CREWS.md`.
 
 The `/review-summary` command renders a dedicated `review_summary` block from `crewcoder git review-summary --json`; keep it as structured UI, not line-by-line CLI text logs. See `docs/REVIEW_WORKFLOW.md`.
 
@@ -300,6 +302,10 @@ Live UI (`contributes.liveUi[]`) runs in isolated `worker_threads` workers. The 
   error block when a worker errors or exits unexpectedly.
 ```
 
+Extension tool renderer matching and templates (`findToolRenderer`, `renderToolTemplate`)
+live in tui-core `state/tool-renderers`, shared with OpenTUI; `MainViewport` only draws. A
+renderer whose `match` sets no field matches nothing.
+
 Keep live UI wiring separate from `ExtensionUiOverlay`: the overlay handles declarative
 request/response UI, while live UI modal surfaces are long-running sandboxed workers.
 Generic `extension_ui_request` events must not mount `surface: "transcript"` contributions
@@ -360,7 +366,14 @@ not silently re-enable identity. See [identity settings](docs/SETTINGS.md#option
 `codex-cli` is the sole Codex provider and the fresh-state/offline-picker default.
 Keep its GPT-6 reasoning efforts, including `xhigh`, available. Never restore a
 managed `codex` fallback entry. Model pickers must use the backend's discovered
-catalogs, including models from the user's installed Claude Code. See
+catalogs, including models from the user's installed Claude Code. The offline fallback
+catalog (`builtinProviderDefaults`, `resolveProviderRecord`) lives in
+`@onpoint-dev-tools/crewcoder-tui-core/state/provider-defaults`, shared with the OpenTUI
+pickers; `components/App.ts` re-exports it. The pure CLI result and input parsers
+(`parseGoalRecord`, `parseDecisionExplanation`, `parseReviewSummary`,
+`parseCompactionResult`, `parseGoalStartInput`, `tokenizeGoalCommand`, `parseBudgetInput`,
+`formatBudgetTokens`) live in `@onpoint-dev-tools/crewcoder-tui-core/state/command-results`
+for the same reason; `App.ts` re-exports the ones its tests import. See
 [provider settings](docs/SETTINGS.md#provider-and-model-discovery).
 
 Run from the monorepo root:

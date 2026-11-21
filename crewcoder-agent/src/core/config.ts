@@ -63,6 +63,8 @@ export interface CrewCoderConfig {
   workerIdentityEnabled: boolean;
   /** Create bounded filesystem snapshots before mutating tools. */
   checkpointsEnabled: boolean;
+  /** Emit per-tool `file_diff` events from private workspace snapshots (default on). */
+  fileDiffs: boolean;
   autoCompact: boolean;
   /** Optional fallback used only when the active model's context window is unknown. */
   autoCompactThresholdTokens?: number;
@@ -113,6 +115,7 @@ const defaultConfig: CrewCoderConfig = {
   activeWorker: "Crew",
   workerIdentityEnabled: false,
   checkpointsEnabled: false,
+  fileDiffs: true,
   autoCompact: true,
   compactionPreview: false,
   autoActivateExtensionSkills: true,
@@ -190,6 +193,8 @@ export function setConfigValue(key: CrewCoderConfigSetKey, value: string): CrewC
     next.allowExtensionLiveUi = value === "true";
   } else if (key === "checkpointsEnabled") {
     next.checkpointsEnabled = value === "true";
+  } else if (key === "fileDiffs") {
+    next.fileDiffs = value === "true";
   } else if (key === "autoCompact") {
     next.autoCompact = value === "true";
   } else if (key === "compactionPreview") {
@@ -296,7 +301,9 @@ function normalizeConfig(input: Partial<CrewCoderConfig>): CrewCoderConfig {
     sandboxNetworkIsolation: input.sandboxNetworkIsolation === "strict" ? "strict" : "proxy",
     activeWorker: typeof input.activeWorker === "string" && input.activeWorker.trim() ? input.activeWorker.trim() : defaultConfig.activeWorker,
     workerIdentityEnabled: input.workerIdentityEnabled === true,
-    checkpointsEnabled: input.checkpointsEnabled !== false,
+    // Opt-in: automatic checkpoints stay off until the user turns them on.
+    checkpointsEnabled: input.checkpointsEnabled === true,
+    fileDiffs: input.fileDiffs !== false,
     autoCompact: input.autoCompact !== false,
     ...(typeof input.autoCompactThresholdTokens === "number" && Number.isInteger(input.autoCompactThresholdTokens)
       ? { autoCompactThresholdTokens: Math.min(Math.max(input.autoCompactThresholdTokens, MIN_COMPACT_THRESHOLD), MAX_COMPACT_THRESHOLD) }

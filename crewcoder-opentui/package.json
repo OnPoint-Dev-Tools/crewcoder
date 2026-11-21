@@ -1,0 +1,57 @@
+{
+   "name": "@onpoint-dev-tools/crewcoder-opentui",
+   "version": "0.1.0",
+   "private": false,
+   "description": "CrewCoder terminal UI built on OpenTUI and React, connected to crewcoder-agent through the shared crewcoder-tui-core bridge.",
+   "license": "Apache-2.0",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git",
+      "directory": "crewcoder-opentui"
+   },
+   "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+   "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
+   "type": "module",
+   "files": [
+      "dist",
+      "examples",
+      "grammars",
+      "LICENSE",
+      "README.md",
+      "THIRD_PARTY_NOTICES.md"
+   ],
+   "engines": {
+      "node": ">=26.4.0"
+   },
+   "publishConfig": {
+      "access": "public",
+      "provenance": true
+   },
+   "bin": {
+      "crewcoder-opentui": "./dist/cli.js"
+   },
+   "scripts": {
+      "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+      "predev": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
+      "dev": "tsx src/cli.tsx",
+      "prebuild": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
+      "build": "tsc -p tsconfig.build.json",
+      "pretypecheck": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
+      "typecheck": "tsc -p tsconfig.json --noEmit",
+      "pretest": "npm run build -w @onpoint-dev-tools/crewcoder-tui-core",
+      "test": "vitest run",
+      "start": "node dist/cli.js"
+   },
+   "dependencies": {
+      "@onpoint-dev-tools/crewcoder-tui-core": "0.1.0",
+      "@opentui/core": "0.9.2",
+      "@opentui/react": "0.9.2",
+      "cli-spinners": "3.4.0",
+      "diff": "9.0.0",
+      "react": "^19.3.1",
+      "string-width": "7.2.0"
+   },
+   "devDependencies": {
+      "@types/react": "^19.3.0"
+   }
+}

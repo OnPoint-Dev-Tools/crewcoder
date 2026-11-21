@@ -43,7 +43,9 @@ import { recordModelUsageCost } from "./cost-ledger.js";
 import { readCrewTasksConfig } from "../crew-tasks/config.js";
 import { readMemoryContext } from "./memory-store.js";
 import { readRulesContext } from "./rules-store.js";
+import { isFileEditTool, WorkspaceDiffTracker, type DiffBaseline } from "./workspace-diffs.js";
 import { formatExternalDirectories, validateExternalDirectories } from "./external-directories.js";
+import { GenerationClock } from "./generation-clock.js";
 import type { ApprovalControlDecision, CompactionPreviewDecision } from "./stdin-control.js";
 import { createCrewcoderWorkflowTools } from "../modes/crewcoder-tools.js";
 import {
@@ -372,7 +374,15 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
   const sandbox = buildSandboxContext(approvalMode, request.cwd, externalDirectories);
   const workerDelegationDepth = options.workerDelegationDepth ?? 0;
   const maxChildWorkerDepth = options.maxChildWorkerDepth ?? 1;
+  // Per-tool diffs need the real local workspace; a virtual/hosted filesystem has none here.
+  const workspaceDiffs = !virtualFilesystem && runtimeConfig.fileDiffs
+    ? new WorkspaceDiffTracker(request.cwd, {
+      onDisabled: (reason) => void emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "warn", source: "workspace-diffs", message: "per-tool file diffs disabled", details: { reason } })
+    })
+    : undefined;
+  const providerDiffBaselines = new Map<string, Promise<DiffBaseline | undefined>>();
   const toolContext: ToolContext = {
+    workspaceDiffs,
     cwd: request.cwd,
     externalDirectories,
     mode,
@@ -660,7 +670,10 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
           const dumpPath = await dumpModelInput(modelInput, { sessionId, iteration, providerId: options.providerId, model: options.model });
           await emit({ type: "backend_debug", timestamp: new Date().toISOString(), level: "info", source: "agent-loop", message: "model input dumped", details: { path: dumpPath, iteration, providerId: options.providerId, model: options.model } });
         }
-        const generationStartedAt = performance.now();
+        // Baseline for provider-native tools that this turn may run (see onProviderToolStart).
+        await workspaceDiffs?.prime();
+        // Throughput time: the call minus tools and user waits inside it (see GenerationClock).
+        const generationClock = new GenerationClock();
         assistant = await modelClient.complete(modelInput, options.signal, {
           async deliverFollowUps(deliver) {
             // Native tools can finish concurrently; only one boundary owns a batch.
@@ -668,7 +681,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
               if (await drainFollowUps(deliver)) await persistTurn(iteration);
             });
             followUpDelivery = delivery.catch(() => undefined);
-            await delivery;
+            await generationClock.excluding(() => delivery);
           },
           async onAssistantDelta(text, phase) {
             streamedAssistantText = true;
@@ -681,45 +694,61 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
             if (options.providerId) providerSessionIds[options.providerId] = providerSessionId;
           },
           async onProviderToolStart(call) {
+            generationClock.toolStarted(call.id);
             if (crewcoderWorkflow) providerToolArgs.set(call.id, call.arguments);
+            // The provider runs the tool itself; snapshot now so its file changes can be diffed at the end.
+            if (workspaceDiffs && isFileEditTool(call.name)) providerDiffBaselines.set(call.id, workspaceDiffs.begin({ reuseLast: true }));
             await emit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments });
           },
           async onProviderToolEnd(result) {
-            const message: ToolResultMessage = { role: "toolResult", toolCallId: result.toolCallId, toolName: result.toolName, content: [{ type: "text", text: result.text }], isError: result.isError, timestamp: Date.now() };
-            recordCrewcoderInspection(crewcoderWorkflow, message, providerToolArgs.get(result.toolCallId) ?? {});
-            providerToolArgs.delete(result.toolCallId);
-            await emit({ type: "tool_execution_end", toolCallId: result.toolCallId, toolName: result.toolName, result: message, isError: result.isError });
+            // The tool counts as running until its diff snapshot and events are done: that is CrewCoder time, not generation.
+            try {
+              const message: ToolResultMessage = { role: "toolResult", toolCallId: result.toolCallId, toolName: result.toolName, content: [{ type: "text", text: result.text }], isError: result.isError, timestamp: Date.now() };
+              recordCrewcoderInspection(crewcoderWorkflow, message, providerToolArgs.get(result.toolCallId) ?? {});
+              providerToolArgs.delete(result.toolCallId);
+              const baseline = providerDiffBaselines.get(result.toolCallId);
+              providerDiffBaselines.delete(result.toolCallId);
+              await emitFileDiffs(workspaceDiffs, baseline, result.toolCallId, result.toolName, emit);
+              await emit({ type: "tool_execution_end", toolCallId: result.toolCallId, toolName: result.toolName, result: message, isError: result.isError });
+            } finally {
+              generationClock.toolEnded(result.toolCallId);
+            }
           },
           async executeTool(call) {
-            const [result] = await executeToolCalls([call], tools, toolContext, emit, approvalMode, extensionHooks, extensionFileTriggers, extensionApprovalPolicies, extensionRuntime, checkpoints, checkpointsEnabled, options.signal, options.approvalSignal, options.uiBridge);
+            const [result] = await generationClock.excluding(() => executeToolCalls([call], tools, toolContext, emit, approvalMode, extensionHooks, extensionFileTriggers, extensionApprovalPolicies, extensionRuntime, checkpoints, checkpointsEnabled, options.signal, options.approvalSignal, options.uiBridge));
             return result ?? { role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text: `Tool ${call.name} did not return a result.` }], isError: true, timestamp: Date.now() };
           },
           async requestQuestion(question) {
-            if (options.requestQuestion) return options.requestQuestion(question);
-            if (!options.uiBridge) return undefined;
-            const ui = options.uiBridge.uiFor("claude-sdk");
-            return question.options?.length
-              ? await ui.select(question.title, question.options)
-              : await ui.input(question.title, { placeholder: question.placeholder });
+            const ask = options.requestQuestion;
+            if (ask) return generationClock.excluding(() => ask(question));
+            const uiBridge = options.uiBridge;
+            if (!uiBridge) return undefined;
+            const ui = uiBridge.uiFor("claude-sdk");
+            return generationClock.excluding(() => (question.options?.length
+              ? ui.select(question.title, question.options)
+              : ui.input(question.title, { placeholder: question.placeholder })));
           },
           async onUsage(reportedUsage) {
-            const usage = await priceTurn(reportedUsage);
-            turnUsage = usage;
-            usageSummary = addUsage(usageSummary, usage);
-            refreshCompactionPolicy();
-            if (typeof tokenBudget === "number") {
-              const status = tokenBudgetStatus(usageSummary, tokenBudget);
-              budgetExceeded = status.exceeded;
-              usageSummary = { ...usageSummary, tokenBudget, budgetExceeded };
-              await emit({ type: "usage_update", usage, summary: usageSummary });
-              if (!budgetWarningEmitted && status.warningReached) {
-                budgetWarningEmitted = true;
-                budgetDownshiftRequested = !status.exceeded;
-                await emit({ type: "token_budget_warning", limit: status.limit, used: status.used, remaining: status.remaining, percent: status.percent });
+            // Pricing (catalog lookup) and budget bookkeeping are CrewCoder time, not generation.
+            await generationClock.excluding(async () => {
+              const usage = await priceTurn(reportedUsage);
+              turnUsage = usage;
+              usageSummary = addUsage(usageSummary, usage);
+              refreshCompactionPolicy();
+              if (typeof tokenBudget === "number") {
+                const status = tokenBudgetStatus(usageSummary, tokenBudget);
+                budgetExceeded = status.exceeded;
+                usageSummary = { ...usageSummary, tokenBudget, budgetExceeded };
+                await emit({ type: "usage_update", usage, summary: usageSummary });
+                if (!budgetWarningEmitted && status.warningReached) {
+                  budgetWarningEmitted = true;
+                  budgetDownshiftRequested = !status.exceeded;
+                  await emit({ type: "token_budget_warning", limit: status.limit, used: status.used, remaining: status.remaining, percent: status.percent });
+                }
+                return;
               }
-              return;
-            }
-            await emit({ type: "usage_update", usage, summary: usageSummary });
+              await emit({ type: "usage_update", usage, summary: usageSummary });
+            });
           },
           async onProviderCompaction(update) {
             await emit({
@@ -731,7 +760,7 @@ export async function runAgentLoop(request: AgentRequest, options: AgentLoopOpti
             });
           }
         });
-        generationDurationMs = performance.now() - generationStartedAt;
+        generationDurationMs = generationClock.finish();
         assistant = assignAssistantHashes(assistant, modelInput);
         modelTurns.push({ iteration, input: modelInput, promptHash: assistant.promptHash ?? "", responseHash: assistant.responseHash ?? "", responseId: assistant.id ?? "" });
       } catch (error) {
@@ -1234,6 +1263,8 @@ async function executeToolCallsSequential(
 
     const startMetadata = toolEventMetadata(toolCall.name);
     await emit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments, metadata: startMetadata });
+    // Awaited: the snapshot must finish before the tool can write.
+    const diffBaseline = context.workspaceDiffs && isFileEditTool(toolCall.name) ? Promise.resolve(await context.workspaceDiffs.begin()) : undefined;
 
     const isValidation = toolCall.name === "validatePlugin";
     if (isValidation) {
@@ -1316,6 +1347,7 @@ async function executeToolCallsSequential(
       });
     }
 
+    await emitFileDiffs(context.workspaceDiffs, diffBaseline, toolCall.id, toolCall.name, emit);
     await emit({ type: "tool_execution_end", toolCallId: toolCall.id, toolName: toolCall.name, result, isError: result.isError, metadata: mergeToolMetadata(startMetadata, result.details) });
     results.push(result);
     if (result.terminate) break;
@@ -1350,6 +1382,19 @@ async function appendAuditEvent(
   if (event.type === "file_changed") {
     await appendAuditLog({ type: "write", sessionId: context.sessionId, cwd: context.cwd, toolName: event.toolName, path: event.path });
   }
+}
+
+/** Emit the files a tool changed since `baseline`, before its `tool_execution_end`. Never throws. */
+async function emitFileDiffs(
+  tracker: WorkspaceDiffTracker | undefined,
+  baseline: Promise<DiffBaseline | undefined> | undefined,
+  toolCallId: string,
+  toolName: string,
+  emit: AgentEventSink
+): Promise<void> {
+  if (!tracker || !baseline) return;
+  const files = await tracker.end(await baseline).catch(() => []);
+  if (files.length > 0) await emit({ type: "file_diff", toolCallId, toolName, files });
 }
 
 function toolEventMetadata(toolName: string): Record<string, unknown> | undefined {

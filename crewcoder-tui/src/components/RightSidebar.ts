@@ -1,5 +1,5 @@
 import type { Component, RenderContext } from "../tui/component.js";
-import type { TuiCrewWorker, TuiState } from "../state/tui-store.js";
+import type { TuiCrewWorker, TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bg, bold, fg, reset } from "../tui/ansi.js";
 import { horizontalRule, padRight, truncate, wrapText } from "../tui/layout.js";
 import { spinnerFrame } from "./Spinner.js";

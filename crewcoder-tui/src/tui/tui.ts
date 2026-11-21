@@ -1,11 +1,11 @@
 import { App } from "../components/App.js";
-import { readGitLabel } from "../state/git-status.js";
-import { createInitialState } from "../state/tui-store.js";
+import { readGitLabel } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
+import { createInitialState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { loadCrewCoderTheme } from "../theme/theme.js";
 import { InputRouter } from "./input.js";
 import { OverlayManager } from "./overlay.js";
 import { Renderer } from "./renderer.js";
-import { readCrewCoderRemoteConnection } from "../bridge/remote-connection.js";
+import { readCrewCoderRemoteConnection } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/remote-connection";
 
 export class CrewCoderTui {
   private readonly state: ReturnType<typeof createInitialState>;

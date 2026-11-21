@@ -1,10 +1,11 @@
 import type { Component, KeyEvent, RenderContext } from "../tui/component.js";
-import type { TuiState } from "../state/tui-store.js";
+import type { TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { bg, bold, fg, reset, visibleLength } from "../tui/ansi.js";
 import { padRight, truncate } from "../tui/layout.js";
-import { formatContextStatus } from "../state/usage.js";
+import { formatContextStatus } from "@onpoint-dev-tools/crewcoder-tui-core/state/usage";
 import { readClipboard, readClipboardImage, writeClipboard } from "../tui/clipboard.js";
-import { describeAttachment, persistImageBuffer, persistImageFile, sniffImage, type ImageAttachment } from "../state/image-attachment.js";
+import path from "node:path";
+import { attachedSources, describeAttachment, imagePathsFromText, persistImageBuffer, persistImageFile, sniffImage, type ImageAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import { toolHasExpandableOutput } from "./MainViewport.js";
 
 export type SubmitHandler = (value: string) => void;
@@ -204,13 +205,15 @@ export class Composer implements Component {
 
   private attachImagePathsFromText(text: string): boolean {
     const paths = imagePathsFromText(text);
-    const existingPaths = new Set(this.state.attachments.map((attachment) => attachment.path));
+    // Dedupe by source file, before copying: each attach writes a new cache file.
+    const existingPaths = attachedSources(this.state.attachments);
     const attachments: ImageAttachment[] = [];
     for (const filePath of paths) {
+      if (existingPaths.has(path.resolve(filePath))) continue;
       const attachment = persistImageFile(filePath);
-      if (!attachment || existingPaths.has(attachment.path)) continue;
+      if (!attachment) continue;
       attachments.push(attachment);
-      existingPaths.add(attachment.path);
+      existingPaths.add(attachment.sourcePath ?? attachment.path);
     }
     if (!attachments.length) return false;
     this.state.attachments = [...this.state.attachments, ...attachments];
@@ -458,22 +461,6 @@ function roundedRule(width: number, color: string, edge: "top" | "bottom", inset
 
 function pill(label: string, value: string, color: string, fill: string): string {
   return `${bg(fill)}${fg(color)} ${bold()}${label}${reset()}${bg(fill)}${fg(color)} ${value} ${reset()}`;
-}
-
-function imagePathsFromText(text: string): string[] {
-  const values = new Set<string>();
-  for (const match of text.matchAll(/(?:file:\/\/)?(?:~|\/|\.\.?\/)[^\s'"`<>]+\.(?:png|jpe?g|gif|webp|bmp)\b/gi)) {
-    const raw = match[0] ?? "";
-    const filePath = raw.startsWith("file://") ? decodeURIComponent(raw.slice("file://".length)) : raw;
-    values.add(expandHome(filePath));
-  }
-  return [...values];
-}
-
-function expandHome(filePath: string): string {
-  if (filePath === "~") return process.env.HOME ?? filePath;
-  if (filePath.startsWith("~/")) return `${process.env.HOME ?? "~"}${filePath.slice(1)}`;
-  return filePath;
 }
 
 function strip(value: string): string { return value.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ""); }

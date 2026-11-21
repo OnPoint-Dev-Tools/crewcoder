@@ -1,0 +1,51 @@
+{
+   "name": "@onpoint-dev-tools/crewcoder-tui-core",
+   "version": "0.1.0",
+   "private": false,
+   "description": "UI-independent CrewCoder terminal UI runtime: agent process bridge, JSON event parser, and transcript state reducer shared by CrewCoder TUIs.",
+   "license": "Apache-2.0",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/OnPoint-Dev-Tools/crewcoder.git",
+      "directory": "crewcoder-tui-core"
+   },
+   "bugs": "https://github.com/OnPoint-Dev-Tools/crewcoder/issues",
+   "homepage": "https://github.com/OnPoint-Dev-Tools/crewcoder#readme",
+   "type": "module",
+   "files": [
+      "dist",
+      "LICENSE",
+      "README.md"
+   ],
+   "engines": {
+      "node": ">=22.0.0"
+   },
+   "exports": {
+      "./bridge/*": {
+         "types": "./dist/bridge/*.d.ts",
+         "default": "./dist/bridge/*.js"
+      },
+      "./state/*": {
+         "types": "./dist/state/*.d.ts",
+         "default": "./dist/state/*.js"
+      },
+      "./theme/*": {
+         "types": "./dist/theme/*.d.ts",
+         "default": "./dist/theme/*.js"
+      },
+      "./package.json": "./package.json"
+   },
+   "publishConfig": {
+      "access": "public",
+      "provenance": true
+   },
+   "scripts": {
+      "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+      "build": "tsc -p tsconfig.build.json",
+      "typecheck": "tsc -p tsconfig.json --noEmit",
+      "test": "vitest run"
+   },
+   "dependencies": {
+      "zod": "^3.23.8"
+   }
+}

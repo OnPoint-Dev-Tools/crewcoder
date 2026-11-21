@@ -86,7 +86,7 @@ The right sidebar reserves space instead of covering the main surface and is loc
 
 ## Backend configuration
 
-Some related controls persist through CrewCoder's backend config rather than TUI state. `/checkpoints on|off` sets `checkpointsEnabled`, `/compact on|off` sets `autoCompact`, and extension execution gates are stored with `crewcoder config set`. Automatic checkpoints default on; changing the setting affects future runs and never deletes existing rewind points. Reload backend metadata with `/reload` after changing config outside the TUI.
+Some related controls persist through CrewCoder's backend config rather than TUI state. `/checkpoints on|off` sets `checkpointsEnabled`, `/compact on|off` sets `autoCompact`, and extension execution gates are stored with `crewcoder config set`. Automatic checkpoints are off by default (opt in with `/checkpoints on`); changing the setting affects future runs and never deletes existing rewind points. Reload backend metadata with `/reload` after changing config outside the TUI.
 
 Do not treat `full-access`, token budgets, or external-directory grants as global defaults: they are deliberately session-scoped safety controls.
 
