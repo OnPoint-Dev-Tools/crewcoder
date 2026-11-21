@@ -16,7 +16,7 @@ place for workspace and git state, modified files, live crew agents, and crew ta
   ⠼ builder running
   □ reviewer queued
 ─────────────────────────────
-  CREW TASKS — 1/3 completed        only when tasks are on; this session's tasks
+  CREW TASKS — 1/3 completed        only when tasks are on; this session's and its crews' tasks
   ◉ 2. Porting the sidebar          active (activeForm), bold
   ! 3. Verify in tmux               blocked
   ✓ 1. Read the legacy sidebar      done, struck through
@@ -72,7 +72,7 @@ the column and the new width is `terminal - x - 1`.
 - `src/components/Sidebar.tsx`: draws the rows. The worker spinner ticks only while a
   worker runs.
 - The task store reader is shared with the legacy UI: tui-core `state/crew-tasks`
-  (`readCrewTaskSnapshot`, `tasksForSession`, `sessionDisplayNumbers`, `prioritizedTasks`).
+  (`readCrewTaskSnapshot`, `tasksForSessions`, `sessionDisplayNumbers`, `prioritizedTasks`).
   It mirrors the agent's store paths (`<cwd>/.crewcoder/tasks/tasks.json`, enabled by
   `$CREWCODER_HOME/tasks/config.json` or the instance `CREWCODER_TASKS_ENABLED` override
   from `/task on|off`).
@@ -103,6 +103,7 @@ Verified in a real terminal (tmux, fake agent through `CREWCODER_BIN`, tasks on 
 `CREWCODER_HOME`): sections, wrapping, theme colors (`muted` background, `border`
 divider), `/sidebar status`, Ctrl+B close, Ctrl+C exit.
 
-Known gap, shared with legacy: workers that never started stay `queued` after `crew_end`
-(the reducer only updates workers it hears about), so an aborted crew leaves its
-AGENTS section in place until the next crew starts.
+Crews (`docs/CREWS.md`): starting `/crew` or `/team` opens the sidebar. A crew that stops
+early (abort, crash, a worker that threw) is finished by tui-core `stopCrew`, so AGENTS no
+longer stays stuck on `queued` workers. CREW TASKS also lists tasks the crew's workers
+created in their own sessions (`state.crewSessionIds`, in memory for this UI session).

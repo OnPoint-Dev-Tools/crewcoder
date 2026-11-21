@@ -44,7 +44,8 @@ export function statusLine(state: StatusState, width: number): StatusLine {
  * missing; `new session` before any prompt outside a repo.
  */
 export function sessionName(state: Pick<TuiState, "gitRepo" | "blocks">): string {
-  const first = state.blocks.find((block) => block.type === "user");
+  // A crew worker's brief is not the user's prompt.
+  const first = state.blocks.find((block) => block.type === "user" && !block.worker);
   const chat = first?.type === "user" ? normalize(first.text).replace(/\s+/g, " ").trim() : "";
   return [state.gitRepo, chat].filter(Boolean).join(SEPARATOR) || "new session";
 }

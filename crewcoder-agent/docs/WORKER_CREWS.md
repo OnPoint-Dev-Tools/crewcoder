@@ -28,6 +28,8 @@ crewcoder crew run \
 
 Use `--json` for a machine-readable summary. Use `--json-events` to stream the underlying worker run events. Crew orchestration adds `crew_start`, `crew_worker_start`, `crew_worker_end`, and `crew_end` lifecycle events around each worker stream so hosts can display pending, active, completed, and failed agents without inferring identity from nested agent events.
 
+With `--json-events`, `crew run` and `crew team run` read the same stdin control channel as `run` (`src/core/run-controls.ts`): approvals, follow-ups, extension answers, and compaction requests reach whichever worker is running. Without it, review-mode approvals inside a crew had no answer path and were denied as non-interactive, so every gated tool failed. Without `--json-events` there is still no host, so approvals stay non-interactive (denied). `--effort` now reaches each worker's loop as well as its provider. Hosts should pass the task after `--` so it is never read as options (`crew run --workers a,b --json-events -- <task>`).
+
 ## Use workers and crews from the TUI
 
 Workers must already exist before the TUI can use them. Create them from a shell:
@@ -94,7 +96,7 @@ Run one of those teams:
 
 Each team role receives the task plus its configured description, role prompt, handoff rules, and shared memory. Team roles run sequentially and create separate durable worker sessions.
 
-All commands are also discoverable from `/help` or the command palette. Errors and run summaries are printed in the conversation viewport. See `../../crewcoder-tui/docs/WORKER_CREWS.md` for the full TUI workflow.
+All commands are also discoverable from `/help` or the command palette. In the legacy TUI, errors and run summaries are printed in the conversation viewport (see `../../crewcoder-tui/docs/WORKER_CREWS.md`). The OpenTUI UI streams `/crew` and `/team` live, with worker-labelled transcript sections, the sidebar AGENTS roster, and approvals answered from the UI (see `../../crewcoder-opentui/docs/CREWS.md`).
 
 ## Handoff to another worker
 

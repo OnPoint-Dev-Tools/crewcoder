@@ -81,16 +81,18 @@ alert; bad values report what is accepted.
 | `/why` | One-shot `session why`: the model's explanation of its last decision. A deterministic transcript readout (model failed) shows as a warning with the fallback reason. Never adds a turn. |
 | `/review-summary` | Git branch, changed files, and issue references. |
 | `/extensions`, `/teams` | CLI listings in an alert. |
-| `/team <team> <task>` | Run a declared team; output in an alert. |
+| `/crew <worker1,worker2> <task>` | Run workers in order, streamed live into the transcript and sidebar (`docs/CREWS.md`). |
+| `/team <team> <task>` | Run a declared team, streamed live like `/crew`. |
 | `/approve`, `/deny [id]` | Resolve the pending tool call (the approval card buttons and Ctrl+Y / Ctrl+N do the same). |
 | `/approve-plan` | Accept the CrewCoder-mode plan: a prompt when idle, a follow-up during a run. |
 | `/follow-up <message>` | Queue a message for the running turn (plain messages during a run do the same). |
 | `/new`, `/stop`, `/help` | Fresh session; stop the run; open this palette. |
+| `/find [text]` | Search the transcript, like Ctrl+F; with text it searches right away. See [`TRANSCRIPT.md`](TRANSCRIPT.md#search). |
 | `/repaint` (`/redraw`) | Redraw every cell of a screen garbled by outside output. Silent. |
 | `/quit` | Exit, the same as Ctrl+C. |
 | `/ext.<extension-id>.<command-id> [args]` | Run an extension's executable command (`crewcoder command run <name> -- <args>`; the agent enforces trust). Output in an alert; never a prompt. Not listed in the palette; `/commands` shows the available extension commands. |
 
-Commands that need an argument (`/remember`, `/add-dir`, `/follow-up`, `/team`) put
+Commands that need an argument (`/remember`, `/add-dir`, `/follow-up`, `/crew`, `/team`) put
 `/name ` into the composer when picked from the palette. `/add-dir` without a path lists
 the granted directories.
 
@@ -101,7 +103,7 @@ enable it.
 `/sidebar` and `/file-changes` toggle when bare and take `on|off|status`; their results
 are alerts (`docs/SIDEBAR.md`).
 
-Not in OpenTUI: `/crew` (skipped by owner decision); it reports that it is unavailable.
+`/crew` was skipped earlier and is ported now that crews stream (owner decision, 2026-11-20).
 
 ## Composer
 

@@ -55,6 +55,26 @@ code on 2026-11-18. The branch is not pushed until this list is done.
   highlighted with the same colors. Example: `examples/themes/ember.json`. `/theme` lists
   every theme with a live preview, applies on Enter, and remembers the pick
   (`$CREWCODER_HOME/opentui.json`). See `docs/THEMES.md`.
+- Status panels in the transcript (`src/block-panels.ts`): background jobs, plugin
+  validation, crew rosters, goals, review summaries, `/why`, checkpoints. Scoped by owner
+  decision (2026-11-19): `/goal`, `/review-summary`, `/why` stay footer alerts; the panels
+  cover blocks the event stream delivers. The placeholders users actually hit were
+  background jobs and validation. See `docs/TRANSCRIPT.md#status-panels`.
+- Live crews (2026-11-20): `/crew` and `/team` stream through the bridge; worker-labelled
+  transcript, AGENTS roster, workers' tasks in the sidebar, approvals answered from the UI
+  (the agent's crew commands now attach the stdin control channel; review-mode crews used
+  to auto-deny every gated tool, in legacy too). With tmux, a crew can run in a second UI
+  in tmux that survives closing this one (`docs/CREWS.md#tmux`). See `docs/CREWS.md`.
+- User messages show a filled `●` (theme primary) left of the text instead of a `YOU` row.
+- Logo color pulse (2026-11-20): the welcome wordmark breathes from `accent` at half
+  brightness to `glow` (legacy timing: 2.2 s breath, frozen after 3 minutes without a key),
+  steady on `glow` under `NO_MOTION=1`/`CI=true` (`src/logo-pulse.ts`, `PulsingLogo`).
+- Transcript search (2026-11-20): Ctrl+F / `/find [text]`, newest match first, jumps to the
+  exact wrapped line (expanding collapsed output) and marks it; the bar shows the match line.
+  No in-text highlight by owner decision (OpenTUI only allows it through internals). See
+  `docs/TRANSCRIPT.md#search`.
+- tmux support (2026-11-20, owner request): audited with an attached client; startup note
+  for missing tmux settings and an honest copy message. See `docs/TMUX.md`.
 
 ## Open
 
@@ -70,13 +90,14 @@ code on 2026-11-18. The branch is not pushed until this list is done.
 10. ~~**Image attachments and terminal graphics**, including tool-result images.~~ Done.
 11. ~~**Assistant throughput metadata.**~~ Done.
 12. ~~**Live UI** (sandboxed extension workers).~~ Skipped by owner decision (2026-11-19).
-13. **Dedicated crew, goal, and review-summary views** (one-line placeholders today).
-14. **Logo color pulse.**
-15. **Transcript search.** Terminal search cannot see the alternate screen.
+13. ~~**Dedicated crew, goal, and review-summary views.**~~ Done (status panels).
+14. ~~**Logo color pulse.**~~ Done.
+15. ~~**Transcript search.**~~ Done.
 
 16. ~~**Remote target in state.**~~ Done with the sidebar (`cli.tsx`).
 
-Skipped by owner decision: `/crew`; Live UI (`contributes.liveUi[]`). Live UI is
+Skipped by owner decision: Live UI (`contributes.liveUi[]`). (`/crew` was skipped too, then
+ported with live crews by owner decision on 2026-11-20.) Live UI is
 experimental, off by default (`allowExtensionLiveUi=false`), used by no known extension,
 and unfinished in legacy (no real-worker end-to-end tests, uncolored text frames). Legacy
 `crewcoder-tui` keeps it. Declarative extension components and questions still work here.
@@ -91,5 +112,5 @@ and unfinished in legacy (no real-worker end-to-end tests, uncolored text frames
 6. ~~Right sidebar, then `/sessions` branching.~~ Done.
 7. ~~Themes.~~ Done.
 8. ~~Images, throughput.~~ Done.
-9. Dedicated views, logo pulse. (Live UI skipped.)
-10. Transcript search (moved to the end by owner decision).
+9. ~~Dedicated views, logo pulse.~~ Done. (Live UI skipped.)
+10. ~~Transcript search (moved to the end by owner decision).~~ Done.

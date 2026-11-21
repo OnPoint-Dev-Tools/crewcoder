@@ -1,6 +1,8 @@
 import { describeAttachment } from "@onpoint-dev-tools/crewcoder-tui-core/state/image-attachment";
 import { formatTokensPerSecond } from "@onpoint-dev-tools/crewcoder-tui-core/state/usage";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
+import type { PanelBlock } from "./block-panels.js";
+import { USER_MESSAGE_MARKER } from "./glyphs.js";
 
 export type TranscriptTone = "user" | "assistant" | "thinking" | "tool" | "approval" | "error" | "system" | "muted";
 
@@ -34,10 +36,16 @@ export function transcriptSections(blocks: readonly TuiEventBlock[]): Transcript
       return;
     }
     const last = sections.at(-1);
-    if (last?.kind === "work") last.blocks.push(block);
+    // One box per worker in a crew: a new worker's tools start a new box.
+    if (last?.kind === "work" && workerOf(last.blocks.at(-1)) === workerOf(block)) last.blocks.push(block);
     else sections.push({ kind: "work", blocks: [block], start: index });
   });
   return sections;
+}
+
+/** The crew worker that produced a block, if any (`worker` is set by the reducer during crews). */
+export function workerOf(block: TuiEventBlock | undefined): string | undefined {
+  return block && "worker" in block ? block.worker : undefined;
 }
 
 /** Per-tool display state, owned by SessionController. */
@@ -61,8 +69,18 @@ export function isStreaming(block: TuiEventBlock, isLast: boolean, running: bool
 export function blockToRow(block: TuiEventBlock): TranscriptRow {
   switch (block.type) {
     case "user":
+      // A crew worker's brief came from the crew, not from the keyboard.
+      if (block.worker) {
+        return {
+          label: `TASK → ${normalize(block.worker)}`,
+          tone: "muted",
+          text: normalize(block.text),
+          detail: block.background?.length ? normalize(block.background.join("\n")) : undefined
+        };
+      }
+      // `UserMessage` draws the label as a marker left of the text, not as a row above it.
       return {
-        label: "YOU",
+        label: USER_MESSAGE_MARKER,
         tone: "user",
         text: normalize(block.text),
         // Background is provider context, not typed text; keep it visibly separate.
@@ -108,11 +126,15 @@ export function blockToRow(block: TuiEventBlock): TranscriptRow {
         text: normalize(block.title),
         detail: block.answer !== undefined ? `Answer: ${normalize(block.answer)}` : undefined
       };
-    default:
-      // Structured blocks (goals, crews, ...) are not ported yet; live UI is skipped by
-      // owner decision and never mounted here. Show
-      // that something happened rather than silently dropping the event.
-      return { label: block.type.toUpperCase().replace(/_/g, " "), tone: "muted", text: "(not rendered in the OpenTUI preview yet)" };
+    case "live_ui":
+      // Live UI is skipped by owner decision and never mounted here; say so rather than drop it.
+      return { label: "LIVE UI", tone: "muted", text: `${normalize(block.title)} (extension live UI is not available in this UI)` };
+    default: {
+      // Crews, goals, jobs, ... draw as panels (`block-panels.ts`); the Transcript routes them
+      // before reaching here. The assignment makes a new block type a compile error.
+      const panel: PanelBlock = block;
+      return { label: panel.type.toUpperCase().replace(/_/g, " "), tone: "muted", text: "" };
+    }
   }
 }
 

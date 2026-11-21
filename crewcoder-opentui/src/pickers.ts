@@ -8,7 +8,9 @@ import type { PaletteCommand } from "./palette-model.js";
 /** Every list the palette can show. `commands` is the `/` palette itself. */
 export type PickerKind =
   | "commands" | "menu" | "provider" | "model" | "effort" | "mode" | "systemPrompt" | "promptCommand" | "skill"
-  | "profile" | "toolMode" | "removeDir" | "session" | "rewind" | "rewindConfirm" | "handoff" | "theme";
+  | "profile" | "toolMode" | "removeDir" | "session" | "rewind" | "rewindConfirm" | "handoff" | "theme"
+  // Where a /crew or /team runs (here or in tmux); handled by SessionController.
+  | "crewLaunch";
 
 export type Picker = {
   kind: PickerKind;
@@ -22,7 +24,7 @@ export type Picker = {
 };
 
 /** Typed names (including legacy aliases) that open a picker. */
-export const PICKER_COMMANDS: Readonly<Record<string, Exclude<PickerKind, "commands" | "menu" | "rewindConfirm">>> = {
+export const PICKER_COMMANDS: Readonly<Record<string, Exclude<PickerKind, "commands" | "menu" | "rewindConfirm" | "crewLaunch">>> = {
   "/sessions": "session", "/resume": "session",
   "/provider": "provider", "/model": "model", "/effort": "effort",
   "/modes": "mode", "/mode": "mode", "/workers": "mode", "/worker": "mode",

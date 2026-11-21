@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyCrewCoderEvent } from "../state/event-reducer.js";
+import { applyCrewCoderEvent, stopCrew } from "../state/event-reducer.js";
 import { createInitialState } from "../state/tui-store.js";
 
 describe("TUI event reducer", () => {
@@ -43,8 +43,9 @@ describe("TUI event reducer", () => {
       { name: "builder", status: "pending" }
     ]);
 
+    // A worker's agent_end is not the end of the crew: the UI stays busy between workers.
     applyCrewCoderEvent(state, { type: "agent_end", sessionId: "session_reviewer", messages: [] });
-    expect(state.running).toBe(false);
+    expect(state.running).toBe(true);
     applyCrewCoderEvent(state, { type: "crew_worker_end", worker: "reviewer", index: 0, total: 2, status: "completed", sessionId: "session_reviewer" });
     applyCrewCoderEvent(state, { type: "crew_worker_start", worker: "builder", index: 1, total: 2, sessionId: "session_builder" });
     expect(state.running).toBe(true);
@@ -57,6 +58,101 @@ describe("TUI event reducer", () => {
       { name: "builder", status: "failed", sessionId: "session_builder", error: "provider failed" }
     ]);
     expect(state.blocks.find((block) => block.type === "crew")).toMatchObject({ type: "crew", completed: true });
+  });
+
+  it("keeps the user's session id while crew workers run in their own sessions", () => {
+    const state = createInitialState();
+    state.sessionId = "session_user";
+
+    applyCrewCoderEvent(state, { type: "crew_start", workers: ["planner"] });
+    applyCrewCoderEvent(state, { type: "crew_worker_start", worker: "planner", index: 0, total: 1 });
+    applyCrewCoderEvent(state, { type: "agent_start", sessionId: "session_planner" });
+    applyCrewCoderEvent(state, { type: "session_saved", sessionId: "session_planner", path: "/x" });
+    applyCrewCoderEvent(state, { type: "crew_worker_end", worker: "planner", index: 0, total: 1, status: "completed", sessionId: "session_planner" });
+    applyCrewCoderEvent(state, { type: "crew_end", total: 1, completed: 1, failed: 0 });
+
+    expect(state.sessionId).toBe("session_user");
+    expect(state.crewSessionIds).toEqual(["session_planner"]);
+    expect(state.crewWorkers[0]).toMatchObject({ name: "planner", sessionId: "session_planner" });
+    expect(state.crewRunning).toBe(false);
+
+    // Outside a crew, runs move the session id as before.
+    applyCrewCoderEvent(state, { type: "agent_start", sessionId: "session_next" });
+    expect(state.sessionId).toBe("session_next");
+  });
+
+  it("tags each worker's brief, reasoning, tools, and reply with the worker", () => {
+    const state = createInitialState();
+    const brief = (worker: string) => {
+      applyCrewCoderEvent(state, { type: "crew_worker_start", worker, index: 0, total: 2 });
+      applyCrewCoderEvent(state, { type: "message_end", message: { role: "user", content: [{ type: "text", text: "ship it" }] } });
+    };
+    applyCrewCoderEvent(state, { type: "crew_start", workers: ["planner", "builder"] });
+    brief("planner");
+    applyCrewCoderEvent(state, { type: "thinking_delta", text: "plan" });
+    applyCrewCoderEvent(state, { type: "approval_required", approvalId: "a1", toolCallId: "w1", toolName: "write", reason: "write may modify project files." });
+    applyCrewCoderEvent(state, { type: "tool_execution_start", toolName: "read", toolCallId: "r1" });
+    applyCrewCoderEvent(state, { type: "assistant_delta", text: "planned" });
+    applyCrewCoderEvent(state, { type: "crew_worker_end", worker: "planner", index: 0, total: 2, status: "completed" });
+    brief("builder");
+    applyCrewCoderEvent(state, { type: "assistant_delta", text: "built" });
+
+    const tagged = state.blocks.filter((block) => block.type !== "system" && block.type !== "crew")
+      .map((block) => [block.type, "worker" in block ? block.worker : undefined, "text" in block ? block.text : undefined]);
+    // Both workers get the same brief text; neither is dropped as a duplicate.
+    expect(tagged).toEqual([
+      ["user", "planner", "ship it"],
+      ["thinking", "planner", "plan"],
+      ["approval", "planner", "write may modify project files."],
+      ["tool", "planner", undefined],
+      ["assistant", "planner", "planned"],
+      ["user", "builder", "ship it"],
+      ["assistant", "builder", "built"]
+    ]);
+
+    applyCrewCoderEvent(state, { type: "crew_end", total: 2, completed: 1, failed: 0 });
+    applyCrewCoderEvent(state, { type: "assistant_delta", text: "after" });
+    expect(state.blocks.at(-1)).toEqual({ type: "assistant", text: "after" });
+  });
+
+  it("does not repeat a follow-up the UI already showed during a crew", () => {
+    const state = createInitialState();
+    applyCrewCoderEvent(state, { type: "crew_start", workers: ["builder"] });
+    applyCrewCoderEvent(state, { type: "crew_worker_start", worker: "builder", index: 0, total: 1 });
+    state.blocks.push({ type: "user", text: "also add tests" });
+    applyCrewCoderEvent(state, { type: "message_end", message: { role: "user", content: [{ type: "text", text: "also add tests" }] } });
+    expect(state.blocks.filter((block) => block.type === "user")).toHaveLength(1);
+  });
+
+  it("finishes a crew that stopped or exited early so it never shows as running", () => {
+    const state = createInitialState();
+    applyCrewCoderEvent(state, { type: "crew_start", workers: ["planner", "builder"] });
+    applyCrewCoderEvent(state, { type: "crew_worker_start", worker: "planner", index: 0, total: 2 });
+    stopCrew(state);
+    expect(state.crewWorkers).toEqual([
+      { name: "planner", status: "failed", error: "Stopped before finishing." },
+      { name: "builder", status: "failed", error: "Stopped before finishing." }
+    ]);
+    expect(state.crewRunning).toBe(false);
+    expect(state.blocks.find((block) => block.type === "crew")).toMatchObject({ completed: true });
+
+    const exited = createInitialState();
+    applyCrewCoderEvent(exited, { type: "crew_start", workers: ["planner"] });
+    applyCrewCoderEvent(exited, { type: "crew_worker_start", worker: "planner", index: 0, total: 1 });
+    applyCrewCoderEvent(exited, { type: "process_exit", code: 1 });
+    expect(exited.crewWorkers[0]).toMatchObject({ status: "failed", error: "The crew process exited before this worker finished." });
+    expect(exited.running).toBe(false);
+
+    // A worker that threw leaves the rest pending; crew_end marks them as not run.
+    const thrown = createInitialState();
+    applyCrewCoderEvent(thrown, { type: "crew_start", workers: ["planner", "builder"] });
+    applyCrewCoderEvent(thrown, { type: "crew_worker_start", worker: "planner", index: 0, total: 2 });
+    applyCrewCoderEvent(thrown, { type: "crew_worker_end", worker: "planner", index: 0, total: 2, status: "failed", error: "boom" });
+    applyCrewCoderEvent(thrown, { type: "crew_end", total: 2, completed: 0, failed: 1 });
+    expect(thrown.crewWorkers).toEqual([
+      { name: "planner", status: "failed", error: "boom" },
+      { name: "builder", status: "failed", error: "Did not run." }
+    ]);
   });
 
   it("tracks validation lifecycle as a validation block", () => {

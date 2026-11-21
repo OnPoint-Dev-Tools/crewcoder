@@ -3,6 +3,7 @@ import type { BorderCharacters, ScrollBoxRenderable } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import type { TuiEventBlock } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { useMemo, useState, type ReactNode, type Ref } from "react";
+import { blockPanel, isPanelBlock, type BlockPanel, type PanelTone } from "../block-panels.js";
 import { reasoningIcon, type GlyphSet } from "../glyphs.js";
 import { useAppColors } from "../hooks/use-app-colors.js";
 import { useGlyphSet } from "../hooks/use-glyph-set.js";
@@ -14,7 +15,9 @@ import { bodyColor, toneColor } from "../theme.js";
 import { toolDiffs, type FileDiff } from "../tool-diff.js";
 import { clampOutput, COLLAPSED_OUTPUT_LINES, diffLineTone, toolPresentation, type DiffLineTone } from "../tool-presentation.js";
 import { actionLabel, type AppAction } from "../keybindings.js";
-import { blockToRow, isStreaming, normalize, throughputLabel, transcriptSections, type ApprovalBlock, type ToolBlock, type ToolExpansion, type WorkBlock } from "../transcript.js";
+import { blockElementId, chromeId } from "../search-jump.js";
+import { SEARCH_MARKER } from "../glyphs.js";
+import { blockToRow, isStreaming, normalize, throughputLabel, transcriptSections, workerOf, type ApprovalBlock, type ToolBlock, type ToolExpansion, type WorkBlock } from "../transcript.js";
 import { Spinner } from "./ui/spinner.js";
 import type { Theme } from "./ui/types.js";
 
@@ -25,6 +28,8 @@ export type TranscriptProps = {
   expansion: ToolExpansion;
   images: ImageDisplay;
   scrollRef?: Ref<ScrollBoxRenderable>;
+  /** Content row of the current search match; a marker points at it from the left margin. */
+  markRow?: number;
 };
 
 /** How image blocks draw: the pixel mode, the columns they may use, and the screen height they are capped against. */
@@ -48,7 +53,7 @@ export const REASONING_LABEL = "Reasoning";
  * output arrives and stays put once the user scrolls up (until they scroll back
  * down). Sections follow event order, divided by a blank row.
  */
-export function Transcript({ blocks, running, cwd, expansion, images, scrollRef }: TranscriptProps): ReactNode {
+export function Transcript({ blocks, running, cwd, expansion, images, scrollRef, markRow }: TranscriptProps): ReactNode {
   const theme = useTheme();
   // Emoji icons only where the terminal draws them whole; single-cell symbols elsewhere.
   const glyphs = useGlyphSet();
@@ -69,21 +74,81 @@ export function Transcript({ blocks, running, cwd, expansion, images, scrollRef 
       verticalScrollbarOptions={{ trackOptions: { foregroundColor: theme.colors.border, backgroundColor: theme.colors.background } }}
     >
       {sections.map((section, index) => (
-        <box key={`${section.kind}-${section.start}`} flexDirection="column" width="100%" flexShrink={0} marginTop={index === 0 ? 0 : 1}>
+        <box
+          key={`${section.kind}-${section.start}`}
+          // Search finds a block by this id (`search-jump.ts`); work entries carry their own.
+          {...(section.kind === "block" ? { id: blockElementId(section.start) } : {})}
+          flexDirection="column"
+          width="100%"
+          flexShrink={0}
+          marginTop={index === 0 ? 0 : 1}
+        >
           {section.kind === "work"
-            ? <AgentWork blocks={section.blocks} cwd={cwd} expansion={expansion} glyphs={glyphs} />
-            : <BlockView block={section.block} streaming={isStreaming(section.block, section.start === lastIndex, running)} glyphs={glyphs} images={images} />}
+            ? <AgentWork blocks={section.blocks} start={section.start} cwd={cwd} expansion={expansion} glyphs={glyphs} />
+            : <BlockView block={section.block} index={section.start} streaming={isStreaming(section.block, section.start === lastIndex, running)} glyphs={glyphs} images={images} />}
         </box>
       ))}
+      {/* Last, so the first child stays the content origin; it sits in the content's left padding. */}
+      {markRow !== undefined ? (
+        <box position="absolute" top={markRow} left={0} width={1} height={1}>
+          <text id={chromeId("search-mark")} fg={theme.colors.warning} wrapMode="none"><b>{SEARCH_MARKER}</b></text>
+        </box>
+      ) : null}
     </scrollbox>
   );
 }
 
-function BlockView({ block, streaming, glyphs, images }: { block: TuiEventBlock; streaming: boolean; glyphs: GlyphSet; images: ImageDisplay }): ReactNode {
-  if (block.type === "thinking") return <ReasoningPanel text={blockToRow(block).text} streaming={streaming} glyphs={glyphs} />;
-  if (block.type === "assistant") return <AssistantMessage text={blockToRow(block).text} throughput={throughputLabel(block)} streaming={streaming} />;
-  if (block.type === "image") return <ImageView block={block} display={images} />;
-  return <RowView block={block} />;
+function BlockView({ block, index, streaming, glyphs, images }: { block: TuiEventBlock; index: number; streaming: boolean; glyphs: GlyphSet; images: ImageDisplay }): ReactNode {
+  if (block.type === "thinking") return <ReasoningPanel text={blockToRow(block).text} worker={block.worker} streaming={streaming} glyphs={glyphs} index={index} />;
+  if (block.type === "assistant") return <AssistantMessage text={blockToRow(block).text} worker={block.worker} throughput={throughputLabel(block)} streaming={streaming} index={index} />;
+  if (block.type === "image") return <ImageView block={block} display={images} index={index} />;
+  // A crew worker's brief keeps its `TASK → <worker>` label row.
+  if (block.type === "user" && !block.worker) return <UserMessage block={block} />;
+  if (isPanelBlock(block)) return <PanelView panel={blockPanel(block)} />;
+  return <RowView block={block} index={index} />;
+}
+
+function panelColor(theme: Theme, tone: PanelTone): string {
+  switch (tone) {
+    case "primary": return theme.colors.primary;
+    case "success": return theme.colors.success;
+    case "warning": return theme.colors.warning;
+    case "error": return theme.colors.error;
+    case "info": return theme.colors.info;
+    case "muted": return theme.colors.mutedForeground;
+    case "text": return theme.colors.foreground;
+  }
+}
+
+/**
+ * A crew, goal, review summary, `/why` answer, background job, validation, or
+ * checkpoint: a rounded box in its status color, a title row (spinner while it
+ * is still changing), then its rows. Text wraps; markers keep their own column.
+ */
+function PanelView({ panel }: { panel: BlockPanel }): ReactNode {
+  const theme = useTheme();
+  const color = panelColor(theme, panel.tone);
+  return (
+    <box flexDirection="column" width="100%" border borderStyle="rounded" borderColor={color} paddingLeft={1} paddingRight={1}>
+      <box flexDirection="row" width="100%" flexShrink={0}>
+        {panel.live ? <Spinner color={color} flexShrink={0} marginRight={1} /> : null}
+        <text wrapMode="word" flexGrow={1} flexShrink={1}>
+          <span fg={color}><b>{panel.title}</b></span>
+          {panel.meta ? <span fg={theme.colors.mutedForeground}>{`  ${panel.meta}`}</span> : null}
+        </text>
+      </box>
+      {panel.lines.map((row, index) => (
+        <box key={index} flexDirection="row" width="100%" flexShrink={0}>
+          {row.marker === "spinner"
+            ? <Spinner color={theme.colors.warning} flexShrink={0} marginRight={1} />
+            : row.marker
+              ? <text fg={panelColor(theme, row.marker.tone)} flexShrink={0} marginRight={1}>{row.marker.glyph}</text>
+              : null}
+          <text fg={panelColor(theme, row.tone)} wrapMode="word" flexGrow={1} flexShrink={1}>{row.text || " "}</text>
+        </box>
+      ))}
+    </box>
+  );
 }
 
 type ImageBlock = Extract<TuiEventBlock, { type: "image" }>;
@@ -94,7 +159,7 @@ type ImageBlock = Extract<TuiEventBlock, { type: "image" }>;
  * then the file path. A file that cannot be read or decoded keeps the caption
  * and says so; it never fails the render.
  */
-function ImageView({ block, display }: { block: ImageBlock; display: ImageDisplay }): ReactNode {
+function ImageView({ block, display, index }: { block: ImageBlock; display: ImageDisplay; index: number }): ReactNode {
   const theme = useTheme();
   const row = blockToRow(block);
   const { path, width, height } = block.attachment;
@@ -105,7 +170,7 @@ function ImageView({ block, display }: { block: ImageBlock; display: ImageDispla
   const box = imageBox(width, height, display.cols, display.screenRows);
   return (
     <>
-      <text fg={toneColor(theme, row.tone)} wrapMode="word" width="100%"><b>{row.label}</b></text>
+      <text id={chromeId("label", index)} fg={toneColor(theme, row.tone)} wrapMode="word" width="100%"><b>{row.label}</b></text>
       <text fg={bodyColor(theme, row.tone)} wrapMode="word" width="100%">{row.text}</text>
       {display.mode !== "none" && !failed ? (
         <image
@@ -118,20 +183,21 @@ function ImageView({ block, display }: { block: ImageBlock; display: ImageDispla
           onError={() => setFailedPath(path)}
         />
       ) : null}
-      {failed ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{IMAGE_FAILED_TEXT}</text> : null}
+      {failed ? <text id={chromeId("image-failed", index)} fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{IMAGE_FAILED_TEXT}</text> : null}
       {row.detail ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{row.detail}</text> : null}
     </>
   );
 }
 
-/** `CREW CODER` and its muted throughput (`42.3 tok/s`), then the reply as markdown. */
-function AssistantMessage({ text, throughput, streaming }: { text: string; throughput?: string; streaming: boolean }): ReactNode {
+/** `CREW CODER` (`· <worker>` in a crew) and its muted throughput (`42.3 tok/s`), then the reply as markdown. */
+function AssistantMessage({ text, worker, throughput, streaming, index }: { text: string; worker?: string; throughput?: string; streaming: boolean; index: number }): ReactNode {
   const theme = useTheme();
   const { markdown } = useAppColors();
   return (
     <>
-      <text fg={theme.colors.success} wrapMode="none" flexShrink={0}>
+      <text id={chromeId("label", index)} fg={theme.colors.success} wrapMode="none" flexShrink={0}>
         <b>CREW CODER</b>
+        {worker ? <span fg={theme.colors.accent}>{` · ${normalize(worker)}`}</span> : null}
         {throughput ? <span fg={theme.colors.mutedForeground}>{` ${throughput}`}</span> : null}
       </text>
       <MarkdownText text={text} streaming={streaming} colors={{ base: bodyColor(theme, "assistant"), heading: markdown.heading }} />
@@ -144,13 +210,14 @@ function AssistantMessage({ text, throughput, streaming }: { text: string; throu
  * `💭 Reasoning` header (`∴` where emoji clip), blank row, markdown. Always
  * expanded: thinking summaries must stay visible (event-rendering guardrails).
  */
-function ReasoningPanel({ text, streaming, glyphs }: { text: string; streaming: boolean; glyphs: GlyphSet }): ReactNode {
+function ReasoningPanel({ text, worker, streaming, glyphs, index }: { text: string; worker?: string; streaming: boolean; glyphs: GlyphSet; index: number }): ReactNode {
   const theme = useTheme();
   return (
     <box flexDirection="column" width="100%" border borderStyle="single" borderColor={theme.colors.warning} paddingLeft={1} paddingRight={1}>
-      <text wrapMode="none" flexShrink={0}>
+      <text id={chromeId("label", index)} wrapMode="none" flexShrink={0}>
         <span>{`${reasoningIcon(glyphs)} `}</span>
         <span fg={theme.colors.warning}><b>{REASONING_LABEL}</b></span>
+        {worker ? <span fg={theme.colors.accent}>{` · ${normalize(worker)}`}</span> : null}
       </text>
       {/* Trailing blank lines between reasoning summaries would only pad the panel. */}
       <box marginTop={1} width="100%">
@@ -178,13 +245,35 @@ function MarkdownText({ text, streaming, colors }: { text: string; streaming: bo
   );
 }
 
-/** Label row, plain text, and optional muted detail (user background, ...). */
-function RowView({ block }: { block: TuiEventBlock }): ReactNode {
+/**
+ * The user's own message: a filled circle (`primary`) left of the text, which wraps
+ * under itself, never under the marker. Background context stays muted and
+ * separate below (event-rendering guardrails).
+ */
+function UserMessage({ block }: { block: Extract<TuiEventBlock, { type: "user" }> }): ReactNode {
   const theme = useTheme();
   const row = blockToRow(block);
   return (
     <>
-      <text fg={toneColor(theme, row.tone)} wrapMode="word" width="100%"><b>{row.label}</b></text>
+      <box flexDirection="row" width="100%" flexShrink={0}>
+        <text fg={toneColor(theme, row.tone)} flexShrink={0} marginRight={1}>{row.label}</text>
+        <text fg={bodyColor(theme, row.tone)} wrapMode="word" flexGrow={1} flexShrink={1}>{row.text || " "}</text>
+      </box>
+      {row.detail ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%" paddingLeft={USER_TEXT_INDENT}>{row.detail}</text> : null}
+    </>
+  );
+}
+
+/** The marker and its space: background context lines up with the message text. */
+const USER_TEXT_INDENT = 2;
+
+/** Label row, plain text, and optional muted detail. */
+function RowView({ block, index }: { block: TuiEventBlock; index: number }): ReactNode {
+  const theme = useTheme();
+  const row = blockToRow(block);
+  return (
+    <>
+      <text id={chromeId("label", index)} fg={toneColor(theme, row.tone)} wrapMode="word" width="100%"><b>{row.label}</b></text>
       {row.text ? <text fg={bodyColor(theme, row.tone)} wrapMode="word" width="100%">{row.text}</text> : null}
       {row.detail ? <text fg={theme.colors.mutedForeground} wrapMode="word" width="100%">{row.detail}</text> : null}
     </>
@@ -195,8 +284,10 @@ function RowView({ block }: { block: TuiEventBlock }): ReactNode {
  * Consecutive tool calls and approvals in one dashed box titled `Agent work`.
  * Running tools show here live, with a spinner, as soon as they start.
  */
-function AgentWork({ blocks, cwd, expansion, glyphs }: { blocks: readonly WorkBlock[]; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet }): ReactNode {
+function AgentWork({ blocks, start, cwd, expansion, glyphs }: { blocks: readonly WorkBlock[]; start: number; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet }): ReactNode {
   const theme = useTheme();
+  // A box holds one worker's tools (transcriptSections splits on a worker change).
+  const worker = blocks.map(workerOf).find(Boolean);
   return (
     <box
       flexDirection="column"
@@ -204,15 +295,15 @@ function AgentWork({ blocks, cwd, expansion, glyphs }: { blocks: readonly WorkBl
       border
       customBorderChars={DASHED_BORDER}
       borderColor={theme.colors.border}
-      title={` ${AGENT_WORK_TITLE} `}
+      title={` ${AGENT_WORK_TITLE}${worker ? ` · ${normalize(worker)}` : ""} `}
       titleColor={theme.colors.primary}
       paddingLeft={1}
       paddingRight={1}
     >
       {blocks.map((block, index) => (
-        <box key={block.type === "tool" ? (block.id ?? `tool-${index}`) : (block.id ?? `approval-${index}`)} flexDirection="column" width="100%" flexShrink={0} marginTop={index === 0 ? 0 : 1}>
+        <box key={block.type === "tool" ? (block.id ?? `tool-${index}`) : (block.id ?? `approval-${index}`)} id={blockElementId(start + index)} flexDirection="column" width="100%" flexShrink={0} marginTop={index === 0 ? 0 : 1}>
           {block.type === "tool"
-            ? <ToolEntry block={block} cwd={cwd} expansion={expansion} glyphs={glyphs} />
+            ? <ToolEntry block={block} index={start + index} cwd={cwd} expansion={expansion} glyphs={glyphs} />
             : <ApprovalEntry block={block} />}
         </box>
       ))}
@@ -225,7 +316,7 @@ function AgentWork({ blocks, cwd, expansion, glyphs }: { blocks: readonly WorkBl
  * file diff of an edit (`DiffSection`) or its output, collapsed to
  * COLLAPSED_OUTPUT_LINES with a clickable toggle.
  */
-function ToolEntry({ block, cwd, expansion, glyphs }: { block: ToolBlock; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet }): ReactNode {
+function ToolEntry({ block, index, cwd, expansion, glyphs }: { block: ToolBlock; index: number; cwd: string; expansion: ToolExpansion; glyphs: GlyphSet }): ReactNode {
   const theme = useTheme();
   const tool = toolPresentation(block, cwd, glyphs);
   const running = block.status === "running";
@@ -257,17 +348,17 @@ function ToolEntry({ block, cwd, expansion, glyphs }: { block: ToolBlock; cwd: s
         ? <text fg={theme.colors.accent} wrapMode="word" width="100%" paddingLeft={OUTPUT_INDENT}>{tool.target}</text>
         : null}
       {output ? <ToolOutput lines={output.lines} diff={tool.diff} failed={tool.failed} filetype={tool.filetype} theme={theme} /> : null}
-      {output ? <ExpandRow hidden={output.hidden} canCollapse={canCollapse} onToggle={onToggle} theme={theme} /> : null}
+      {output ? <ExpandRow id={chromeId("output-toggle", index)} hidden={output.hidden} canCollapse={canCollapse} onToggle={onToggle} theme={theme} /> : null}
       {diffs.length > 0
-        ? <DiffSection diffs={diffs} shown={expansion.isDiffShown(block)} onToggleShown={() => expansion.toggleDiff(block)} expanded={expanded} onToggle={onToggle} theme={theme} />
+        ? <DiffSection index={index} diffs={diffs} shown={expansion.isDiffShown(block)} onToggleShown={() => expansion.toggleDiff(block)} expanded={expanded} onToggle={onToggle} theme={theme} />
         : null}
     </>
   );
 }
 
-function ExpandRow({ hidden, canCollapse, onToggle, theme }: { hidden: number; canCollapse: boolean; onToggle: () => void; theme: Theme }): ReactNode {
-  if (hidden > 0) return <ToggleRow label={`▸ Show ${hidden} more ${hidden === 1 ? "line" : "lines"}`} hint="toggleToolOutput" onToggle={onToggle} theme={theme} />;
-  return canCollapse ? <ToggleRow label="▾ Show less" hint="toggleToolOutput" onToggle={onToggle} theme={theme} /> : null;
+function ExpandRow({ id, hidden, canCollapse, onToggle, theme }: { id: string; hidden: number; canCollapse: boolean; onToggle: () => void; theme: Theme }): ReactNode {
+  if (hidden > 0) return <ToggleRow id={id} label={`▸ Show ${hidden} more ${hidden === 1 ? "line" : "lines"}`} hint="toggleToolOutput" onToggle={onToggle} theme={theme} />;
+  return canCollapse ? <ToggleRow id={id} label="▾ Show less" hint="toggleToolOutput" onToggle={onToggle} theme={theme} /> : null;
 }
 
 /**
@@ -275,7 +366,8 @@ function ExpandRow({ hidden, canCollapse, onToggle, theme }: { hidden: number; c
  * or shows them, then one OpenTUI `<diff>` per file. Long diffs collapse to
  * COLLAPSED_OUTPUT_LINES rows like other output.
  */
-function DiffSection({ diffs, shown, onToggleShown, expanded, onToggle, theme }: {
+function DiffSection({ index, diffs, shown, onToggleShown, expanded, onToggle, theme }: {
+  index: number;
   diffs: readonly FileDiff[];
   shown: boolean;
   onToggleShown: () => void;
@@ -292,7 +384,7 @@ function DiffSection({ diffs, shown, onToggleShown, expanded, onToggle, theme }:
   const files = multi ? `${diffs.length} files` : (diffs[0] ? fileLabel(diffs[0]) : "");
   return (
     <>
-      <text wrapMode="none" paddingLeft={OUTPUT_INDENT} flexShrink={0} onMouseDown={onToggleShown}>
+      <text id={chromeId("diff-header", index)} wrapMode="none" paddingLeft={OUTPUT_INDENT} flexShrink={0} onMouseDown={onToggleShown}>
         <span fg={theme.colors.info}>{shown ? "▾ Diff" : "▸ Diff"}</span>
         <span fg={theme.colors.success}>{`  +${added}`}</span>
         <span fg={theme.colors.error}>{` -${removed}`}</span>
@@ -300,15 +392,15 @@ function DiffSection({ diffs, shown, onToggleShown, expanded, onToggle, theme }:
       </text>
       {shown ? (
         <box flexDirection="column" width="100%" paddingLeft={OUTPUT_INDENT} flexShrink={0} height={hidden > 0 ? COLLAPSED_OUTPUT_LINES : undefined} overflow="hidden">
-          {diffs.map((diff, index) => (
-            <box key={`${diff.path}-${index}`} flexDirection="column" width="100%" flexShrink={0}>
-              {multi ? <text fg={theme.colors.accent} wrapMode="none" flexShrink={0}>{fileLabel(diff)}</text> : null}
+          {diffs.map((diff, file) => (
+            <box key={`${diff.path}-${file}`} flexDirection="column" width="100%" flexShrink={0}>
+              {multi ? <text id={chromeId("diff-file", `${index}-${file}`)} fg={theme.colors.accent} wrapMode="none" flexShrink={0}>{fileLabel(diff)}</text> : null}
               <FileDiffView diff={diff} theme={theme} />
             </box>
           ))}
         </box>
       ) : null}
-      {shown ? <ExpandRow hidden={hidden} canCollapse={expanded && rows > COLLAPSED_OUTPUT_LINES} onToggle={onToggle} theme={theme} /> : null}
+      {shown ? <ExpandRow id={chromeId("diff-toggle", index)} hidden={hidden} canCollapse={expanded && rows > COLLAPSED_OUTPUT_LINES} onToggle={onToggle} theme={theme} /> : null}
     </>
   );
 }
@@ -406,9 +498,9 @@ function CodeOutput({ text, filetype, theme }: { text: string; filetype: string;
   );
 }
 
-function ToggleRow({ label, hint, onToggle, theme }: { label: string; hint: AppAction; onToggle: () => void; theme: Theme }): ReactNode {
+function ToggleRow({ id, label, hint, onToggle, theme }: { id: string; label: string; hint: AppAction; onToggle: () => void; theme: Theme }): ReactNode {
   return (
-    <text fg={theme.colors.info} wrapMode="none" paddingLeft={OUTPUT_INDENT} flexShrink={0} onMouseDown={onToggle}>
+    <text id={id} fg={theme.colors.info} wrapMode="none" paddingLeft={OUTPUT_INDENT} flexShrink={0} onMouseDown={onToggle}>
       {label}
       <span fg={theme.colors.mutedForeground}>{`  (click, or ${actionLabel(hint)} for all)`}</span>
     </text>

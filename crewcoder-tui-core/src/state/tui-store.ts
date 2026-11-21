@@ -107,9 +107,11 @@ export type TuiGoal = {
 
 export type TuiEventBlock =
   | { type: "system"; text: string }
-  | { type: "user"; text: string; background?: string[] }
-  | { type: "assistant"; text: string; tokensPerSecond?: number }
-  | { type: "thinking"; text: string }
+  // `worker`: produced inside a crew run by that worker. A worker-tagged `user` block is
+  // the worker's brief from the crew, never text the user typed.
+  | { type: "user"; text: string; background?: string[]; worker?: string }
+  | { type: "assistant"; text: string; tokensPerSecond?: number; worker?: string }
+  | { type: "thinking"; text: string; worker?: string }
   | { type: "compaction"; status: "running" | "done" | "skipped" | "failed"; percent: number; message: string; originalMessageCount?: number; retainedMessageCount?: number }
   | { type: "review_summary"; summary: TuiReviewSummary }
   | { type: "why"; decision: TuiDecisionExplanation }
@@ -118,9 +120,9 @@ export type TuiEventBlock =
   | { type: "checkpoint"; checkpointId: string; sessionId: string; reason: string; toolCallId?: string; toolName?: string; fileCount: number; totalBytes: number; truncated: boolean }
   | { type: "checkpoint_diff"; checkpointId: string; path: string; lines: string[]; truncated: boolean }
   | { type: "background_job"; bgId: string; command: string; status: "running" | "completed" | "failed" | "stopped"; output: string; exitCode?: number | null; startedAt?: string; endedAt?: string }
-  | { type: "tool"; id?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; text?: string; metadata?: Record<string, unknown>; fileDiffs?: TuiFileDiff[] }
+  | { type: "tool"; id?: string; name: string; status: ToolStatus; args?: Record<string, unknown>; text?: string; metadata?: Record<string, unknown>; fileDiffs?: TuiFileDiff[]; worker?: string }
   | { type: "validation"; target: string; status: "running" | "passed" | "failed"; errors?: string[]; warnings?: string[] }
-  | { type: "approval"; id?: string; toolCallId?: string; toolName?: string; risk?: string; text: string; args?: Record<string, unknown>; status: "pending" | "approved" | "denied"; resolutionReason?: string }
+  | { type: "approval"; id?: string; toolCallId?: string; toolName?: string; risk?: string; text: string; args?: Record<string, unknown>; status: "pending" | "approved" | "denied"; resolutionReason?: string; worker?: string }
   | { type: "extension_ui"; requestId: string; extensionId: string; uiKind: "confirm" | "input" | "select" | "component"; title: string; message?: string; placeholder?: string; defaultValue?: string; options?: Array<{ label: string; value: string; description?: string }>; component?: TuiDeclarativeComponent; actions?: TuiUiAction[]; status: "pending" | "answered" | "cancelled"; answer?: string }
   | { type: "image"; attachment: ImageAttachment }
   | { type: "live_ui"; key: string; extensionId: string; contributionId: string; surface: string; status: "loading" | "ready" | "error" | "exited"; title: string }
@@ -174,6 +176,16 @@ export type TuiState = {
   showFileChanges: boolean;
   changedFiles: string[];
   crewWorkers: TuiCrewWorker[];
+  /**
+   * A crew run is streaming (`crew_start` until `crew_end`, or until the UI stops it).
+   * Its workers' `agent_start`/`session_saved`/`agent_end` belong to their own sessions
+   * and must not move `sessionId` or mark the UI idle between workers.
+   */
+  crewRunning?: boolean;
+  /** The crew worker whose events are arriving now; blocks pushed meanwhile carry its name. */
+  crewActiveWorker?: string;
+  /** Sessions crew workers ran in from this UI session, so their crew tasks can be shown. */
+  crewSessionIds: string[];
   rendererHooks: TuiRendererHook[];
   safetyPolicies: TuiSafetyPolicy[];
   checkpoints: TuiCheckpoint[];
@@ -221,6 +233,7 @@ export function createInitialState(): TuiState {
     showFileChanges: true,
     changedFiles: [],
     crewWorkers: [],
+    crewSessionIds: [],
     rendererHooks: [],
     safetyPolicies: [],
     checkpoints: []

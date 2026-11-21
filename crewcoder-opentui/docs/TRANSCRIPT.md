@@ -8,8 +8,8 @@ scrollback and could not change after it was written (owner decision).
 
 ```txt
 ┌ terminal ──────────────────────────────────────────┐
-│ YOU                                                │  Transcript (<scrollbox>, sticky bottom)
-│ fix the tests                                      │
+│ ● fix the tests                                    │  Transcript (<scrollbox>, sticky bottom)
+│                                                    │
 │                                                    │
 │ ┌───────────────────────────────────────────────┐  │
 │ │ 💭 Reasoning                                  │  │  Reasoning panel
@@ -48,11 +48,13 @@ every other block is its own section. Sections are divided by a blank row.
 
 | Component (`src/components/Transcript.tsx`) | Blocks | Layout |
 |---|---|---|
+| `UserMessage` | `user` (typed) | filled circle `●` (`USER_MESSAGE_MARKER`, theme `primary`) left of the text on the same row; wrapped lines align under the text; muted background context below (owner decision: replaces the `YOU` label) |
 | `AssistantMessage` | `assistant` | `CREW CODER` and its muted generation speed (`42.3 tok/s`, `throughputLabel`, once `message_end` reports it), then markdown |
 | `ReasoningPanel` | `thinking` | amber single border, bold `💭 Reasoning`, blank row, markdown; always expanded |
 | `AgentWork` | `tool`, `approval` runs | dashed rounded box (`DASHED_BORDER`) titled `Agent work` |
 | `ToolEntry` | `tool` | spinner / `✓` / `✗`, highlighted title chip (primary background), target, output |
 | `ApprovalEntry` | `approval` | `⚠`/`✓`/`✗ Approval · tool · status`, muted resolution reason |
+| `PanelView` | `crew`, `goal`, `review_summary`, `why`, `background_job`, `validation`, `checkpoint`, `checkpoint_diff` | rounded box in the status color, title (spinner while live) and muted meta, marked rows; see [Status panels](#status-panels) |
 | `RowView` | everything else | tone label, plain text, muted detail |
 
 The last assistant/thinking block of an active run renders with `streaming` on
@@ -152,6 +154,46 @@ Diffs with real line numbers are syntax highlighted by the edited file's languag
 `/diff` (Hunk, `docs/DIFF.md`) stays available for reviewing the whole session in a
 dedicated full-screen viewer.
 
+## Status panels
+
+Structured blocks render as a status panel. `blockPanel()` (`src/block-panels.ts`, pure)
+returns the title, status tone (border and title color), whether it is live (spinner),
+muted meta, and rows; `PanelView` only draws it. Every row passes through `normalize()`,
+so job output never writes escape codes to the screen. Text wraps under its marker and is
+never truncated.
+
+```txt
+╭────────────────────────────────────────────╮
+│ ⠼ Background job · running  bg-7           │
+│ $ npm run dev                              │
+│ … 3 earlier lines                          │
+│ │ compiled module 10                       │
+╰────────────────────────────────────────────╯
+╭────────────────────────────────────────────╮
+│ Crew finished with failures  3 agents      │
+│ ✓ planner                                  │
+│ ✗ builder                                  │
+│   npm test failed: 2 suites                │
+╰────────────────────────────────────────────╯
+```
+
+| Block | Source | Shows |
+|---|---|---|
+| `background_job` | `backgroundJob` tool events | command, newest `BACKGROUND_OUTPUT_LINES` (8) lines of output, status, exit code |
+| `validation` | `validatePlugin` (plugin mode) | target, every error (`✗`) and warning (`⚠`) |
+| `crew` | `crew_start` / `crew_worker_*` / `crew_end` | each worker (spinner, `○`, `✓`, `✗`) and failure errors; no session ids |
+| `goal` | (none yet; `/goal` answers in an alert) | status, turn, objective, maker/verifier, last check, pending approval with `/goal approve` / `/goal deny`, pause/error/completion |
+| `review_summary` | `review_summary` event (`/review-summary` answers in an alert) | branch, clean/changed, up to 8 files and 6 issue references, then `… N more` |
+| `why` | (none yet; `/why` answers in an alert) | model explanation vs transcript readout (different title and color), fallback reason, tools, files |
+| `checkpoint`, `checkpoint_diff` | (none yet) | size and `/rewind <id>`; unified diff rows colored by sign |
+
+Slash-command results stay footer alerts (AGENTS.md); the panels cover blocks the agent's
+event stream puts in the transcript. Crews from `/crew` and `/team` stream into it live
+(`docs/CREWS.md`): each worker's brief, work box, reasoning, and reply carry its name.
+`live_ui` blocks say Live UI is not available
+here (skipped by owner decision). `blockToRow` is exhaustive over block types, so a new
+block type is a compile error until it gets a view.
+
 ## Scrolling and copy
 
 | Action | Default | Notes |
@@ -166,18 +208,67 @@ focus from the composer. A finished mouse drag selection is copied with OSC 52
 (`renderer.copyToClipboardOSC52`) and confirmed with a short alert; Shift+drag still uses the
 terminal's own selection in most emulators.
 
+## Search
+
+Terminal search cannot see the alternate screen, so the UI has its own. Ctrl+F (or
+`/find [text]`) puts a search bar in the composer's place; the draft comes back when it
+closes. The spinner, approval card, and status line stay.
+
+| Action | Default | Notes |
+|---|---|---|
+| `searchOpen` | Ctrl+F | also `/find [text]`; nothing to search on the welcome screen |
+| `searchOlder` | Enter, Up | starts at the newest match, so Enter keeps going up; wraps |
+| `searchNewer` | Shift+Enter, Down | wraps to the oldest |
+| `searchClose` | Esc | closes the bar; never aborts the run; the transcript stays put |
+
+PgUp/PgDn, Ctrl+Home/End, Ctrl+O, Ctrl+T, and Ctrl+Y/Ctrl+N still work while the bar is
+open; other keys type into the field.
+
+- **What it searches** (`transcript-search.ts`, pure): the text each block draws, never
+  labels (`CREW CODER`, `Reasoning`, toggles). User messages and their background context,
+  replies, reasoning, tool titles, targets and status, a tool's whole output (collapsed lines
+  too), edit diffs (without the gutter sign when `<diff>` draws it), approvals, and status
+  panels. Text goes through `normalize()`. Smart case: a capital letter makes it
+  case-sensitive. At most `MAX_SEARCH_MATCHES` (999) matches; the counter then reads `999+`.
+- **Jumping** (`search-jump.ts`): every block's box has `blockElementId(index)`. After the
+  next layout (`ScrollBoxRenderable.afterLayout`), `locateMatchRow` walks that box's public
+  renderable tree: each text, markdown paragraph, code block, and diff is a
+  `TextBufferRenderable` with its drawn `plainText` and wrapped `lineInfo`, so the match's
+  exact wrapped row is known. Labels and toggles have `chromeId` ids and are skipped, so
+  occurrence numbers line up with the model. The view scrolls the row a third of the way
+  down and `SEARCH_MARKER` (`❯`, warning color) marks it in the left margin; it is measured
+  again on resize. A match in collapsed output or a hidden diff expands it first.
+- **Not in-text highlighting.** By owner decision (2026-11-20) the matched word is not
+  colored inside the transcript: OpenTUI 0.9.2 only allows that through a protected
+  `textBuffer`, whose highlights Tree-sitter also clears. The bar's second row shows the
+  match's line with the match picked out instead.
+- Matches are computed when the query changes and again on each step, so a transcript that
+  grew since the last key is searched on the next one; the counter can lag a streaming
+  reply until then.
+
 ## Known trade-offs
 
 The alternate screen gives up what native scrollback provided for free:
 
 - The conversation is not left in the terminal after quitting.
-- Terminal search (Ctrl+Shift+F and similar) cannot see the transcript; in-app search is
-  not built yet.
+- Terminal search (Ctrl+Shift+F and similar) cannot see the transcript; use Ctrl+F
+  ([Search](#search)).
 - Copy depends on OSC 52 support (most modern terminals; tmux needs `set-clipboard on`).
 
 ## Verification
 
 - `src/tests/transcript.test.ts`: section grouping, streaming flag, row mapping.
+- `src/tests/block-panels.test.ts`: every status panel (titles, tones, live flag, bounds,
+  escape stripping, why badge, no crew session ids).
+- `src/tests/app.test.tsx` ("structured panels"): a background job, validation, and crew
+  roster driven by agent events, live then settled.
+- `src/tests/transcript-search.test.ts`: smart case, what each block makes searchable (no
+  labels, full output, diff lines, panels), order and cap, snippet widths.
+- `src/tests/search-controller.test.ts`: newest first, older/newer wrap, re-search on step,
+  reveal of collapsed output and hidden diffs.
+- `src/tests/app.test.tsx` ("transcript search"): bar in the composer's place, jump and
+  marker on the match line, Esc closes without abort, older/newer, expand to show a match,
+  draft kept, `/find <text>`, nothing to search on the welcome screen.
 - `src/tests/tool-presentation.test.ts`: names, targets, full output, `clampOutput`,
   `diffLineTone`.
 - `src/tests/tool-diff.test.ts`: every provider's edit shape, single-file patches that

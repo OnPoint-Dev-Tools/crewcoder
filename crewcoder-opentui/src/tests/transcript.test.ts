@@ -11,7 +11,7 @@ describe("blockToRow", () => {
     ] satisfies TuiEventBlock[]).map(blockToRow);
 
     expect(rows.map((row) => [row.label, row.tone, row.text])).toEqual([
-      ["YOU", "user", "hi"],
+      ["●", "user", "hi"],
       ["THINKING", "thinking", "plan"],
       ["CREW CODER", "assistant", "hello"]
     ]);
@@ -30,8 +30,9 @@ describe("blockToRow", () => {
     expect(blockToRow({ type: "extension_ui", requestId: "r", extensionId: "e", uiKind: "confirm", title: "Go?", status: "cancelled" }).detail).toBeUndefined();
   });
 
-  it("shows unported structured blocks instead of dropping them", () => {
+  it("labels panel blocks by type (they render through block-panels.ts)", () => {
     expect(blockToRow({ type: "crew", workers: [], completed: false })).toMatchObject({ label: "CREW", tone: "muted" });
+    expect(blockToRow({ type: "background_job", bgId: "b", command: "x", status: "running", output: "" }).text).not.toContain("not rendered");
   });
 });
 

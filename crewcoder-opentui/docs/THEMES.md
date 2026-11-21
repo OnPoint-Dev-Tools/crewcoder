@@ -107,14 +107,15 @@ tokens in `toAppTheme` (`src/theme.ts`):
 | `panel` | subtle surfaces (`muted`) |
 | `panelAlt` | `secondary` |
 | `primary` | headings, user label, links and hints (`info`) |
-| `accent` | inline code, targets |
+| `accent` | inline code, targets; at half brightness, the dim end of the welcome-logo pulse |
+| `glow` | bright end of the welcome-logo pulse (its static color under reduced motion) |
 | `success`, `warning`, `danger` | status colors (`danger` is `error`) |
 | `border` | borders |
 | `borderStrong` | focus ring and focused borders |
 | `selectedBg` | highlighted picker row (`selection`) |
 | `diffAddBg`, `diffDelBg` | added/removed diff rows; their gutters are lifted 3% toward `text` |
 
-`backgroundAlt` aside, `surface*`, `panelThinking`, `subtle`, `accent2`, `accent3`, and `glow`
+`backgroundAlt` aside, `surface*`, `panelThinking`, `subtle`, `accent2`, and `accent3`
 are legacy-only today.
 
 ## Syntax tokens

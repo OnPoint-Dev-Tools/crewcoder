@@ -13,6 +13,9 @@ import type { PathLister, PathSuggestion } from "../path-suggestions.js";
 import type { ClipboardSource } from "../attachments.js";
 import { fakeClipboard, isolateImageCache, pngBytes, pngFile, solidPng, solidPngFile } from "./fake-images.js";
 import { IMAGE_PROTOCOL_ENV } from "../image-view.js";
+import { MotionContext } from "../hooks/use-motion.js";
+import { SEARCH_MARKER } from "../glyphs.js";
+import { logoPulseColor, PULSE_FRAME_MS, PULSE_FREEZE_MS, PULSE_PERIOD_MS } from "../logo-pulse.js";
 import { AppThemeProvider } from "../providers/app-theme-provider.js";
 import { ThemeProvider } from "../providers/theme-provider.js";
 import { SessionController } from "../session-controller.js";
@@ -76,8 +79,11 @@ describe("full-screen transcript", () => {
     bridge.emit({ type: "thinking_delta", text: "considering" });
     bridge.emit({ type: "assistant_delta", text: "hi there" });
     const live = await setup.waitForFrame((text) => text.includes("Working") && text.includes("hi there"));
-    expect(live).toContain("YOU");
-    expect(live).toContain("hello crew");
+    // The user's message: a filled circle on the same row, left of the text (no YOU label above).
+    expect(live).not.toContain("YOU");
+    expect(live.split("\n").find((line) => line.includes("hello crew"))?.trim()).toBe("● hello crew");
+    const marker = setup.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes("●"));
+    expect(marker?.fg.equals(RGBA.fromHex(slateTheme.colors.primary))).toBe(true);
     expect(live).toContain("💭 Reasoning");
     expect(live).toContain("considering");
     expect(live).toContain("CREW CODER");
@@ -229,6 +235,84 @@ describe("Agent work", () => {
     const toggleRow = rows.findIndex((row) => row.includes("Show 18 more lines"));
     await setup.mockMouse.click(rows[toggleRow]!.indexOf("Show"), toggleRow);
     await setup.waitForFrame((text) => text.includes("src 29") && text.includes("Show less"));
+  });
+});
+
+describe("structured panels", () => {
+  it("shows a background job live in its own panel and settles it with the exit code", async () => {
+    const { setup, bridge } = await inConversation({ height: 40 }, "serve");
+    bridge.emit({ type: "background_job_start", bgId: "bg-7", command: "npm run dev", startedAt: "2026-11-19T00:00:00Z" });
+    const waiting = await setup.waitForFrame((text) => text.includes("Background job · running"));
+    expect(waiting).toContain("npm run dev");
+    expect(waiting).toContain("(waiting for output)");
+    expect(waiting).toContain("╭");
+    expect(waiting).not.toContain("not rendered");
+
+    bridge.emit({ type: "background_job_output", bgId: "bg-7", text: "\x1b[32mready on :3000\x1b[0m\n" });
+    await setup.waitForFrame((text) => text.includes("ready on :3000") && !text.includes("waiting for output"));
+    bridge.emit({ type: "background_job_end", bgId: "bg-7", status: "completed", exitCode: 0 });
+    const done = await setup.waitForFrame((text) => text.includes("Background job · completed"));
+    expect(done).toContain("bg-7 · exit 0");
+  });
+
+  it("shows plugin validation errors and a crew roster as they arrive", async () => {
+    const { setup, bridge } = await inConversation({ height: 40 }, "validate");
+    bridge.emit({ type: "validation_start", target: "plugins/board" });
+    await setup.waitForFrame((text) => text.includes("Validation · running") && text.includes("plugins/board"));
+    bridge.emit({ type: "validation_end", target: "plugins/board", ok: false, errors: ["manifest is missing id"] });
+    await setup.waitForFrame((text) => text.includes("Validation · failed") && text.includes("✗ manifest is missing id"));
+
+    bridge.emit({ type: "crew_start", workers: ["planner", "builder"] });
+    bridge.emit({ type: "crew_worker_start", worker: "planner", index: 0, total: 2 });
+    const running = await setup.waitForFrame((text) => text.includes("Crew running") && text.includes("1 active"));
+    expect(running).toContain("○ builder");
+    bridge.emit({ type: "crew_worker_end", worker: "planner", status: "completed" });
+    bridge.emit({ type: "crew_worker_end", worker: "builder", status: "failed", error: "tests failed" });
+    bridge.emit({ type: "crew_end" });
+    const done = await setup.waitForFrame((text) => text.includes("Crew finished with failures"));
+    expect(done).toContain("✓ planner");
+    expect(done).toContain("✗ builder");
+    expect(done).toContain("tests failed");
+  });
+});
+
+describe("crews", () => {
+  it("/team streams workers into the transcript and fills the sidebar's AGENTS roster", async () => {
+    const { setup, bridge, controller } = await renderApp(new FakeCli(), { width: 110, height: 50 });
+    // Commands run on a microtask; let it start the crew.
+    await act(async () => {
+      controller.submit("/team feature ship the parser");
+      await flush();
+    });
+    expect(bridge.crews[0]).toMatchObject({ target: { kind: "team", team: "feature" }, prompt: "ship the parser" });
+
+    bridge.emit({ type: "crew_start", workers: ["planner", "builder"] });
+    bridge.emit({ type: "crew_worker_start", worker: "planner", index: 0, total: 2 });
+    bridge.emit({ type: "message_end", message: { role: "user", content: [{ type: "text", text: "Plan: ship the parser" }] } });
+    bridge.emit({ type: "tool_execution_start", toolName: "read", toolCallId: "r1", args: { path: "src/parser.ts" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "read", toolCallId: "r1", result: toolResult("export {}") });
+    bridge.emit({ type: "assistant_delta", text: "Plan ready." });
+    bridge.emit({ type: "agent_end" });
+    const live = await setup.waitForFrame((text) => text.includes("Plan ready.") && text.includes("AGENTS: planner"));
+    expect(live).toContain("/team feature ship the parser");
+    expect(live).toContain("TASK → planner");
+    expect(live).toContain(`${AGENT_WORK_TITLE} · planner`);
+    expect(live).toContain("CREW CODER · planner");
+    expect(live).toContain("Crew running");
+    // Between workers the run is still live.
+    expect(live).toContain("Working");
+
+    bridge.emit({ type: "crew_worker_end", worker: "planner", index: 0, total: 2, status: "completed" });
+    bridge.emit({ type: "crew_worker_start", worker: "builder", index: 1, total: 2 });
+    bridge.emit({ type: "assistant_delta", text: "Built it." });
+    const second = await setup.waitForFrame((text) => text.includes("CREW CODER · builder") && text.includes("AGENTS: builder"));
+    expect(second).toContain("Built it.");
+
+    bridge.emit({ type: "crew_worker_end", worker: "builder", index: 1, total: 2, status: "completed" });
+    bridge.emit({ type: "crew_end", total: 2, completed: 2, failed: 0 });
+    const done = await setup.waitForFrame((text) => text.includes("Crew complete") && !text.includes("Working"));
+    // A finished crew leaves the sidebar; its roster stays in the transcript panel.
+    expect(done).not.toContain("AGENTS:");
   });
 });
 
@@ -460,6 +544,109 @@ describe("approvals", () => {
   });
 });
 
+describe("transcript search", () => {
+  const openSearch = (setup: Setup): void => setup.mockInput.pressKey("f", { ctrl: true });
+
+  /** Esc, then the next frame that satisfies `ready`; a lone ESC arrives after the parser's escape timeout. */
+  async function closeSearch(setup: Setup, ready: (frame: string) => boolean): Promise<string> {
+    setup.mockInput.pressEscape();
+    let frame = "";
+    await vi.waitFor(async () => {
+      await setup.renderOnce();
+      frame = setup.captureCharFrame();
+      expect(ready(frame)).toBe(true);
+    }, { timeout: 2_000 });
+    return frame;
+  }
+
+  it("opens in the composer's place, jumps to the match scrolled out of view, and marks its line", async () => {
+    const { setup, bridge } = await inConversation({ height: 24 });
+    bridge.emit({ type: "assistant_delta", text: "the needle is here" });
+    bridge.emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "the needle is here" }] } });
+    bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "b1", args: { command: "ls" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "bash", toolCallId: "b1", result: toolResult(lines(40, "row")) });
+    bridge.emit({ type: "assistant_delta", text: "last reply" });
+    const bottom = await setup.waitForFrame((text) => text.includes("last reply"));
+    expect(bottom).not.toContain("the needle is here");
+
+    openSearch(setup);
+    await setup.waitForFrame((text) => text.includes("Search the transcript"));
+    await setup.mockInput.typeText("needle");
+    const markedRow = (text: string): string | undefined => text.split("\n").find((row) => row.startsWith(SEARCH_MARKER));
+    // The marker sits in the left margin, on the match's line.
+    const found = await setup.waitForFrame((text) => text.includes("1/1") && Boolean(markedRow(text)?.includes("the needle is here")));
+    // The composer is replaced; the status line stays.
+    expect(found).not.toContain("Send a follow-up");
+    expect(found).toContain("Find");
+    // The match line in the bar picks the match out.
+    const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+    expect(spans.some((span) => span.text === "needle" && span.bg.equals(RGBA.fromHex(slateTheme.colors.warning)))).toBe(true);
+
+    // Esc closes the bar, keeps the run going, and leaves the transcript where it is.
+    const closed = await closeSearch(setup, (text) => text.includes("Send a follow-up"));
+    expect(bridge.stops).toBe(0);
+    expect(closed).toContain("the needle is here");
+    expect(closed).not.toContain(SEARCH_MARKER);
+  });
+
+  it("walks older and newer matches and expands collapsed output to show one", async () => {
+    const { setup, bridge } = await inConversation({ height: 40 });
+    bridge.emit({ type: "tool_execution_start", toolName: "bash", toolCallId: "b1", args: { command: "ls" } });
+    bridge.emit({ type: "tool_execution_end", toolName: "bash", toolCallId: "b1", result: toolResult(lines(30, "row")) });
+    bridge.emit({ type: "assistant_delta", text: "alpha one" });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("alpha one") && text.includes("Show 18 more lines"));
+
+    openSearch(setup);
+    await setup.waitForFrame((text) => text.includes("Search the transcript"));
+    await setup.mockInput.typeText("row 2");
+    // "row 2" and "row 20".."row 29": the newest is "row 29", past the collapse.
+    const newest = await setup.waitForFrame((text) => text.includes("11/11") && text.includes("row 29"));
+    expect(newest).toContain("Show less");
+
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame((text) => text.includes("10/11"));
+    setup.mockInput.pressArrow("down");
+    await setup.waitForFrame((text) => text.includes("11/11"));
+    setup.mockInput.pressArrow("down");
+    await setup.waitForFrame((text) => text.includes("1/11"));
+    expect(bridge.runs).toHaveLength(1);
+  });
+
+  it("keeps the composer draft and never sends search keys to it", async () => {
+    const { setup, bridge } = await inConversation();
+    bridge.emit({ type: "assistant_delta", text: "some reply" });
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("some reply") && text.includes("Ask CrewCoder"));
+    await setup.mockInput.typeText("my draft");
+    await setup.waitForFrame((text) => text.includes("my draft"));
+
+    openSearch(setup);
+    await setup.waitForFrame((text) => text.includes("Find"));
+    await setup.mockInput.typeText("nothing here");
+    const none = await setup.waitForFrame((text) => text.includes("No matches"));
+    expect(none).toContain("0/0");
+    setup.mockInput.pressEnter();
+
+    const back = await closeSearch(setup, (text) => text.includes("my draft") && !text.includes("No matches"));
+    expect(back).not.toContain("nothing here");
+    expect(bridge.runs).toHaveLength(1);
+  });
+
+  it("opens with /find <text>, and says there is nothing to search on the welcome screen", async () => {
+    const { setup, bridge } = await inConversation({}, "find the haystack");
+    bridge.emit({ type: "agent_end" });
+    await setup.waitForFrame((text) => text.includes("find the haystack") && text.includes("Ask CrewCoder"));
+    await setup.mockInput.typeText("/find haystack");
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame((text) => text.includes("1/1"));
+
+    const home = await renderApp();
+    openSearch(home.setup);
+    await home.setup.waitForFrame((text) => text.includes("Nothing to search yet"));
+  });
+});
+
 describe("keys", () => {
   it("aborts the running request on escape and quits on ctrl+c", async () => {
     const { setup, bridge, onQuit } = await inConversation({}, "long");
@@ -524,6 +711,82 @@ describe("welcome screen", () => {
     expect(bridge.runs).toHaveLength(1);
     const after = await setup.waitForFrame((text) => text.includes("Working"));
     expect(after).not.toContain("██████");
+  });
+
+  describe("logo pulse", () => {
+    let clock = 0;
+    beforeEach(() => {
+      clock = 0;
+      vi.spyOn(Date, "now").mockImplementation(() => clock);
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    async function renderHome(reduced: boolean): Promise<Setup> {
+      const controller = new SessionController(new FakeBridge(), undefined, new FakeCli(), undefined, undefined, undefined, async () => DISABLED_TASKS);
+      const setup = await testRender(
+        <MotionContext.Provider value={{ reduced }}>
+          <AppThemeProvider theme={slateAppTheme}>
+            <App controller={controller} onQuit={vi.fn()} />
+          </AppThemeProvider>
+        </MotionContext.Provider>,
+        { width: 80, height: 24 }
+      );
+      active = setup;
+      await setup.renderOnce();
+      return setup;
+    }
+
+    const logoColor = (setup: Setup) => setup.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes("██"))?.fg;
+
+    /** Waits for the pulse timer to repaint the logo in `hex` (Date.now is mocked, so the deadline uses performance). */
+    async function waitForLogo(setup: Setup, hex: string): Promise<void> {
+      const color = RGBA.fromHex(hex);
+      const deadline = performance.now() + 4_000;
+      for (;;) {
+        await setup.renderOnce();
+        if (logoColor(setup)?.equals(color)) return;
+        if (performance.now() > deadline) throw new Error(`logo never drew in ${hex}`);
+        await new Promise((resolve) => setTimeout(resolve, PULSE_FRAME_MS));
+      }
+    }
+
+    it("breathes between the dim accent and the glow color, then freezes when idle and resumes on a key", async () => {
+      const { logo } = slateAppTheme;
+      const setup = await renderHome(false);
+      clock = PULSE_PERIOD_MS / 4;
+      await waitForLogo(setup, logo.bright);
+      clock = (PULSE_PERIOD_MS * 3) / 4;
+      await waitForLogo(setup, logo.dim);
+
+      // Idle past the limit: the frame at the freeze instant stays, whatever the clock does.
+      const frozen = logoPulseColor(logo, PULSE_FREEZE_MS);
+      expect([logo.dim, logo.bright]).not.toContain(frozen);
+      // A whole number of breaths past the limit, so the offsets below land on peak and trough.
+      const base = Math.ceil(PULSE_FREEZE_MS / PULSE_PERIOD_MS) * PULSE_PERIOD_MS;
+      clock = base + PULSE_PERIOD_MS / 4;
+      await waitForLogo(setup, frozen);
+      clock = base + (PULSE_PERIOD_MS * 3) / 4;
+      await new Promise((resolve) => setTimeout(resolve, PULSE_FRAME_MS * 3));
+      await setup.renderOnce();
+      expect(logoColor(setup)?.equals(RGBA.fromHex(frozen))).toBe(true);
+
+      // A key restarts it.
+      await setup.mockInput.typeText("a");
+      await waitForLogo(setup, logo.dim);
+      clock += PULSE_PERIOD_MS / 2;
+      await waitForLogo(setup, logo.bright);
+    });
+
+    it("stays on the glow color under reduced motion", async () => {
+      const setup = await renderHome(true);
+      expect(logoColor(setup)?.equals(RGBA.fromHex(slateAppTheme.logo.bright))).toBe(true);
+      clock = (PULSE_PERIOD_MS * 3) / 4;
+      await new Promise((resolve) => setTimeout(resolve, PULSE_FRAME_MS * 3));
+      await setup.renderOnce();
+      expect(logoColor(setup)?.equals(RGBA.fromHex(slateAppTheme.logo.bright))).toBe(true);
+    });
   });
 
   it("shows only the composer, no logo, on a small window", async () => {

@@ -1,4 +1,4 @@
-import type { CrewCoderEventHandler, CrewCoderProcessOptions, CrewCoderResumeOptions } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
+import type { CrewCoderCrewOptions, CrewCoderEventHandler, CrewCoderProcessOptions, CrewCoderResumeOptions } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import type { CrewCoderJsonEvent } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/event-parser";
 import type { SessionBridge } from "../session-controller.js";
 
@@ -7,6 +7,9 @@ export class FakeBridge implements SessionBridge {
   running = false;
   runs: CrewCoderProcessOptions[] = [];
   resumes: CrewCoderResumeOptions[] = [];
+  crews: CrewCoderCrewOptions[] = [];
+  /** A crew process outlives each worker's agent_end, like the real child process. */
+  private crewRun = false;
   followUps: string[] = [];
   approvals: Array<{ id: string; approved: boolean }> = [];
   previewRequests = 0;
@@ -17,11 +20,19 @@ export class FakeBridge implements SessionBridge {
 
   run(options: CrewCoderProcessOptions, onEvent: CrewCoderEventHandler): () => void {
     this.runs.push(options);
+    this.crewRun = false;
     return this.attach(onEvent);
   }
 
   resume(options: CrewCoderResumeOptions, onEvent: CrewCoderEventHandler): () => void {
     this.resumes.push(options);
+    this.crewRun = false;
+    return this.attach(onEvent);
+  }
+
+  crew(options: CrewCoderCrewOptions, onEvent: CrewCoderEventHandler): () => void {
+    this.crews.push(options);
+    this.crewRun = true;
     return this.attach(onEvent);
   }
 
@@ -58,7 +69,8 @@ export class FakeBridge implements SessionBridge {
   emit(event: CrewCoderJsonEvent): void {
     if (!this.handler) throw new Error("No active run to emit into.");
     this.handler(event);
-    if (event.type === "agent_end" || event.type === "process_exit") this.running = false;
+    const ended = event.type === "process_exit" || (this.crewRun ? event.type === "crew_end" : event.type === "agent_end");
+    if (ended) this.running = false;
   }
 
   private attach(onEvent: CrewCoderEventHandler): () => void {

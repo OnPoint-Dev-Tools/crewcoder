@@ -36,7 +36,8 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
 (`components/Transcript.tsx`) above a footer. See `docs/TRANSCRIPT.md`.
 
 - The footer holds only the working spinner, alerts (errors and command results), the
-  pending approval card, pending images, the composer, its `@` path suggestions, and the status line. Never put agent output
+  pending approval card, pending images, the composer (or the transcript search bar in its
+  place), its `@` path suggestions, and the status line. Never put agent output
   (running tools, streaming text, other live blocks) in the footer; it belongs in the
   transcript. An open picker, summary editor, or extension question replaces the footer.
 - A turn reads as sections in event order (`transcriptSections`): reasoning panel, then
@@ -70,6 +71,15 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   update through `scripts/update-grammars.mjs` and `THIRD_PARTY_NOTICES.md`. Languages
   without a parser and line-numbered read output stay plain text (`codeFiletype`,
   `readOutputFiletype`); highlighting must never fail a render.
+- Structured blocks (`crew`, `goal`, `review_summary`, `why`, `background_job`,
+  `validation`, `checkpoint`, `checkpoint_diff`) render as status panels: rows come from
+  the pure `block-panels.ts` (`blockPanel`), `PanelView` only draws. All text goes through
+  `normalize()`, wraps (never truncates), and crew rows never show session ids. The `why`
+  panel keeps model explanation and transcript readout visibly different (title and color)
+  with the fallback reason shown. Slash-command results (`/goal`, `/review-summary`,
+  `/why`) stay footer alerts by owner decision; do not push them into the transcript.
+  `blockToRow` stays exhaustive (`PanelBlock` assignment) so a new block type fails the
+  build until it has a view. See `docs/TRANSCRIPT.md#status-panels`.
 - Replies and reasoning render through OpenTUI's native `<markdown>` with styles from
   `markdown-style.ts` (owner decision over termcn `markdown`). Reasoning follows termcn's
   `thinking-block` design and stays expanded (summaries must stay visible).
@@ -77,9 +87,28 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   click never takes focus from the composer. Scroll keys (`transcriptPageUp/Down`,
   `transcriptTop/Bottom`) go through `DEFAULT_APP_KEYBINDINGS`. A mouse selection is copied
   over OSC 52 from `cli.tsx`.
+- Transcript search (`docs/TRANSCRIPT.md#search`): `searchOpen` (Ctrl+F) or `/find [text]`
+  puts `SearchBar` in the composer's place (draft preserved; spinner, approval card, and
+  status line stay). State is `TranscriptSearch` (`SessionController.search`); matching is
+  the pure `transcript-search.ts`, which must search only what blocks draw (never labels)
+  and cover collapsed output and hidden diffs. `App.handleSearchKey` runs after the sidebar
+  key and before everything else: `searchOlder`/`searchNewer`/`searchClose`, scroll and
+  toggle keys, approvals; other keys type into the field. Esc closes and never aborts. The
+  jump measures in `scroll.afterLayout` through public renderables only (`search-jump.ts`:
+  `blockElementId` boxes, `TextBufferRenderable.plainText`/`lineInfo`); any transcript text
+  that is not block content (labels, toggles, headers) needs a `chromeId` id so occurrence
+  numbers stay aligned. Never reach into OpenTUI's protected `textBuffer` to highlight
+  matches in place (owner decision: jump and mark; Tree-sitter clears those highlights).
+  The marker (`SEARCH_MARKER`) is an absolute child placed last in the scrollbox, in the
+  content's left padding. Search closes on `/new`, resume, and `/clear`.
 - The welcome screen shows only while `isHome` (no blocks, not running). Keep the big logo
   centered; it is the owner's landing identity. Below 70 columns or when too short, show
   only the composer; do not bring back the compact or mini logo (owner rejected them).
+  The logo pulses as in legacy (`logo-pulse.ts`, pure; `PulsingLogo` in `Home.tsx` is the
+  only component that re-renders per frame): one color from `AppTheme.logo` (`accent` at
+  half brightness to `glow`), never a sweep, never a hardcoded hex. Its timer runs only while
+  the logo is mounted, stops after `PULSE_FREEZE_MS` without a key (any key restarts it),
+  and never starts under reduced motion (`useMotion`), which draws `glow`.
 - Programs that need the real terminal (Hunk for `/diff`) run through
   `SessionController.runInTerminal`, which `cli.tsx` wires to `renderer.suspend()` /
   `resume()`. Never write raw escapes to stdout; `/clear` only empties the transcript.
@@ -175,9 +204,9 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   they never go into the transcript. Only `/approve-plan` sends a prompt. `/why` is a
   one-shot `session why` call and must never push a turn. Live UI (`contributes.liveUi[]`,
   sandboxed extension worker panels) is skipped by owner decision: never mount or run an
-  extension `entry` module here; ask the owner before porting it. `/crew` is skipped by owner
-  decision. Picker commands take their value directly (`/effort high`) through
-  `PickerFlows.applyArgument`, which must reuse the same selection path as the picker.
+  extension `entry` module here; ask the owner before porting it. Picker commands take
+  their value directly (`/effort high`) through `PickerFlows.applyArgument`, which must
+  reuse the same selection path as the picker.
   `/plugins` is listed only under the `crewcode` profile (`paletteCommands`).
 - Branching from `/sessions`: `sessionBranch` (Tab) on the highlighted session runs
   `PickerFlows.branch`, which forks through `cli.branch` and then opens the branch through
@@ -250,6 +279,34 @@ break the tsc/NodeNext build. When vendoring or updating a component:
   open and re-renders only on change. The git label is refreshed with `readGitLabelAsync`
   after `agent_end` (wired by `cli.tsx`, local only); never call the sync reader outside
   startup. Tests inject a fake task reader so they never read `~/.crewcoder`.
+- Crews (`docs/CREWS.md`): `/crew <workers> <task>` and `/team <team> <task>` stream through
+  `bridge.crew()` (tui-core `crewRunArgs`, `--` before the task, ids checked with
+  `isCrewName`), never as a one-shot CLI alert. Refuse while a run is active. While
+  `state.crewRunning`, the shared reducer must not move `sessionId` or mark the UI idle on a
+  worker's `agent_end`, and tags user/thinking/tool/approval/assistant blocks with `worker`;
+  a worker-tagged `user` block is a brief (`TASK → <worker>`), never the `●` user row, and prompt
+  history and `sessionName` skip it. `transcriptSections` starts a new work box when the
+  worker changes. Anything that stops a crew without `crew_end` (abort, `/new`, resume) must
+  call `stopCrew`. Starting a crew opens the sidebar; CREW TASKS includes
+  `state.crewSessionIds`. Tests that start a crew must inject a fake task reader.
+  With tmux installed and a local workspace (`SessionController.crewTmux`, wired by
+  `cli.tsx`), `launchCrew` first asks "Run in tmux" / "Run here" (`crewLaunch` picker; Esc
+  cancels). Run in tmux starts a second UI with `--crew-file`: settings and `CREWCODER_*`/
+  `PATH` go in an owner-only handoff file (`tmux.ts`), never on the command line, and the
+  reader validates owner, permissions, and every field before deleting it. Inside tmux it
+  is a background window, outside a detached session; the attach hint is written to the
+  transcript (a deliberate exception to alerts-only, since it is needed later). Never start
+  real tmux in tests (fake launcher).
+- tmux (`docs/TMUX.md`): inside tmux, `cli.tsx` shows one startup alert listing missing
+  settings (`tmux-check.ts`: `set-clipboard on`, `extended-keys on`, `focus-events on`,
+  client `RGB` feature), silenced by `CREWCODER_TUI_TMUX_HINT=0`; unreadable values and an
+  empty client feature list stay quiet. A mouse copy re-reads `set-clipboard` and must never
+  claim "Copied" when tmux drops the write (`copyAlert`). Never write tmux passthrough
+  escapes from here. Verify tmux behavior with an attached client from a pty you control;
+  a detached session proves nothing about focus, color, or clipboard.
+- The user's own messages render as `UserMessage`: `USER_MESSAGE_MARKER` (`●`, `glyphs.ts`)
+  in the theme's `primary` color left of the text on the same row, never a `YOU` label row
+  (owner decision).
 - `/diff` runs `hunk diff -- <state.changedFiles>` (`hunk.ts`) through `runInTerminal`.
   Hunk is an external install, never a dependency; a missing binary is an error alert with
   install commands. See `docs/DIFF.md`.
@@ -268,6 +325,17 @@ src/tests/session-controller.test.ts  run/resume/follow-up/approval/abort/new, u
 src/tests/transcript.test.ts          row mapping, control stripping, throughput label (format, missing/NaN/zero rate)
 src/tests/app.test.tsx (transcript)   tok/s beside CREW CODER only after message_end, muted
 src/tests/transcript.test.ts          turn sections (tools + approvals grouped, event order), streaming flag
+src/tests/block-panels.test.ts        status panels: crew/goal/review/why/job/validation/checkpoint titles, tones, live flag,
+                                      list bounds, job output tail without escapes, why badge, no crew session ids
+src/tests/app.test.tsx (panels)       background job, validation, and crew roster from agent events, live then settled
+src/tests/app.test.tsx (crews)        /team streams: TASK → worker, Agent work · worker, CREW CODER · worker, AGENTS roster live then gone
+src/tests/command-runner.test.ts      crews: /crew and /team options, repeats dropped, bad ids and usage never spawn, busy refusal
+src/tests/session-controller.test.ts  crews: session id kept, one run across workers, follow-up to the crew, abort and /new finish the roster;
+                                      tmux: question, Run here, Run in tmux via handoff file, Esc cancels, failed launch, no question without tmux
+src/tests/tmux-check.test.ts          tmux defaults -> fixes, quiet when unreadable, startup alert text, copy never claims a dropped write
+src/tests/tmux.test.ts                tmux arguments (window inside, detached session outside, no shell), names, forwarded env, handoff 0600/validation
+src/tests/app.test.tsx (transcript)   user message: ● marker left of the text on the same row, theme primary, no YOU
+../crewcoder-tui-core/src/tests/event-reducer.test.ts  crew session ids, worker tagging (approvals too), stopCrew; crew-run-args.test.ts
 src/tests/tool-presentation.test.ts   tool names across providers, targets, relative paths, full output, clamping, diff tones, text icons,
                                       read filetype (never failures or line-numbered output)
 src/tests/grammars.test.ts            bundled grammar hashes + licenses, absolute local paths, missing grammars skipped,
@@ -296,6 +364,12 @@ src/tests/status-line.test.ts         access/mode/model, repo + first prompt (no
 src/tests/tool-diff.test.ts           edit shapes per provider, single-file patches, Codex headers, anchors
 src/tests/app.test.tsx (diffs)        inline diff replaces output, click/Ctrl+T hide, real line numbers, long diff collapse
 src/tests/footer-layout.test.ts       composer sizing, approval height, home logo rule, path shortening
+src/tests/logo-pulse.test.ts          pulse ends from accent/glow (built-in peak = primary), peak/trough timing, freeze clock
+src/tests/transcript-search.test.ts   smart case, searchable text per block (no labels, full output, diff lines, panels), order, cap, snippet widths
+src/tests/search-controller.test.ts   newest first, older/newer wrap, re-search on step, reveal of collapsed output and hidden diffs
+src/tests/app.test.tsx (search)       Ctrl+F bar in the composer's place, jump + marker on the match line, Esc closes without abort,
+                                      older/newer, collapsed output expands, draft kept, /find <text>, welcome screen refuses
+src/tests/app.test.tsx (welcome)      logo pulses dim <-> glow, freezes when idle, a key resumes it; reduced motion stays on glow
 src/tests/command-palette.test.tsx    pickerHeight equals the rendered palette; grouped order matches cursor; long lists scroll
 src/tests/picker-flows.test.ts        every picker against FakeCli: chains, resume, skills, rewind confirm, busy guards,
                                       branch from /sessions (opens the fork with saved settings, refused while running,

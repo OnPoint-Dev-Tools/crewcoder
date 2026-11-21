@@ -13,7 +13,8 @@ const baseState: SidebarState = {
   showFileChanges: true,
   crewWorkers: [],
   safetyPolicies: [],
-  sessionId: "s1"
+  sessionId: "s1",
+  crewSessionIds: []
 };
 
 function input(state: Partial<SidebarState> = {}, tasks?: CrewTaskSnapshot | null, extra: Partial<SidebarInput> = {}): SidebarInput {
@@ -131,6 +132,14 @@ describe("crew tasks section", () => {
     const done = rows[start + 3]?.at(-1);
     expect(done).toMatchObject({ text: "task 1", strike: true });
     expect(rows[start + 1]?.at(-1)).toMatchObject({ bold: true, strike: false });
+  });
+
+  it("includes tasks crew workers created in their own sessions", () => {
+    const tasks = [task("1", "pending"), task("2", "in_progress", { sessionId: "worker-s" }), task("3", "pending", { sessionId: "elsewhere" })];
+    const lines = render(input({ crewSessionIds: ["worker-s"] }, { enabled: true, tasks }), 34);
+    expect(lines).toContain("  CREW TASKS — 0/2 completed");
+    expect(lines).toContain("  ◉ 2. task 2");
+    expect(lines.join("\n")).not.toContain("task 3");
   });
 
   it("uses a compact heading when narrow and says when the session has no tasks", () => {

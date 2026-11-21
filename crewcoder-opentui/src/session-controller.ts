@@ -1,12 +1,14 @@
 import {
   isCrewCoderRemote,
+  type CrewCoderCrewOptions,
+  type CrewCoderCrewTarget,
   type CrewCoderEventHandler,
   type CrewCoderProcessOptions,
   type CrewCoderResumeOptions,
   type SessionRecord
 } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import type { CrewCoderJsonEvent } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/event-parser";
-import { applyCrewCoderEvent } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
+import { applyCrewCoderEvent, stopCrew } from "@onpoint-dev-tools/crewcoder-tui-core/state/event-reducer";
 import { readCrewTaskSnapshot } from "@onpoint-dev-tools/crewcoder-tui-core/state/crew-tasks";
 import { createInitialState, normalizeTuiMode, type TuiEventBlock, type TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { SidebarController, type TaskReader } from "./sidebar.js";
@@ -26,7 +28,9 @@ import type { LineAnchors } from "./tool-diff.js";
 import { pickerEntries, pickerMaxRows, pickerView, type PaletteCommand, type PickerView } from "./palette-model.js";
 import { PickerFlows } from "./picker-flows.js";
 import { PICKER_COMMANDS, type Picker } from "./pickers.js";
+import { TranscriptSearch } from "./search-controller.js";
 import { ThemeController } from "./theme-controller.js";
+import { handoffEnv, removeCrewHandoff, tmuxAttachHint, writeCrewHandoff, type TmuxLauncher } from "./tmux.js";
 import type { ToolExpansion } from "./transcript.js";
 import { choiceAnswer, questionChoices, questionContentWidth, questionMaxRows, questionView, type QuestionAnswer, type QuestionBlock, type QuestionView } from "./question-model.js";
 
@@ -35,6 +39,7 @@ export type SessionBridge = {
   readonly running: boolean;
   run(options: CrewCoderProcessOptions, onEvent: CrewCoderEventHandler): () => void;
   resume(options: CrewCoderResumeOptions, onEvent: CrewCoderEventHandler): () => void;
+  crew(options: CrewCoderCrewOptions, onEvent: CrewCoderEventHandler): () => void;
   followUp(message: string): boolean;
   resolveApproval(approvalId: string, approved: boolean, reason?: string): boolean;
   requestCompactionPreview(): boolean;
@@ -44,6 +49,15 @@ export type SessionBridge = {
 };
 
 type PendingApproval = Extract<TuiEventBlock, { type: "approval" }>;
+type PendingCrew = { target: CrewCoderCrewTarget; task: string; command: string };
+
+const CREW_IN_TMUX = "tmux";
+const CREW_HERE = "here";
+
+/** `planner + builder` or `team feature`, for the picker title and tmux names. */
+function crewLabel(target: CrewCoderCrewTarget): string {
+  return target.kind === "team" ? `team ${target.team}` : target.workers.join(" + ");
+}
 type ToolBlock = Extract<TuiEventBlock, { type: "tool" }>;
 
 /** Summary editor text rows for a terminal height (the editor adds border + hint). */
@@ -86,6 +100,14 @@ export class SessionController implements CommandHost {
   repaint: (() => void) | undefined;
   /** `/quit`: the same exit as Ctrl+C; wired by cli.tsx. */
   quit: (() => void) | undefined;
+  /**
+   * Crews in tmux (`docs/CREWS.md#tmux`): the launcher and the command that starts a
+   * second UI on a handoff file. Wired by cli.tsx only when tmux is installed and the
+   * workspace is local; undefined means /crew and /team run here without asking.
+   */
+  crewTmux: { launcher: TmuxLauncher; command(handoffFile: string): string[] } | undefined;
+  /** A /crew or /team waiting for the "here or tmux" choice. */
+  private pendingCrew: PendingCrew | undefined;
   /** Ctrl+O: every tool's output expanded. A per-tool toggle flips its own state against this. */
   private allToolsExpanded = false;
   /** Tools toggled individually. Keyed by identity: the reducer mutates blocks in place. */
@@ -106,6 +128,8 @@ export class SessionController implements CommandHost {
   readonly sidebar: SidebarController;
   /** The active theme and `/theme` (preview, apply, saved pick); configured by cli.tsx. */
   readonly themes: ThemeController;
+  /** Transcript search (Ctrl+F, `/find`); App scrolls to its current match. */
+  readonly search: TranscriptSearch;
 
   constructor(
     bridge: SessionBridge,
@@ -120,6 +144,7 @@ export class SessionController implements CommandHost {
   ) {
     this.sidebar = new SidebarController(this, readTasks);
     this.themes = new ThemeController(this);
+    this.search = new TranscriptSearch(this);
     this.clipboard = clipboard;
     this.bridge = bridge;
     this.state = state;
@@ -193,6 +218,8 @@ export class SessionController implements CommandHost {
 
   closePicker(): void {
     if (!this.picker) return;
+    // Esc on "where should the crew run" cancels the crew.
+    if (this.picker.kind === "crewLaunch") this.pendingCrew = undefined;
     // Leaving /theme without Enter keeps the applied theme (a no-op after Enter applied one).
     if (this.picker.kind === "theme") this.themes.endPreview();
     this.picker = undefined;
@@ -237,6 +264,14 @@ export class SessionController implements CommandHost {
         () => this.notify(),
         (error: unknown) => this.alert({ variant: "error", title: `Could not apply theme ${item.id}`, body: errorMessage(error) })
       );
+      return;
+    }
+    if (picker.kind === "crewLaunch") {
+      const pending = this.pendingCrew;
+      this.closePicker();
+      if (!pending) return;
+      if (item.id === CREW_IN_TMUX) void this.runCrewInTmux(pending);
+      else this.startCrew(pending.target, pending.task, pending.command);
       return;
     }
     this.closePicker();
@@ -339,6 +374,16 @@ export class SessionController implements CommandHost {
           this.notify();
         }, () => undefined);
       }
+  }
+
+  /**
+   * Ctrl+F / `/find [text]`: search the transcript. The bar takes the composer's
+   * place, so the draft is kept; there is nothing to search on the welcome screen.
+   */
+  openSearch(query = ""): void {
+    if (this.state.blocks.length === 0) return this.alert({ variant: "info", title: "Nothing to search yet" });
+    this.preserveComposerDraft();
+    this.search.open(query);
   }
 
   /** Hide or show every edit's diff, resetting per-tool diff toggles. */
@@ -517,6 +562,7 @@ export class SessionController implements CommandHost {
   }
 
   clearScreen(): void {
+    this.search.close();
     this.state.blocks = [];
     this.currentAlert = undefined;
     this.notify();
@@ -549,6 +595,95 @@ export class SessionController implements CommandHost {
 
   startPrompt(text: string): void {
     this.startRun(text);
+  }
+
+  /**
+   * `/crew` and `/team`. With tmux available (local workspaces), first ask where the
+   * crew runs: here (quitting stops it) or in tmux (keeps running after this UI
+   * closes). Without tmux it runs here.
+   */
+  launchCrew(target: CrewCoderCrewTarget, task: string, command: string): void {
+    if (this.refuseBusyCrew()) return;
+    if (!this.crewTmux || isCrewCoderRemote()) return this.startCrew(target, task, command);
+    this.preserveComposerDraft();
+    this.pendingCrew = { target, task, command };
+    this.openPicker({
+      kind: "crewLaunch",
+      title: `Where should ${crewLabel(target)} run?`,
+      placeholder: "Search…",
+      emptyText: "Nothing to pick",
+      loading: false,
+      items: [
+        // Short: picker rows do not wrap.
+        { id: CREW_IN_TMUX, label: "Run in tmux", description: "survives closing CrewCoder; attach to approve" },
+        { id: CREW_HERE, label: "Run here", description: "quitting CrewCoder stops the crew" }
+      ]
+    });
+  }
+
+  /**
+   * Hand the crew to a second UI in tmux. Its settings and `CREWCODER_*` variables go
+   * in a private handoff file the new UI reads and deletes (`tmux.ts`).
+   */
+  private async runCrewInTmux(pending: PendingCrew): Promise<void> {
+    const tmux = this.crewTmux;
+    if (!tmux || this.refuseBusyCrew()) return;
+    const state = this.state;
+    let file: string | undefined;
+    try {
+      file = writeCrewHandoff({
+        version: 1, ...pending, cwd: state.cwd, provider: state.provider, model: state.model, effort: state.effort,
+        mode: state.mode, systemPrompt: state.systemPrompt, fullAccess: state.fullAccess, env: handoffEnv(process.env)
+      });
+      const placement = await tmux.launcher.launch(tmux.command(file), state.cwd, crewLabel(pending.target));
+      // A record that outlives the next keypress: the attach command is needed later.
+      state.blocks.push({ type: "user", text: pending.command });
+      state.blocks.push({ type: "system", text: tmuxAttachHint(placement) });
+      this.notify();
+    } catch (error) {
+      if (file) removeCrewHandoff(file);
+      this.alert({ variant: "error", title: "Could not start the crew in tmux", body: errorMessage(error) });
+    }
+  }
+
+  private refuseBusyCrew(): boolean {
+    if (!this.bridge.running && !this.state.running) return false;
+    this.alert({ variant: "warning", title: "Wait for the current run to finish before starting a crew", body: "Use /stop to end it." });
+    return true;
+  }
+
+  /**
+   * `/crew` and `/team`: stream the crew through the bridge so its roster, each
+   * worker's work, and approvals show live. Workers run in their own sessions;
+   * this session's id and transcript stay. `command` is what the user typed.
+   */
+  startCrew(target: CrewCoderCrewTarget, task: string, command: string): void {
+    if (this.refuseBusyCrew()) return;
+    const state = this.state;
+    state.blocks.push({ type: "user", text: command });
+    state.running = true;
+    // The AGENTS roster lives in the sidebar; a crew is the moment to show it.
+    if (!this.sidebar.open) this.sidebar.setOpen(true);
+    // The agent's crew commands take no worker, budget, image, or directory options.
+    const options: CrewCoderCrewOptions = {
+      target,
+      prompt: task,
+      provider: state.provider,
+      mode: state.mode,
+      model: state.model,
+      systemPrompt: state.systemPrompt,
+      effort: state.effort,
+      cwd: state.cwd,
+      approval: state.fullAccess ? "full-access" : "review"
+    };
+    try {
+      this.bridge.crew(options, this.onEvent);
+    } catch (error) {
+      state.running = false;
+      this.alert({ variant: "error", title: "Could not start the crew", body: errorMessage(error) });
+      return;
+    }
+    this.notify();
   }
 
   queueFollowUp(text: string): boolean {
@@ -592,6 +727,8 @@ export class SessionController implements CommandHost {
   abort(): boolean {
     if (!this.bridge.running && !this.state.running) return false;
     this.bridge.stop();
+    // A stopped crew sends no crew_end; finish its roster here.
+    stopCrew(this.state);
     this.state.running = false;
     this.state.blocks.push({ type: "system", text: "Request aborted." });
     this.notify();
@@ -619,7 +756,9 @@ export class SessionController implements CommandHost {
   /** Load a saved session's history with its provider, model, effort, mode, and directories. */
   resumeSession(session: SessionRecord): void {
     this.bridge.stop();
+    this.search.close();
     const state = this.state;
+    this.resetCrew();
     state.blocks = [];
     state.changedFiles = [];
     state.systemPrompt = undefined;
@@ -743,8 +882,17 @@ export class SessionController implements CommandHost {
     });
   }
 
+  /** Crews belong to the session they ran from: a stopped one is finished, its workers forgotten. */
+  private resetCrew(): void {
+    stopCrew(this.state);
+    this.state.crewWorkers = [];
+    this.state.crewSessionIds = [];
+  }
+
   private newSession(): void {
     this.bridge.stop();
+    this.search.close();
+    this.resetCrew();
     this.state.sessionId = "new";
     this.state.blocks = [];
     this.state.running = false;

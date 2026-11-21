@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  prioritizedTasks, readCrewTaskSnapshot, readCrewTaskSnapshotSync, sessionDisplayNumbers, taskBlocked, taskLabel, tasksForSession,
+  prioritizedTasks, readCrewTaskSnapshot, readCrewTaskSnapshotSync, sessionDisplayNumbers, taskBlocked, taskLabel, tasksForSession, tasksForSessions,
   type CrewTaskRecord
 } from "../state/crew-tasks.js";
 
@@ -80,6 +80,14 @@ describe("task presentation helpers", () => {
     const tasks = [task("1", "pending"), task("2", "pending", { sessionId: "other" })];
     expect(tasksForSession(tasks, "s1").map((item) => item.id)).toEqual(["1"]);
     expect(tasksForSession(tasks, "new")).toEqual([]);
+  });
+
+  it("includes tasks from the sessions crew workers ran in", () => {
+    const tasks = [task("1", "pending"), task("2", "pending", { sessionId: "worker" }), task("3", "pending", { sessionId: "other" })];
+    expect(tasksForSessions(tasks, ["s1", "worker"]).map((item) => item.id)).toEqual(["1", "2"]);
+    // A UI session that has not started still shows its workers' tasks.
+    expect(tasksForSessions(tasks, ["new", "worker"]).map((item) => item.id)).toEqual(["2"]);
+    expect(tasksForSessions(tasks, ["new"])).toEqual([]);
   });
 
   it("numbers tasks 1..n by creation order, stable under status sorting", () => {

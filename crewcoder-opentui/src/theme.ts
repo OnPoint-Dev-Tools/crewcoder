@@ -13,6 +13,20 @@ export type DiffColors = {
 };
 
 /**
+ * The two ends of the welcome-logo pulse (`logo-pulse.ts`): legacy breathes from
+ * the accent at half brightness up to the glow color.
+ */
+export type LogoColors = {
+  /** Trough color. */
+  dim: string;
+  /** Peak color; also the static color when motion is reduced. */
+  bright: string;
+};
+
+/** How dim the trough gets, as a fraction of the accent color (legacy value). */
+export const LOGO_PULSE_FLOOR = 0.5;
+
+/**
  * Everything the UI colors with: termcn component tokens (`ui`, through
  * `ThemeProvider`) plus the diff, Tree-sitter, and markdown element colors
  * termcn has no tokens for (through `AppColorsContext`).
@@ -22,6 +36,7 @@ export type AppTheme = {
   diff: DiffColors;
   syntax: SyntaxColors;
   markdown: MarkdownColors;
+  logo: LogoColors;
 };
 
 /**
@@ -72,7 +87,8 @@ export function toAppTheme(crew: CrewCoderTheme): AppTheme {
       lineNumberBg: crew.backgroundAlt
     },
     syntax: crew.syntax,
-    markdown: crew.markdown
+    markdown: crew.markdown,
+    logo: { dim: mixHex(crew.accent, "#000000", 1 - LOGO_PULSE_FLOOR), bright: crew.glow }
   };
 }
 

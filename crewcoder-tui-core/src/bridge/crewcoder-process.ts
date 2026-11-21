@@ -41,6 +41,51 @@ export type CrewCoderResumeOptions = {
   budget?: number;
 };
 
+/** Named workers in order (`crew run`), or a team declared in `crewcoder.json` (`crew team run`). */
+export type CrewCoderCrewTarget = { kind: "workers"; workers: string[] } | { kind: "team"; team: string };
+
+/**
+ * A streamed crew run. Workers run in their own sessions; the agent CLI's crew commands
+ * take no session, budget, image, or external-directory options.
+ */
+export type CrewCoderCrewOptions = {
+  target: CrewCoderCrewTarget;
+  prompt: string;
+  provider: string;
+  mode: string;
+  model?: string;
+  systemPrompt?: string;
+  effort?: string;
+  cwd?: string;
+  approval?: CrewCoderApprovalMode;
+};
+
+/** Worker and team ids: a letter or digit first, so none can read as a CLI option. */
+const CREW_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+
+export function isCrewName(value: string): boolean {
+  return CREW_NAME.test(value);
+}
+
+/** Agent CLI arguments for a streamed crew run. Throws on a worker or team id that is not a plain name. */
+export function crewRunArgs(options: CrewCoderCrewOptions): string[] {
+  const { target } = options;
+  const names = target.kind === "workers" ? target.workers : [target.team];
+  const bad = names.find((name) => !isCrewName(name));
+  if (!names.length || bad !== undefined) throw new Error(`Invalid ${target.kind === "workers" ? "worker" : "team"} name: ${bad ?? "(none)"}`);
+  const args = target.kind === "workers"
+    ? ["crew", "run", "--workers", target.workers.join(",")]
+    : ["crew", "team", "run", target.team];
+  args.push("--json-events", "--provider", options.provider, "--mode", options.mode);
+  if (options.model) args.push("--model", options.model);
+  if (options.systemPrompt) args.push("--system-prompt", options.systemPrompt);
+  if (options.effort) args.push("--effort", options.effort);
+  if (options.approval) args.push("--approval", options.approval);
+  // The task is text, never options: `/crew a,b --approval full-access` must not escalate.
+  args.push("--", options.prompt);
+  return args;
+}
+
 export type CrewCoderEventHandler = (event: CrewCoderJsonEvent) => void;
 
 export type SessionRecord = {
@@ -141,6 +186,16 @@ export class CrewCoderProcessBridge {
     for (const image of options.images ?? []) args.push("--image", image);
     if (options.prompt?.trim()) args.push(options.prompt.trim());
     return this.spawn(args, options.cwd ?? process.cwd(), onEvent);
+  }
+
+  /**
+   * Stream a crew run (`crew run` / `crew team run --json-events`). The same control
+   * channel as `run` answers approvals, follow-ups, and extension questions for
+   * whichever worker is running.
+   */
+  crew(options: CrewCoderCrewOptions, onEvent: CrewCoderEventHandler): () => void {
+    this.stop();
+    return this.spawn(crewRunArgs(options), options.cwd ?? process.cwd(), onEvent);
   }
 
   writeLine(line: string): void {

@@ -7,7 +7,8 @@ export type AppAction =
   | "summaryApply" | "summaryReset" | "summaryCancel"
   | "questionPrev" | "questionNext" | "questionSubmit" | "questionCancel"
   | "questionYes" | "questionNo" | "questionScrollUp" | "questionScrollDown"
-  | "transcriptPageUp" | "transcriptPageDown" | "transcriptTop" | "transcriptBottom" | "toggleToolOutput" | "toggleDiffs";
+  | "transcriptPageUp" | "transcriptPageDown" | "transcriptTop" | "transcriptBottom" | "toggleToolOutput" | "toggleDiffs"
+  | "searchOpen" | "searchOlder" | "searchNewer" | "searchClose";
 
 export type KeyLike = {
   name: string;
@@ -78,7 +79,13 @@ export const DEFAULT_APP_KEYBINDINGS: Readonly<Record<AppAction, readonly string
   // Expand or collapse every tool's output at once.
   toggleToolOutput: ["ctrl+o"],
   // Hide or show every edit's inline diff at once.
-  toggleDiffs: ["ctrl+t"]
+  toggleDiffs: ["ctrl+t"],
+  // Transcript search (terminal search cannot see the alternate screen). It starts at
+  // the newest match, so Enter keeps going up; Esc closes it and never aborts.
+  searchOpen: ["ctrl+f"],
+  searchOlder: ["return", "kpenter", "up"],
+  searchNewer: ["shift+return", "down"],
+  searchClose: ["escape"]
 };
 
 /** An OpenTUI textarea key binding (`@opentui/core` `KeyBinding`). */

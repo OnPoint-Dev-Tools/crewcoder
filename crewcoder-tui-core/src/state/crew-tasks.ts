@@ -42,8 +42,17 @@ export async function readCrewTaskSnapshot(cwd: string): Promise<CrewTaskSnapsho
 
 /** This session's tasks; a session that has not started yet has none. */
 export function tasksForSession(tasks: readonly CrewTaskRecord[], sessionId: string): CrewTaskRecord[] {
-  if (!sessionId || sessionId === "new") return [];
-  return tasks.filter((task) => task.sessionId === sessionId);
+  return tasksForSessions(tasks, [sessionId]);
+}
+
+/**
+ * Tasks from any of these sessions: the UI session plus the sessions its crew workers
+ * ran in (each worker records tasks under its own session id).
+ */
+export function tasksForSessions(tasks: readonly CrewTaskRecord[], sessionIds: readonly string[]): CrewTaskRecord[] {
+  const ids = new Set(sessionIds.filter((id) => id && id !== "new"));
+  if (!ids.size) return [];
+  return tasks.filter((task) => task.sessionId !== undefined && ids.has(task.sessionId));
 }
 
 /**

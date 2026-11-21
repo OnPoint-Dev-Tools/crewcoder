@@ -1,5 +1,5 @@
 import {
-  prioritizedTasks, sessionDisplayNumbers, taskBlocked, taskLabel, tasksForSession,
+  prioritizedTasks, sessionDisplayNumbers, taskBlocked, taskLabel, tasksForSessions,
   type CrewTaskRecord, type CrewTaskSnapshot
 } from "@onpoint-dev-tools/crewcoder-tui-core/state/crew-tasks";
 import type { TuiCrewWorker, TuiSafetyPolicy, TuiState } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
@@ -33,7 +33,7 @@ export type SidebarRow = readonly SidebarSpan[];
 
 export type SidebarState = Pick<
   TuiState,
-  "cwd" | "remoteTarget" | "gitLabel" | "changedFiles" | "showFileChanges" | "crewWorkers" | "safetyPolicies" | "sessionId"
+  "cwd" | "remoteTarget" | "gitLabel" | "changedFiles" | "showFileChanges" | "crewWorkers" | "safetyPolicies" | "sessionId" | "crewSessionIds"
 >;
 
 export type SidebarInput = {
@@ -149,7 +149,8 @@ function crewTaskRows(input: SidebarInput, width: number, height: number): Sideb
   if (height <= 0) return [];
   if (!input.tasks) return [taskHeading(undefined, width), ...text("Not shown for SSH workspaces", "muted", width)].slice(0, height);
   if (!input.tasks.enabled) return [];
-  const tasks = tasksForSession(input.tasks.tasks, input.state.sessionId);
+  // Crew workers record tasks under their own sessions; they belong to this one.
+  const tasks = tasksForSessions(input.tasks.tasks, [input.state.sessionId, ...input.state.crewSessionIds]);
   const done = tasks.filter((task) => task.status === "completed").length;
   const rows: SidebarRow[] = [taskHeading({ done, total: tasks.length }, width)];
   if (!tasks.length) return [...rows, ...text("No tasks for this session", "muted", width)].slice(0, height);

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { DISABLED_TASKS } from "@onpoint-dev-tools/crewcoder-tui-core/state/crew-tasks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { alertLines, alertRows, MAX_ALERT_BODY_LINES } from "../alert-model.js";
 import { SLASH_COMMANDS } from "../commands.js";
@@ -7,10 +8,14 @@ import { SessionController } from "../session-controller.js";
 import { FakeBridge } from "./fake-bridge.js";
 import { FakeCli, flush } from "./fake-cli.js";
 
+const controllers: SessionController[] = [];
+
 function setup(): { bridge: FakeBridge; cli: FakeCli; controller: SessionController } {
   const bridge = new FakeBridge();
   const cli = new FakeCli();
-  const controller = new SessionController(bridge, undefined, cli);
+  // Never the real task store: a crew opens the sidebar, which reads ~/.crewcoder.
+  const controller = new SessionController(bridge, undefined, cli, undefined, undefined, undefined, async () => DISABLED_TASKS);
+  controllers.push(controller);
   Object.assign(controller.state, { provider: "codex-cli", model: "gpt-6-luna", effort: "low", mode: "general" });
   return { bridge, cli, controller };
 }
@@ -28,18 +33,20 @@ function choose(controller: SessionController, id: string): void {
   controller.selectPickerItem();
 }
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  for (const controller of controllers.splice(0)) controller.dispose();
+});
 
 describe("palette catalog", () => {
-  it("lists every requested command and skips /crew", () => {
+  it("lists every requested command", () => {
     const labels = SLASH_COMMANDS.map((item) => item.label);
     for (const name of ["/branch", "/compact", "/compact preview", "/export", "/reload", "/goal", "/thinking", "/workers", "/identity",
       "/full-access", "/checkpoints", "/memory", "/remember", "/set-budget", "/add-dir", "/remove-dir", "/commands", "/extensions",
-      "/review-summary", "/why", "/task", "/teams", "/team", "/approve", "/approve-plan", "/deny", "/follow-up", "/clear", "/help",
+      "/review-summary", "/why", "/task", "/teams", "/team", "/crew", "/approve", "/approve-plan", "/deny", "/follow-up", "/clear", "/help",
       "/sidebar", "/file-changes"]) {
       expect(labels).toContain(name);
     }
-    expect(labels).not.toContain("/crew");
     expect(new Set(SLASH_COMMANDS.map((item) => item.id)).size).toBe(SLASH_COMMANDS.length);
   });
 
@@ -148,15 +155,55 @@ describe("text output commands", () => {
     expect(controller.currentAlert).toMatchObject({ variant: "error", body: "boom" });
   });
 
-  it("/team runs the team with the session's settings", async () => {
-    const { controller, cli } = setup();
-    cli.responses.set("crew team run review fix the bug --provider codex-cli --mode general --effort low --approval review --model gpt-6-luna", { stdout: "done", stderr: "", exitCode: 0 });
+});
+
+describe("crews", () => {
+  it("/team streams the team through the bridge with the session's settings", async () => {
+    const { controller, cli, bridge } = setup();
     await run(controller, "/team review fix the bug");
-    expect(controller.currentAlert).toMatchObject({ title: "Team review", body: "done" });
-    await run(controller, "/team");
-    expect(controller.currentAlert).toMatchObject({ title: "Usage" });
+    expect(bridge.crews).toEqual([{
+      target: { kind: "team", team: "review" }, prompt: "fix the bug", provider: "codex-cli", mode: "general",
+      model: "gpt-6-luna", systemPrompt: undefined, effort: "low", cwd: controller.state.cwd, approval: "review"
+    }]);
+    // Streamed, not a one-shot CLI call whose output lands in an alert.
+    expect(cli.calls).toEqual([]);
+    expect(controller.state.blocks.at(-1)).toEqual({ type: "user", text: "/team review fix the bug" });
+    expect(controller.state.running).toBe(true);
   });
 
+  it("/crew runs named workers in order and drops repeats", async () => {
+    const { controller, bridge } = setup();
+    controller.state.fullAccess = true;
+    await run(controller, "/crew planner,builder,planner write the parser");
+    expect(bridge.crews[0]).toMatchObject({ target: { kind: "workers", workers: ["planner", "builder"] }, prompt: "write the parser", approval: "full-access" });
+    expect(controller.state.blocks.at(-1)).toEqual({ type: "user", text: "/crew planner,builder write the parser" });
+  });
+
+  it.each([
+    ["/crew", "/crew <worker1,worker2> <task>"],
+    ["/crew planner", "/crew <worker1,worker2> <task>"],
+    ["/crew -x,builder go", "not -x"],
+    ["/team", "/team <team> <task>"],
+    ["/team --help go", "not --help"]
+  ])("%s shows usage and starts nothing", async (command, body) => {
+    const { controller, bridge } = setup();
+    await run(controller, command);
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "Usage" });
+    expect(controller.currentAlert?.body).toContain(body);
+    expect(bridge.crews).toEqual([]);
+    expect(controller.state.blocks).toEqual([]);
+  });
+
+  it("refuses to start a crew while a run is active", async () => {
+    const { controller, bridge } = setup();
+    controller.submit("hello");
+    await run(controller, "/crew planner go");
+    expect(bridge.crews).toEqual([]);
+    expect(controller.currentAlert).toMatchObject({ variant: "warning", title: "Wait for the current run to finish before starting a crew" });
+  });
+});
+
+describe("one-shot review commands", () => {
   it("/why is a one-shot call that never adds a turn", async () => {
     const { controller, cli, bridge } = setup();
     controller.state.sessionId = "s-1";

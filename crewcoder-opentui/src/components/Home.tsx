@@ -1,7 +1,12 @@
 import { bigCrewCodeLogoLines } from "@onpoint-dev-tools/crewcoder-tui-core/theme/logo";
-import type { ReactNode } from "react";
+import { useKeyboard } from "@opentui/react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { homeComposerWidth, homeLogo } from "../footer-layout.js";
+import { useAnimation } from "../hooks/use-animation.js";
+import { useAppColors } from "../hooks/use-app-colors.js";
+import { useMotion } from "../hooks/use-motion.js";
 import { useTheme } from "../hooks/use-theme.js";
+import { logoPulseColor, PULSE_FRAME_MS, pulseClock, pulseFrozen } from "../logo-pulse.js";
 
 export type HomeProps = {
   width: number;
@@ -31,11 +36,7 @@ export function Home({ width, height, info, composer, alert, extraRows = 0 }: Ho
     <box flexDirection="column" width="100%" height="100%" justifyContent="center" alignItems="center">
       {logo ? (
         <>
-          {logo.map((line, index) => (
-            <text key={`logo-${index}`} fg={theme.colors.primary} height={1} wrapMode="none" flexShrink={0}>
-              <b>{line}</b>
-            </text>
-          ))}
+          <PulsingLogo lines={logo} />
           <box height={1} flexShrink={0} />
         </>
       ) : null}
@@ -50,5 +51,39 @@ export function Home({ width, height, info, composer, alert, extraRows = 0 }: Ho
       </text>
       <text fg={theme.colors.mutedForeground} height={1} wrapMode="none" flexShrink={0}>{info}</text>
     </box>
+  );
+}
+
+/**
+ * The wordmark breathing in one color (`logo-pulse.ts`). Only this component
+ * re-renders per frame. The timer runs only while the logo is mounted, stops
+ * after `PULSE_FREEZE_MS` without a key, and never starts under reduced motion
+ * (`NO_MOTION=1`, `CI=true`), which shows the peak color.
+ */
+function PulsingLogo({ lines }: { lines: readonly string[] }): ReactNode {
+  const { logo: colors } = useAppColors();
+  const { reduced } = useMotion();
+  const idleSince = useRef(Date.now());
+  const [frozen, setFrozen] = useState(false);
+  useAnimation({ intervalMs: PULSE_FRAME_MS, isActive: !frozen });
+  // Any key restarts the freeze countdown; key handling itself stays in App.
+  useKeyboard(() => {
+    idleSince.current = Date.now();
+    setFrozen(false);
+  });
+  const now = Date.now();
+  useEffect(() => {
+    if (!frozen && pulseFrozen(idleSince.current, Date.now())) setFrozen(true);
+  });
+  const color = reduced ? colors.bright : logoPulseColor(colors, pulseClock(idleSince.current, now));
+
+  return (
+    <>
+      {lines.map((line, index) => (
+        <text key={`logo-${index}`} fg={color} height={1} wrapMode="none" flexShrink={0}>
+          <b>{line}</b>
+        </text>
+      ))}
+    </>
   );
 }

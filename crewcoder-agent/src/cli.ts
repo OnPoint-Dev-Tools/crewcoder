@@ -17,9 +17,8 @@ import { branchSession } from "./core/session-branch.js";
 import { whenSessionWritesSettle } from "./core/session-store.js";
 import { compactDurableSession } from "./core/compact-session.js";
 import { renderSessionHtml, renderSessionMarkdown } from "./core/session-export.js";
-import { attachStdinControlListener, type CompactionPreviewDecision } from "./core/stdin-control.js";
+import { createRunControls } from "./core/run-controls.js";
 import { runAcpStdioServer } from "./acp/acp-server.js";
-import { createExtensionUiBridge } from "./core/extension-ui-bridge.js";
 import { createPlugin, isSupportedPluginKind } from "./generators/plugin-generator.js";
 import { listTemplates, supportedPluginKinds } from "./generators/template-registry.js";
 import { createCrewCoderExtension } from "./generators/extension-generator.js";
@@ -486,18 +485,7 @@ session.command("resume").argument("<id>").argument("[prompt...]").option("--jso
   const jsonSink = options.jsonEvents ? createJsonEventSink() : undefined;
   const debug = createBackendDebugLogger({ emit: jsonSink, stderr: shouldDebugToStderr(options), runId: `resume-${id}-${Date.now()}` });
   await debug.event({ level: "info", source: "cli", message: "backend debug logger initialized", details: { logPath: debug.logPath, jsonEvents: Boolean(options.jsonEvents), stderr: shouldDebugToStderr(options) } });
-  const manualCompactSignal = { requested: false, preview: false };
-  const compactionPreviewSignal = { decisions: [] as CompactionPreviewDecision[] };
-  const followUpSignal = { messages: [] as string[] };
-  const approvalSignal = { decisions: [] as Array<{ approvalId: string; approved: boolean; reason?: string }> };
-  const uiBridge = createExtensionUiBridge({ emit: jsonSink, hasUI: Boolean(options.jsonEvents) });
-  const detachControl = options.jsonEvents ? attachStdinControlListener({
-    onCompact: (opts) => { manualCompactSignal.requested = true; if (opts.preview) manualCompactSignal.preview = true; },
-    onCompactPreviewDecision: (decision) => { compactionPreviewSignal.decisions.push(decision); },
-    onFollowUp: (message) => { followUpSignal.messages.push(message); },
-    onApprovalDecision: (decision) => { approvalSignal.decisions.push(decision); },
-    onUiResponse: (response) => { uiBridge.resolveResponse(response.requestId, response.value); }
-  }) : undefined;
+  const controls = createRunControls(jsonSink);
   const contextWindow = (await resolveModel(providerId, model))?.metadata?.contextWindow;
   try {
     const result = await runAgentLoopContinue({ sessionId: id, prompt: promptParts?.join(" "), mode: normalizeMode(options.mode ?? readConfig().defaultMode), externalDirectories, images: options.image }, {
@@ -512,18 +500,13 @@ session.command("resume").argument("<id>").argument("[prompt...]").option("--jso
       workerName: options.worker,
       tokenBudget: resolveTokenBudget(options),
       verify: options.verify,
-      manualCompactSignal,
-      compactionPreviewSignal,
-      followUpSignal,
-      approvalSignal,
-      uiBridge,
+      ...controls.options,
       emit: jsonSink
     });
     if (!options.jsonEvents) printRunResult(result, providerId, model);
     if (result.providerError || result.stallError || result.iterationCapReached) process.exitCode = 1;
   } finally {
-    uiBridge.cancelAll();
-    detachControl?.();
+    controls.close();
   }
 });
 session.command("branch").argument("<id>").action(async (id: string) => {
@@ -1747,18 +1730,7 @@ async function executeRunPrompt(prompt: string, options: RunOptions) {
   const jsonSink = jsonEvents ? createJsonEventSink() : undefined;
   const debug = createBackendDebugLogger({ emit: jsonSink, stderr: shouldDebugToStderr(options), runId: `run-${Date.now()}` });
   await debug.event({ level: "info", source: "cli", message: "backend debug logger initialized", details: { logPath: debug.logPath, jsonEvents, stderr: shouldDebugToStderr(options) } });
-  const manualCompactSignal = { requested: false, preview: false };
-  const compactionPreviewSignal = { decisions: [] as CompactionPreviewDecision[] };
-  const followUpSignal = { messages: [] as string[] };
-  const approvalSignal = { decisions: [] as Array<{ approvalId: string; approved: boolean; reason?: string }> };
-  const uiBridge = createExtensionUiBridge({ emit: jsonSink, hasUI: jsonEvents });
-  const detachControl = jsonEvents ? attachStdinControlListener({
-    onCompact: (opts) => { manualCompactSignal.requested = true; if (opts.preview) manualCompactSignal.preview = true; },
-    onCompactPreviewDecision: (decision) => { compactionPreviewSignal.decisions.push(decision); },
-    onFollowUp: (message) => { followUpSignal.messages.push(message); },
-    onApprovalDecision: (decision) => { approvalSignal.decisions.push(decision); },
-    onUiResponse: (response) => { uiBridge.resolveResponse(response.requestId, response.value); }
-  }) : undefined;
+  const controls = createRunControls(jsonSink);
   const contextWindow = (await resolveModel(providerId, model))?.metadata?.contextWindow;
   try {
     const response = await runAgentLoop({ prompt, requestedMode, cwd: process.cwd(), externalDirectories, images: options.image }, {
@@ -1775,11 +1747,7 @@ async function executeRunPrompt(prompt: string, options: RunOptions) {
       tokenBudget: resolveTokenBudget(options),
       verify: Boolean(options.verify || options.ci),
       parentSessionId: options.parentSession,
-      manualCompactSignal,
-      compactionPreviewSignal,
-      followUpSignal,
-      approvalSignal: jsonEvents ? approvalSignal : undefined,
-      uiBridge,
+      ...controls.options,
       emit: jsonSink ?? (async (event) => {
         const write = options.ci ? console.error : console.log;
         if (event.type === "tool_execution_start") write(pc.gray(`tool:start ${event.toolName}`));
@@ -1796,8 +1764,7 @@ async function executeRunPrompt(prompt: string, options: RunOptions) {
       if (response.providerError || response.stallError || response.iterationCapReached) process.exitCode = 1;
     }
   } finally {
-    uiBridge.cancelAll();
-    detachControl?.();
+    controls.close();
   }
 }
 
@@ -1822,21 +1789,32 @@ async function runCrewPromptWithWorkers(prompt: string, workers: string[], optio
   const debug = createBackendDebugLogger({ emit: jsonSink, stderr: shouldDebugToStderr(options), runId: `${label}-run-${Date.now()}` });
   await debug.event({ level: "info", source: "cli", message: `${label} run backend debug logger initialized`, details: { logPath: debug.logPath, jsonEvents, stderr: shouldDebugToStderr(options) } });
   const contextWindow = (await resolveModel(providerId, model))?.metadata?.contextWindow;
-  const result = await runWorkerCrew({ prompt, workers, workerPrompts, requestedMode, cwd: process.cwd() }, {
-    providerId,
-    model,
-    contextWindow,
-    maxIterations,
-    approvalMode: normalizeApprovalMode(options.approval ?? "never"),
-    dumpModelInput: shouldDumpModelInput(options),
-    systemPromptName: options.systemPrompt,
-    createModelClient: () => options.heuristic ? undefined : new ProviderModelClient(providerId, process.cwd(), model, debug, normalizeEffortOption(options.effort)),
-    emit: jsonSink ?? (async (event) => {
-      if (event.type === "tool_execution_start") console.log(pc.gray(`tool:start ${event.toolName}`));
-      if (event.type === "tool_execution_end") console.log(event.isError ? pc.red(`tool:error ${event.toolName}`) : pc.gray(`tool:end ${event.toolName}`));
-      if (event.type === "approval_required") console.log(pc.yellow(`approval required: ${event.reason}`));
-    })
-  });
+  const effort = normalizeEffortOption(options.effort);
+  // The same live control channel as `run`: without it, review-mode approvals inside a
+  // TUI-driven crew were auto-denied as non-interactive and every gated tool failed.
+  const controls = createRunControls(jsonSink);
+  let result: Awaited<ReturnType<typeof runWorkerCrew>>;
+  try {
+    result = await runWorkerCrew({ prompt, workers, workerPrompts, requestedMode, cwd: process.cwd() }, {
+      providerId,
+      model,
+      effort,
+      contextWindow,
+      maxIterations,
+      approvalMode: normalizeApprovalMode(options.approval ?? "never"),
+      dumpModelInput: shouldDumpModelInput(options),
+      systemPromptName: options.systemPrompt,
+      ...controls.options,
+      createModelClient: () => options.heuristic ? undefined : new ProviderModelClient(providerId, process.cwd(), model, debug, effort),
+      emit: jsonSink ?? (async (event) => {
+        if (event.type === "tool_execution_start") console.log(pc.gray(`tool:start ${event.toolName}`));
+        if (event.type === "tool_execution_end") console.log(event.isError ? pc.red(`tool:error ${event.toolName}`) : pc.gray(`tool:end ${event.toolName}`));
+        if (event.type === "approval_required") console.log(pc.yellow(`approval required: ${event.reason}`));
+      })
+    });
+  } finally {
+    controls.close();
+  }
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
     return;

@@ -11,23 +11,41 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
       break;
     case "agent_start":
       state.running = true;
-      if (typeof event.sessionId === "string") state.sessionId = event.sessionId;
+      if (typeof event.sessionId === "string") {
+        // A crew worker runs in its own session; the UI keeps the user's.
+        if (state.crewRunning) recordCrewSession(state, event.sessionId);
+        else state.sessionId = event.sessionId;
+      }
       break;
     case "crew_start": {
       const workers = stringArray(event.workers) ?? [];
       state.running = true;
+      state.crewRunning = true;
+      state.crewActiveWorker = undefined;
       state.crewWorkers = workers.map((name) => ({ name, status: "pending" }));
       state.blocks.push({ type: "crew", workers: state.crewWorkers, completed: false });
       break;
     }
-    case "crew_worker_start":
+    case "crew_worker_start": {
+      const worker = String(event.worker ?? "unknown");
       state.running = true;
-      updateCrewWorker(state, String(event.worker ?? "unknown"), "running", typeof event.sessionId === "string" ? event.sessionId : undefined);
+      state.crewActiveWorker = worker;
+      const sessionId = typeof event.sessionId === "string" ? event.sessionId : undefined;
+      updateCrewWorker(state, worker, "running", sessionId);
+      if (sessionId) recordCrewSession(state, sessionId);
       break;
-    case "crew_worker_end":
-      updateCrewWorker(state, String(event.worker ?? "unknown"), event.status === "failed" ? "failed" : "completed", typeof event.sessionId === "string" ? event.sessionId : undefined, typeof event.error === "string" ? event.error : undefined);
+    }
+    case "crew_worker_end": {
+      const worker = String(event.worker ?? "unknown");
+      const sessionId = typeof event.sessionId === "string" ? event.sessionId : undefined;
+      updateCrewWorker(state, worker, event.status === "failed" ? "failed" : "completed", sessionId, typeof event.error === "string" ? event.error : undefined);
+      if (sessionId) recordCrewSession(state, sessionId);
+      if (state.crewActiveWorker === worker) state.crewActiveWorker = undefined;
       break;
+    }
     case "crew_end":
+      // Workers left pending never ran (an earlier worker threw).
+      stopCrew(state, "Did not run.");
       updateCrewBlock(state, true);
       state.running = false;
       break;
@@ -41,10 +59,10 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
         // matches no individual streamed block. Anything already streamed is rendered.
         const streamed = state.streamedAssistantTurn === true;
         state.streamedAssistantTurn = false;
-        if (!streamed && !isDuplicateAssistantText(state, text)) state.blocks.push({ type: "assistant", text });
+        if (!streamed && !isDuplicateAssistantText(state, text)) state.blocks.push(withWorker(state, { type: "assistant", text }));
         setLatestAssistantRate(state, tokensPerSecond(event));
       } else if (role === "user") {
-        if (!isDuplicateUserText(state, text)) state.blocks.push({ type: "user", text, background: messageBackground(event) });
+        if (!isDuplicateUserText(state, text)) state.blocks.push(withWorker(state, { type: "user", text, background: messageBackground(event) }));
       }
       break;
     }
@@ -81,14 +99,14 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
         : { type: "error", text: "Verification failed. Review the verification event output." });
       break;
     case "tool_execution_start":
-      state.blocks.push({
+      state.blocks.push(withWorker(state, {
         type: "tool",
         id: typeof event.toolCallId === "string" ? event.toolCallId : undefined,
         name: String(event.toolName ?? "unknown"),
         status: "running",
         args: objectRecord(event.args),
         metadata: objectRecord(event.metadata)
-      });
+      }));
       break;
     case "tool_delta":
       appendToolDelta(state, String(event.toolName ?? "unknown"), String(event.text ?? ""), typeof event.toolCallId === "string" ? event.toolCallId : undefined, objectRecord(event.metadata));
@@ -141,7 +159,8 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
       else pushSystemLog(state, eventToText(event));
       break;
     case "approval_required":
-      state.blocks.push({
+      // Tagged like the tool it gates, so both sit in the same worker's work box.
+      state.blocks.push(withWorker(state, {
         type: "approval",
         id: typeof event.approvalId === "string" ? event.approvalId : undefined,
         toolCallId: typeof event.toolCallId === "string" ? event.toolCallId : undefined,
@@ -150,7 +169,7 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
         text: String(event.reason ?? eventToText(event)),
         args: objectRecord(event.args),
         status: "pending"
-      });
+      }));
       break;
     case "approval_resolved":
       updateApproval(state, typeof event.approvalId === "string" ? event.approvalId : undefined, event.approved === false ? "denied" : "approved", typeof event.reason === "string" ? event.reason : undefined);
@@ -245,13 +264,19 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
       state.blocks.push({ type: "error", text: eventToText(event) });
       break;
     case "session_saved":
-      if (typeof event.sessionId === "string") state.sessionId = event.sessionId;
+      if (typeof event.sessionId === "string") {
+        if (state.crewRunning) recordCrewSession(state, event.sessionId);
+        else state.sessionId = event.sessionId;
+      }
       break;
     case "agent_end":
+      // One worker finished; the crew keeps running until crew_end.
+      if (state.crewRunning) break;
       hydrateSessionMessagesIfEmpty(state, event.messages);
       state.running = false;
       break;
     case "process_exit":
+      if (state.crewRunning) stopCrew(state, "The crew process exited before this worker finished.");
       state.running = false;
       break;
     default: {
@@ -272,6 +297,41 @@ function updateCrewWorker(state: TuiState, name: string, status: "running" | "co
   if (sessionId) worker.sessionId = sessionId;
   if (error) worker.error = error;
   updateCrewBlock(state, false);
+}
+
+/**
+ * End the live crew: workers still pending or running are marked failed with
+ * `reason`, the roster block completes, and the session id follows the user
+ * again. Call it when the UI stops a crew run (abort, new session); the reducer
+ * calls it on `crew_end` and when the process exits mid-crew. Without it a
+ * stopped crew would show as running forever.
+ */
+export function stopCrew(state: TuiState, reason = "Stopped before finishing."): void {
+  if (!state.crewRunning) return;
+  for (const worker of state.crewWorkers) {
+    if (worker.status !== "pending" && worker.status !== "running") continue;
+    worker.status = "failed";
+    worker.error ??= reason;
+  }
+  state.crewRunning = false;
+  state.crewActiveWorker = undefined;
+  updateCrewBlock(state, true);
+}
+
+function recordCrewSession(state: TuiState, sessionId: string): void {
+  if (!state.crewSessionIds.includes(sessionId)) state.crewSessionIds.push(sessionId);
+  const worker = state.crewWorkers.find((item) => item.name === state.crewActiveWorker);
+  if (worker && !worker.sessionId) worker.sessionId = sessionId;
+}
+
+/** Tag a block with the crew worker producing it, outside crews unchanged. */
+function withWorker<T extends Extract<TuiState["blocks"][number], { type: "user" | "assistant" | "thinking" | "tool" | "approval" }>>(state: TuiState, block: T): T {
+  const worker = activeCrewWorker(state);
+  return worker ? { ...block, worker } : block;
+}
+
+function activeCrewWorker(state: TuiState): string | undefined {
+  return state.crewRunning ? state.crewActiveWorker : undefined;
 }
 
 function updateCrewBlock(state: TuiState, completed: boolean): void {
@@ -335,8 +395,9 @@ function backgroundFromMessage(message: Record<string, unknown>): string[] | und
 
 function appendAssistantDelta(state: TuiState, text: string): void {
   const last = state.blocks[state.blocks.length - 1];
-  if (last?.type === "assistant") last.text += text;
-  else state.blocks.push({ type: "assistant", text });
+  // One worker's reply never continues another's.
+  if (last?.type === "assistant" && last.worker === activeCrewWorker(state)) last.text += text;
+  else state.blocks.push(withWorker(state, { type: "assistant", text }));
 }
 
 function tokensPerSecond(event: CrewCoderJsonEvent): number | undefined {
@@ -358,8 +419,8 @@ function setLatestAssistantRate(state: TuiState, rate: number | undefined): void
 
 function appendThinkingDelta(state: TuiState, text: string): void {
   const last = state.blocks[state.blocks.length - 1];
-  if (last?.type === "thinking") last.text += text;
-  else state.blocks.push({ type: "thinking", text });
+  if (last?.type === "thinking" && last.worker === activeCrewWorker(state)) last.text += text;
+  else state.blocks.push(withWorker(state, { type: "thinking", text }));
 }
 
 function appendToolDelta(state: TuiState, name: string, text: string, id?: string, metadata?: Record<string, unknown>): void {
@@ -369,7 +430,7 @@ function appendToolDelta(state: TuiState, name: string, text: string, id?: strin
     block.metadata = mergeMetadata(block.metadata, metadata);
     return;
   }
-  state.blocks.push({ type: "tool", id, name, status: "running", text, metadata });
+  state.blocks.push(withWorker(state, { type: "tool", id, name, status: "running", text, metadata }));
 }
 
 function isDuplicateAssistantText(state: TuiState, text: string): boolean {
@@ -377,14 +438,17 @@ function isDuplicateAssistantText(state: TuiState, text: string): boolean {
 }
 
 function isDuplicateUserText(state: TuiState, text: string): boolean {
-  return recentDuplicateText(state, "user", text);
+  // In a crew, every worker gets its own brief (often the same text); a follow-up the UI
+  // already showed is untagged and still matches.
+  const worker = activeCrewWorker(state);
+  return recentDuplicateText(state, "user", text, (block) => !worker || block.worker === undefined || block.worker === worker);
 }
 
-function recentDuplicateText(state: TuiState, type: "assistant" | "user", text: string): boolean {
+function recentDuplicateText(state: TuiState, type: "assistant" | "user", text: string, matches: (block: { worker?: string }) => boolean = () => true): boolean {
   const normalized = text.trim();
   for (let i = state.blocks.length - 1; i >= Math.max(0, state.blocks.length - 8); i--) {
     const block = state.blocks[i];
-    if (block?.type === type && block.text.trim() === normalized) return true;
+    if (block?.type === type && block.text.trim() === normalized && matches(block)) return true;
   }
   return false;
 }
@@ -428,7 +492,7 @@ function updateTool(state: TuiState, name: string, status: "done" | "error", tex
     block.metadata = mergeMetadata(block.metadata, metadata);
     return;
   }
-  state.blocks.push({ type: "tool", id, name, status, text, metadata });
+  state.blocks.push(withWorker(state, { type: "tool", id, name, status, text, metadata }));
 }
 
 function updateApproval(state: TuiState, approvalId: string | undefined, status: "approved" | "denied", reason?: string): void {

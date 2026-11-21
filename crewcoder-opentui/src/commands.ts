@@ -15,7 +15,6 @@ const draft = (name: string, description: string, group: string): PaletteCommand
 /**
  * The `/` palette: every command OpenTUI implements. Aliases (`/resume`,
  * `/mode`, `/worker`, `/followup`) work when typed but are not listed twice.
- * Not here on purpose: `/crew` (skipped by owner decision).
  */
 export const SLASH_COMMANDS: readonly PaletteCommand[] = [
   command("/new", "Start a fresh session", "Session"),
@@ -62,9 +61,11 @@ export const SLASH_COMMANDS: readonly PaletteCommand[] = [
   draft("/follow-up", "Queue a message for the active run", "Review & Tasks"),
   command("/handoff", "Hand off this session to a worker", "Workers"),
   command("/teams", "List worker teams from crewcoder.json", "Workers"),
-  draft("/team", "Run a declared team: /team <team> <task>", "Workers"),
+  draft("/crew", "Run workers in order, live: /crew <worker1,worker2> <task>", "Workers"),
+  draft("/team", "Run a declared team, live: /team <team> <task>", "Workers"),
   command("/sidebar", "Show or hide the right sidebar (Ctrl+B)", "General"),
   command("/file-changes", "Modified files in the sidebar: on, off, or status", "General"),
+  command("/find", "Search the transcript: /find [text] (Ctrl+F)", "General"),
   command("/repaint", "Redraw the whole screen if it looks garbled (alias /redraw)", "General"),
   command("/quit", "Exit CrewCoder (same as Ctrl+C)", "General"),
   command("/help", "Show this command list", "General")

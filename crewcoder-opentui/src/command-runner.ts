@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { isCrewCoderRemote } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
+import { isCrewCoderRemote, isCrewName, type CrewCoderCrewTarget } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import {
   formatBudgetTokens, parseBudgetInput, parseCompactionResult, parseDecisionExplanation, parseGoalRecord,
   parseGoalStartInput, parseReviewSummary, tokenizeGoalCommand, type GoalStartInput
@@ -34,6 +34,8 @@ export interface CommandHost extends PickerHost {
   openCommandPalette(): void;
   openMenu(title: string, items: PaletteCommand[], load?: () => Promise<PaletteCommand[]>): void;
   startPrompt(text: string): void;
+  /** `/crew`, `/team`: ask here-or-tmux when tmux is available, then run; `command` is the typed text. */
+  launchCrew(target: CrewCoderCrewTarget, task: string, command: string): void;
   queueFollowUp(text: string): boolean;
   resolveApproval(approvalId: string | undefined, approved: boolean): void;
   clearScreen(): void;
@@ -46,6 +48,8 @@ export interface CommandHost extends PickerHost {
   /** Leaves the UI like Ctrl+C (wired by cli.tsx); undefined without a renderer. */
   readonly quit: (() => void) | undefined;
   readonly sidebar: SidebarController;
+  /** `/find [text]`: open transcript search, like Ctrl+F. */
+  openSearch(query?: string): void;
 }
 
 type Handler = (rest: string) => void | Promise<void>;
@@ -84,6 +88,7 @@ export class CommandRunner {
       "/plugins": () => this.plugins(),
       "/teams": () => this.cliAlert("Teams", ["crew", "team", "list"]),
       "/team": (rest) => this.team(rest),
+      "/crew": (rest) => this.crew(rest),
       "/review-summary": () => this.reviewSummary(),
       "/why": () => this.why(),
       "/branch": (rest) => rest ? this.flows.branchById(rest) : this.branch(),
@@ -94,6 +99,7 @@ export class CommandRunner {
       "/repaint": () => this.repaint(),
       "/redraw": () => this.repaint(),
       "/quit": () => this.quit(),
+      "/find": (rest) => this.host.openSearch(rest.trim()),
       "/diff": () => this.diff(),
       "/sidebar": (rest) => this.setSidebar(rest),
       "/file-changes": (rest) => this.fileChanges(rest),
@@ -432,19 +438,26 @@ export class CommandRunner {
     return this.cliAlert("CrewCode plugin templates", ["plugin", "list-templates"]);
   }
 
-  private async team(value: string): Promise<void> {
+  /** `/team <team> <task>`: a team declared in crewcoder.json, streamed live. */
+  private team(value: string): void {
+    const usage = "/team <team> <task> (use /teams to list teams)";
     const match = /^(\S+)\s+([\s\S]+)$/.exec(value);
-    if (!match) return this.usage("/team <team> <task> (use /teams to list teams)");
+    if (!match) return this.usage(usage);
     const [, team = "", task = ""] = match;
-    this.alert({ variant: "info", title: `Running team ${team}…`, body: task.trim() });
-    await this.cliAlert(`Team ${team}`, ["crew", "team", "run", team, task.trim(), ...this.crewRunOptions()]);
+    if (!isCrewName(team)) return this.usage(`${usage}\nTeam ids are letters, digits, and . _ - (not ${team}).`);
+    this.host.launchCrew({ kind: "team", team }, task.trim(), `/team ${team} ${task.trim()}`);
   }
 
-  private crewRunOptions(): string[] {
-    const args = ["--provider", this.state.provider, "--mode", this.state.mode, "--effort", this.state.effort, "--approval", this.state.fullAccess ? "full-access" : "review"];
-    if (this.state.model) args.push("--model", this.state.model);
-    if (this.state.systemPrompt) args.push("--system-prompt", this.state.systemPrompt);
-    return args;
+  /** `/crew <worker1,worker2> <task>`: named workers in order, streamed live. */
+  private crew(value: string): void {
+    const usage = "/crew <worker1,worker2> <task> (use /workers to list workers)";
+    const match = /^(\S+)\s+([\s\S]+)$/.exec(value);
+    if (!match) return this.usage(usage);
+    const [, list = "", task = ""] = match;
+    const workers = [...new Set(list.split(",").map((name) => name.trim()).filter(Boolean))];
+    const bad = workers.find((name) => !isCrewName(name));
+    if (!workers.length || bad !== undefined) return this.usage(`${usage}\nWorker names are letters, digits, and . _ - (not ${bad ?? list}).`);
+    this.host.launchCrew({ kind: "workers", workers }, task.trim(), `/crew ${workers.join(",")} ${task.trim()}`);
   }
 
   private async reviewSummary(): Promise<void> {

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import path from "node:path";
+import { effortLevelsForModel, normalizeEffort } from "@onpoint-dev-tools/crewcoder-tui-core/state/effort-levels";
+import { normalizeTuiMode } from "@onpoint-dev-tools/crewcoder-tui-core/state/tui-store";
 import { CrewCoderProcessBridge } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/crewcoder-process";
 import { readCrewCoderRemoteConnection } from "@onpoint-dev-tools/crewcoder-tui-core/bridge/remote-connection";
 import { readGitLabel, readGitLabelAsync, readGitRepoName } from "@onpoint-dev-tools/crewcoder-tui-core/state/git-status";
@@ -10,6 +13,8 @@ import { Root } from "./Root.js";
 import { SessionController } from "./session-controller.js";
 import { registerBundledGrammars } from "./syntax/grammars.js";
 import { defaultThemeDirs, fileThemeStore, resolveStartupTheme } from "./theme-controller.js";
+import { readCrewHandoff, systemTmux, type CrewHandoff } from "./tmux.js";
+import { copyAlert, readTmuxOption, readTmuxSettings, TMUX_HINT_ENV, tmuxIssues, tmuxSettingsAlert } from "./tmux-check.js";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -17,6 +22,10 @@ async function main(): Promise<void> {
     process.stdout.write(USAGE);
     return;
   }
+  // A crew handed over from another UI ("Run in tmux"). Read first: its CREWCODER_*
+  // variables (agent binary, home, theme) must apply before anything reads them.
+  const crew = parsed.crewFile ? readCrewHandoff(parsed.crewFile) : undefined;
+  if (crew) Object.assign(process.env, crew.env);
   // Remote mode is resolved by the shared bridge from these variables.
   if (parsed.remote) process.env.CREWCODER_REMOTE = parsed.remote;
   if (parsed.remoteCwd) process.env.CREWCODER_REMOTE_CWD = parsed.remoteCwd;
@@ -43,7 +52,12 @@ async function main(): Promise<void> {
     controller.state.gitRepo = readGitRepoName(controller.state.cwd);
     controller.state.gitLabel = readGitLabel(controller.state.cwd);
     controller.sidebar.gitLabelReader = readGitLabelAsync;
+    // /crew and /team ask "here or tmux" only when tmux exists and the workspace is local.
+    const launcher = systemTmux();
+    const self = path.resolve(process.argv[1] ?? "");
+    if (launcher) controller.crewTmux = { launcher, command: (file) => [process.execPath, ...process.execArgv, self, "--crew-file", file] };
   }
+  if (crew) applyCrewSettings(controller, crew);
   // Full screen: the UI draws the whole conversation in a scrollbox, so tools
   // update in place and tool output can expand and collapse.
   const renderer = await createCliRenderer({
@@ -58,8 +72,15 @@ async function main(): Promise<void> {
   // OSC 52 (most terminals; Shift+drag still uses the terminal's own selection).
   renderer.on("selection", (selection: Selection) => {
     const text = selection.getSelectedText();
-    if (text && renderer.copyToClipboardOSC52(text)) controller.alert({ variant: "info", title: `Copied ${text.length} characters` });
+    // Under tmux the write is dropped unless `set-clipboard on`; say so instead of "Copied".
+    // Read at copy time so fixing tmux.conf works without a restart.
+    if (text && renderer.copyToClipboardOSC52(text)) {
+      controller.alert(copyAlert(text.length, process.env.TMUX ? readTmuxOption("set-clipboard") : undefined));
+    }
   });
+  // Inside tmux, say once which settings are missing (copy, Shift+Enter, focus, colors).
+  const tmuxAlert = process.env[TMUX_HINT_ENV] === "0" ? undefined : tmuxSettingsAlert(tmuxIssues(readTmuxSettings() ?? {}));
+  if (tmuxAlert && !controller.currentAlert) controller.alert(tmuxAlert);
   // /diff: Hunk takes over the terminal; the renderer gives it back afterwards.
   controller.runInTerminal = async (command, args, cwd) => {
     await renderer.suspend();
@@ -86,6 +107,19 @@ async function main(): Promise<void> {
   // /theme previews and picks: the terminal area outside the React tree follows too.
   controller.themes.onChange = (theme) => renderer.setBackgroundColor(theme.ui.colors.background);
   createRoot(renderer).render(<Root controller={controller} onQuit={quit} />);
+  // The handed-over crew starts right away, with the settings it was launched with.
+  if (crew) controller.startCrew(crew.target, crew.task, crew.command);
+}
+
+/** The launching UI's provider, model, effort, mode, system prompt, and access. */
+function applyCrewSettings(controller: SessionController, crew: CrewHandoff): void {
+  const state = controller.state;
+  state.provider = crew.provider;
+  state.model = crew.model;
+  state.effort = normalizeEffort(crew.effort, effortLevelsForModel(crew.provider, crew.model)) ?? state.effort;
+  state.mode = normalizeTuiMode(crew.mode);
+  state.systemPrompt = crew.systemPrompt;
+  state.fullAccess = crew.fullAccess;
 }
 
 main().catch((error: unknown) => {

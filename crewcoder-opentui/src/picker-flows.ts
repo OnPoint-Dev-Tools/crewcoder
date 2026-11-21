@@ -35,7 +35,7 @@ export interface PickerHost {
   readonly themes: ThemeController;
 }
 
-export type OpenableKind = Exclude<PickerKind, "commands" | "menu" | "rewindConfirm">;
+export type OpenableKind = Exclude<PickerKind, "commands" | "menu" | "rewindConfirm" | "crewLaunch">;
 
 const SESSION_HINT = `↑↓ navigate · Enter resume · ${actionLabel("sessionBranch")} branch · Esc close`;
 const THEME_HINT = "↑↓ preview · Enter apply · Esc keep current";
@@ -109,6 +109,7 @@ export class PickerFlows {
     switch (kind) {
       case "commands":
       case "menu":
+      case "crewLaunch":
         return;
       case "provider":
         state.provider = id;

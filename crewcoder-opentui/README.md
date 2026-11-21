@@ -48,7 +48,9 @@ Implemented now:
   Windows too small for the wordmark (under 70 columns, or too short) show only the
   composer. The logo text is shared with the legacy UI through
   `@onpoint-dev-tools/crewcoder-tui-core/theme/logo` and drawn with OpenTUI renderables in
-  static bold primary (the legacy color pulse is not ported).
+  bold. As in legacy, it pulses in one color (the theme `accent` at half brightness up to
+  `glow`, 2.2 s per breath) and freezes after 3 minutes without a key; `NO_MOTION=1` or
+  `CI=true` keeps it on `glow` (`src/logo-pulse.ts`).
 - **Full-screen transcript** (OpenTUI alternate screen, mouse on): the UI draws the whole
   conversation in a scrollbox that follows new output and stays put once you scroll up.
   PgUp/PgDn and the mouse wheel scroll it, Ctrl+Home/Ctrl+End jump to either end, and a
@@ -116,14 +118,18 @@ Implemented now:
 - Transcript blocks for user (with muted `background` context), assistant, reasoning, tool,
   approval, extension question, compaction, image, error, and system. Text
   is normalized to `\n` and stripped of terminal control sequences.
-- Other structured blocks (goals, crews, review summaries, ...) render as a
-  labeled placeholder instead of being dropped.
+- Status panels for background jobs (live output tail), plugin validation, crew rosters,
+  goals, review summaries, `/why` answers, and checkpoints, each in its status color with
+  a spinner while live. See [`docs/TRANSCRIPT.md`](docs/TRANSCRIPT.md#status-panels).
 - New runs, automatic resume of the current session, live follow-ups, approval
   decisions, and abort, all through the shared `crewcoder-tui-core` bridge.
 - `/repaint` (alias `/redraw`): redraws every cell when something else wrote to the
   terminal behind the UI (a stray process, a system message, a glitch after `/diff`).
   Silent on success; the transcript and session are untouched.
 - `/quit`: exits like Ctrl+C.
+- Transcript search: Ctrl+F or `/find [text]`. Jumps to the match's line (expanding
+  collapsed output), marks it, and shows the line in the search bar; Enter/Up older,
+  Shift+Enter/Down newer, Esc closes. See [`docs/TRANSCRIPT.md`](docs/TRANSCRIPT.md#search).
 - `/ext.<extension-id>.<command-id> [args]`: runs an extension's executable command
   through `crewcoder command run` (the agent enforces the extension's trust); its output
   shows in an alert and nothing is sent to the agent.
@@ -146,8 +152,10 @@ Implemented now:
   `/full-access`, `/memory`, `/task`, `/compact auto`), session tools (`/branch [id]`,
   Tab in `/sessions` to branch a saved session and open the branch,
   `/compact`, `/compact preview` with a summary editor, `/export`, `/goal`, `/reload`,
-  `/clear`), and review tools (`/diff`, `/why`, `/review-summary`, `/extensions`, `/teams`,
-  `/team`).
+  `/clear`), review tools (`/diff`, `/why`, `/review-summary`, `/extensions`, `/teams`), and
+  live crews (`/crew <workers> <task>`, `/team <team> <task>`; with tmux installed they
+  can run in tmux and keep going after you close CrewCoder; see
+  [`docs/CREWS.md`](docs/CREWS.md)).
   Results show in a status alert above the composer. See
   [`docs/COMMAND_PALETTE.md`](docs/COMMAND_PALETTE.md).
 - **Right sidebar** (Ctrl+B, `/sidebar`): modified files (`/file-changes on|off`), live
@@ -156,6 +164,9 @@ Implemented now:
   drags to resize. See [`docs/SIDEBAR.md`](docs/SIDEBAR.md).
 - Remote SSH mode, using the same bridge as the legacy UI. The welcome screen and the
   sidebar footer show the remote `<target>:<cwd>`.
+- **tmux**: works inside tmux; at startup CrewCoder names any missing tmux setting
+  (clipboard, Shift+Enter, focus, 24-bit color) with the line to add, and a mouse copy that
+  tmux blocks says so. See [`docs/TMUX.md`](docs/TMUX.md).
 - Themes: `/theme` lists every theme with a live preview; Enter applies and remembers it.
   Also `--theme slate|dark|light|<name>|<path>` or `CREWCODER_THEME`. Slate is the default.
   Custom JSON themes are shared with the legacy UI and can set syntax and markdown element
@@ -168,20 +179,11 @@ Unported slash commands report that they are unavailable instead of being sent a
 New components should come from [termcn](https://www.termcn.dev/docs/components/opentui)
 when it has one (vendored per [`docs/TERMCN.md`](docs/TERMCN.md)).
 
-**Deferred by owner decision:** `/crew`, and Live UI (`contributes.liveUi[]`, experimental
+**Deferred by owner decision:** Live UI (`contributes.liveUi[]`, experimental
 sandboxed extension panels; use the legacy `crewcoder-tui` for it).
 
-**Next:** dedicated crew, goal, and review-summary views.
-
-**Transcript rendering:**
-
-- Search inside the transcript (terminal search cannot see the alternate screen).
-- Dedicated goal, crew roster, and review-summary views (these show as one-line
-  labeled rows).
-
-**Commands and terminal behavior:**
-
-- The legacy logo color pulse.
+Everything on the port list is ported or skipped by owner decision
+([`docs/PORT_LIST.md`](docs/PORT_LIST.md)).
 
 ## Architecture
 
@@ -225,6 +227,10 @@ src/syntax/filetype.ts      path -> highlighted filetype; line-numbered read out
 grammars/                   bundled grammar .wasm + highlights.scm + LICENSE (scripts/update-grammars.mjs)
 src/hunk.ts                 /diff: hunk arguments and running a program on the real terminal
 src/footer-layout.ts        composer sizing, welcome-screen layout, path shortening
+src/logo-pulse.ts           welcome-logo pulse timing and color (pure)
+src/transcript-search.ts    transcript search matching and the match-line snippet (pure)
+src/search-controller.ts    transcript search state: query, matches, current, reveal
+src/search-jump.ts          match -> wrapped content row in the laid-out transcript
 src/session-controller.ts   owns TuiState + bridge + tool expansion; subscribe/getVersion for useSyncExternalStore
 src/transcript.ts           pure block -> display row, turn sections, streaming flag
 src/keybindings.ts          DEFAULT_APP_KEYBINDINGS and chord matching

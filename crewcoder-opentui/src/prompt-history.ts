@@ -24,7 +24,8 @@ export const IDLE_RECALL: HistoryRecall = { draft: "" };
 export function sentMessages(blocks: readonly TuiEventBlock[]): string[] {
   const messages: string[] = [];
   for (const block of blocks) {
-    if (block.type !== "user") continue;
+    // Crew workers' briefs were never typed; the `/crew` or `/team` command that started them was.
+    if (block.type !== "user" || block.worker) continue;
     const text = block.text.trim();
     // Repeats of the next message are skipped so every Up shows different text.
     if (text && text !== messages[0]) messages.unshift(text);
