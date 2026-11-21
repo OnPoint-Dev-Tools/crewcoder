@@ -241,8 +241,20 @@ export async function runCodexCliProvider(input: ProviderRunInput, signal?: Abor
 /** codex-cli has no fallback transport, so the real start failure is the only useful hint. */
 export function codexCliStartFailure(command: string, cause?: { message: string; code?: string; stderr: string }): string {
   if (cause?.code === "ENOENT") return `Codex CLI was not found: \`${command}\` is not on the PATH CrewCoder was started with. Add the Codex CLI's bin directory to PATH or set CREWCODER_CODEX_PATH to the codex executable.`;
-  const detail = [cause?.message, cause?.stderr.split("\n").filter(Boolean).slice(-3).join(" | ")].filter(Boolean).join("; ").slice(0, 600);
+  const detail = [cause?.message, stderrSummary(cause?.stderr ?? "")].filter(Boolean).join("; ").slice(0, 600);
   return `Codex CLI app-server could not start${detail ? ` (${detail})` : ""}. Check \`${command} login status\`, or set CREWCODER_CODEX_PATH.`;
+}
+
+/**
+ * The first error line of a crash plus its last lines. A Node or Rust crash names its
+ * cause near the top (`Error: Cannot find module '/x'`) and ends with a stack tail
+ * (`requireStack: []`, `}`, `Node.js v22`); the tail alone hides the cause.
+ */
+function stderrSummary(stderr: string): string {
+  const lines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  const firstError = lines.find((line) => /\b(error|panic(?:ked)?)\b/i.test(line));
+  const tail = lines.slice(-3);
+  return [...new Set([...(firstError ? [firstError] : []), ...tail])].join(" | ");
 }
 
 async function runAppServerTurn(input: ProviderRunInput, signal: AbortSignal | undefined, launch: AppServerLaunch): Promise<ProviderRunResult | undefined> {
