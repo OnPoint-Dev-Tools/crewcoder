@@ -3,6 +3,7 @@ import { eventToText } from "../bridge/event-parser.js";
 import { pushSystemLog, type TuiCheckpoint, type TuiDeclarativeComponent, type TuiFileDiff, type TuiReviewIssueReference, type TuiSafetyPolicy, type TuiState, type TuiUiAction } from "./tui-store.js";
 import type { TuiUsageSummary } from "./usage.js";
 import { toolImageAttachments } from "./image-attachment.js";
+import { splitNodeWarnings } from "./node-warnings.js";
 
 export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent): void {
   switch (event.type) {
@@ -257,7 +258,12 @@ export function applyCrewCoderEvent(state: TuiState, event: CrewCoderJsonEvent):
     case "turn_end":
       pushSystemLog(state, `Turn ${String(event.iteration ?? "?")} ended`);
       break;
-    case "stderr":
+    case "stderr": {
+      const { warnings, rest } = splitNodeWarnings(eventToText(event));
+      for (const warning of warnings) pushSystemLog(state, warning);
+      if (rest) state.blocks.push({ type: "error", text: rest });
+      break;
+    }
     case "process_error":
     case "provider_error":
     case "agent_error":
