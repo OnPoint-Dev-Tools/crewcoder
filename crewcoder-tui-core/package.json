@@ -1,6 +1,6 @@
 {
    "name": "@onpoint-dev-tools/crewcoder-tui-core",
-   "version": "0.1.0",
+   "version": "0.1.1",
    "private": false,
    "description": "UI-independent CrewCoder terminal UI runtime: agent process bridge, JSON event parser, and transcript state reducer shared by CrewCoder TUIs.",
    "license": "Apache-2.0",

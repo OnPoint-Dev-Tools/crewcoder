@@ -57,7 +57,7 @@
    },
    "dependencies": {
       "@onpoint-dev-tools/crewcoder-agent": "0.7.9",
-      "@onpoint-dev-tools/crewcoder-tui": "0.6.5",
+      "@onpoint-dev-tools/crewcoder-tui": "0.6.6",
       "typescript": "^5.7.2"
    },
    "devDependencies": {
@@ -70,6 +70,6 @@
       "node": ">=22.0.0"
    },
    "optionalDependencies": {
-      "@onpoint-dev-tools/crewcoder-opentui": "0.1.0"
+      "@onpoint-dev-tools/crewcoder-opentui": "0.1.1"
    }
 }
