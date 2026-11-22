@@ -16,6 +16,13 @@ import type { ProviderDefinition } from "../providers/types.js";
 const provider: ProviderDefinition = { id: "claude", title: "Claude SDK", kind: "builtin", runtime: "claude-agent-sdk", command: "sdk", args: [] };
 
 beforeEach(() => queryMock.mockReset());
+
+/** The text of the streamed user turn the provider handed to `query`. */
+async function promptText(prompt: AsyncIterable<{ message: { content: unknown } }>): Promise<string> {
+  const first = await prompt[Symbol.asyncIterator]().next();
+  const content = first.value?.message.content;
+  return typeof content === "string" ? content : JSON.stringify(content);
+}
 afterEach(() => vi.restoreAllMocks());
 
 describe("Claude Agent SDK provider", () => {
@@ -286,8 +293,9 @@ describe("Claude Agent SDK provider", () => {
       },
       stream: { executeTool: vi.fn() }
     });
-    expect(queryMock.mock.calls[0][0].prompt).toContain(JSON.stringify({ role: "assistant", content: [{ type: "text", text: "earlier answer" }] }));
-    expect(queryMock.mock.calls[0][0].prompt).toContain(JSON.stringify({ role: "user", text: "latest" }));
+    const prompt = await promptText(queryMock.mock.calls[0][0].prompt);
+    expect(prompt).toContain(JSON.stringify({ role: "assistant", content: [{ type: "text", text: "earlier answer" }] }));
+    expect(prompt).toContain(JSON.stringify({ role: "user", text: "latest" }));
   });
 
   it("routes file tools through CrewCoder MCP when a virtual file host is active", async () => {
@@ -342,6 +350,99 @@ describe("Claude Agent SDK provider", () => {
     expect(starts).toEqual([{ name: "Read", arguments: { file_path: "README.md" } }]);
     expect(ends).toEqual(["Read"]);
   });
+
+  it("routes every tool through canUseTool instead of shadowing it with allowedTools", async () => {
+    queryMock.mockImplementation(() => ({ async *[Symbol.asyncIterator]() { yield { type: "result", subtype: "success", result: "ok" }; } }));
+    const requestQuestion = vi.fn(async () => "deny");
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [], toolMode: "native", approvalMode: "review" },
+      stream: { executeTool: vi.fn(), requestQuestion }
+    });
+    const options = queryMock.mock.calls[0][0].options;
+    expect(options.allowedTools).toBeUndefined();
+    expect(await options.canUseTool("Read", { file_path: "a" })).toEqual({ behavior: "allow", updatedInput: { file_path: "a" } });
+    expect(await options.canUseTool("mcp__crewcoder__edit", { path: "a" })).toEqual({ behavior: "allow", updatedInput: { path: "a" } });
+    expect(requestQuestion).not.toHaveBeenCalled();
+    // Native mutations still need an explicit answer.
+    expect(await options.canUseTool("Bash", { command: "rm x" })).toEqual({ behavior: "deny", message: "Native tool permission declined" });
+    expect(requestQuestion).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Claude's input open after a result until the CLI reports idle", async () => {
+    const closedAt: string[] = [];
+    queryMock.mockImplementation((request: { prompt: AsyncIterable<unknown>; options: { env: Record<string, string> } }) => ({
+      async *[Symbol.asyncIterator]() {
+        expect(request.options.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS).toBe("1");
+        const input = request.prompt[Symbol.asyncIterator]();
+        expect((await input.next()).done).toBe(false);
+        let stage = "running";
+        const closed = input.next().then(() => { closedAt.push(stage); });
+        yield { type: "system", subtype: "session_state_changed", state: "running" };
+        yield { type: "result", subtype: "success", result: "first" };
+        // A background task wakes Claude up again: permissions and MCP calls still need stdin.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        stage = "after first result";
+        yield { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text" } } };
+        yield { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "tests passed" } } };
+        yield { type: "result", subtype: "success" };
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        stage = "idle";
+        yield { type: "system", subtype: "session_state_changed", state: "idle" };
+        await closed;
+      }
+    }));
+    const result = await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn() }
+    });
+    expect(closedAt).toEqual(["idle"]);
+    expect(result.stdout).toBe("first\n\ntests passed");
+  });
+
+  it("closes the input at the first result for a CLI that never reports session state", async () => {
+    const closedAt: string[] = [];
+    queryMock.mockImplementation((request: { prompt: AsyncIterable<unknown> }) => ({
+      async *[Symbol.asyncIterator]() {
+        const input = request.prompt[Symbol.asyncIterator]();
+        await input.next();
+        let stage = "before result";
+        const closed = input.next().then(() => { closedAt.push(stage); });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        stage = "result";
+        yield { type: "result", subtype: "success", result: "ok" };
+        await closed;
+      }
+    }));
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn() }
+    });
+    expect(closedAt).toEqual(["result"]);
+  });
+
+  it("closes the input when the run is aborted", async () => {
+    const controller = new AbortController();
+    let closed = false;
+    queryMock.mockImplementation((request: { prompt: AsyncIterable<unknown> }) => ({
+      async *[Symbol.asyncIterator]() {
+        const input = request.prompt[Symbol.asyncIterator]();
+        await input.next();
+        const done = input.next().then(() => { closed = true; });
+        yield { type: "system", subtype: "session_state_changed", state: "running" };
+        controller.abort();
+        await done;
+      }
+    }));
+    await runClaudeAgentSdkProvider({
+      provider, prompt: "work", cwd: "/repo",
+      modelInput: { systemPrompt: "system", messages: [{ role: "user", content: [{ type: "text", text: "work" }], timestamp: 1 }], availableTools: [] },
+      stream: { executeTool: vi.fn() }
+    }, controller.signal);
+    expect(closed).toBe(true);
+  });
 });
 
 describe("Claude Agent SDK provider resume fallback", () => {
@@ -381,7 +482,7 @@ describe("Claude Agent SDK provider resume fallback", () => {
     expect(queryMock).toHaveBeenCalledTimes(2);
     expect(queryMock.mock.calls[0][0].options.resume).toBe("claude-on-the-pc");
     expect(queryMock.mock.calls[1][0].options.resume).toBeUndefined();
-    expect(String(queryMock.mock.calls[1][0].prompt)).toContain("first answer");
+    expect(await promptText(queryMock.mock.calls[1][0].prompt)).toContain("first answer");
     expect(sessions).toEqual(["claude-new"]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("continued");
