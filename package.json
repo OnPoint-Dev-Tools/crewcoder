@@ -1,6 +1,6 @@
 {
    "name": "crewcoder",
-   "version": "0.7.9",
+   "version": "0.7.10",
    "description": "One-command installer and launcher for the CrewCoder agent and terminal UI",
    "private": false,
    "license": "Apache-2.0",
@@ -56,7 +56,7 @@
       "screenshots": "bash scripts/screenshots/shoot.sh"
    },
    "dependencies": {
-      "@onpoint-dev-tools/crewcoder-agent": "0.7.9",
+      "@onpoint-dev-tools/crewcoder-agent": "0.7.10",
       "@onpoint-dev-tools/crewcoder-tui": "0.6.6",
       "typescript": "^5.7.2"
    },
