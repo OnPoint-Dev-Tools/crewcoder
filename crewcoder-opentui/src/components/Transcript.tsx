@@ -8,7 +8,7 @@ import { reasoningIcon, type GlyphSet } from "../glyphs.js";
 import { useAppColors } from "../hooks/use-app-colors.js";
 import { useGlyphSet } from "../hooks/use-glyph-set.js";
 import { useTheme } from "../hooks/use-theme.js";
-import { codeFence, useCodeStyle, useMarkdownStyle, type MarkdownTextColors } from "../markdown-style.js";
+import { codeFenceRenderer, useCodeStyle, useMarkdownStyle, type MarkdownTextColors } from "../markdown-style.js";
 import { codeFiletype } from "../syntax/filetype.js";
 import { imageBox, type ImageMode } from "../image-view.js";
 import { bodyColor, toneColor } from "../theme.js";
@@ -237,6 +237,7 @@ function MarkdownText({ text, streaming, colors }: { text: string; streaming: bo
   const theme = useTheme();
   const renderer = useRenderer();
   const style = useMarkdownStyle(theme, colors);
+  const renderBlock = useMemo(() => codeFenceRenderer(renderer, theme), [renderer, theme]);
   return (
     <markdown
       content={text}
@@ -246,7 +247,7 @@ function MarkdownText({ text, streaming, colors }: { text: string; streaming: bo
       streaming={streaming}
       conceal
       tableOptions={{ borderColor: theme.colors.border, wrapMode: "word", widthMode: "content", cellPaddingX: 1 }}
-      renderBlock={(block, context) => (block.kind === "code" ? codeFence(renderer, theme, context) : undefined)}
+      renderBlock={renderBlock}
     />
   );
 }

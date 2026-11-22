@@ -94,7 +94,10 @@ expand and collapse). The React tree renders the whole UI: a `<scrollbox>` trans
   matches nothing. Whether a renderer may match another extension's or a built-in tool
   (`toolName: "bash"`) is an open owner question; it still can, as in legacy.
 - Replies and reasoning render through OpenTUI's native `<markdown>` with styles from
-  `markdown-style.ts` (owner decision over termcn `markdown`). Reasoning follows termcn's
+  `markdown-style.ts` (owner decision over termcn `markdown`). Pass `codeFenceRenderer()`
+  as `renderBlock`, never an inline lambda: it carries OpenTUI's `codeBlockOnly` flag, and
+  without it OpenTUI 0.9.x rebuilds top-level blocks on every streamed delta and crashes
+  in `updateList` (`setting 'ordinal'`) on nested lists (`tests/markdown-stream.test.ts`). Reasoning follows termcn's
   `thinking-block` design and stays expanded (summaries must stay visible).
 - The transcript scrollbox sticks to the bottom and must stay `focusable={false}` so a
   click never takes focus from the composer. Scroll keys (`transcriptPageUp/Down`,

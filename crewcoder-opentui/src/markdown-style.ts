@@ -1,4 +1,13 @@
-import { BoxRenderable, SyntaxStyle, type RenderContext, type Renderable, type RenderNodeContext, type StyleDefinitionInput } from "@opentui/core";
+import {
+  BoxRenderable,
+  SyntaxStyle,
+  type MarkdownBlock,
+  type MarkdownOptions,
+  type RenderContext,
+  type Renderable,
+  type RenderNodeContext,
+  type StyleDefinitionInput
+} from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useEffect, useMemo } from "react";
 import type { MarkdownColors, SyntaxColors } from "@onpoint-dev-tools/crewcoder-tui-core/theme/crewcoder-theme";
@@ -151,4 +160,22 @@ export function codeFence(ctx: RenderContext, theme: Theme, context: RenderNodeC
   });
   rail.add(code);
   return rail;
+}
+
+/** `<markdown renderBlock>`: a rail around every fenced code block, OpenTUI's default for everything else. */
+export type CodeFenceRenderer = NonNullable<MarkdownOptions["renderBlock"]> & { codeBlockOnly: true };
+
+/**
+ * The `renderBlock` for replies: `codeFence` for code, `undefined` (default) otherwise.
+ * `codeBlockOnly` is the flag OpenTUI's own `createMarkdownCodeBlockRenderer` sets
+ * (we cannot use that helper: it skips fences without a known language, which would
+ * lose their rail). Without it OpenTUI treats every top-level block as custom and
+ * rebuilds its subtree on each streamed change, and in 0.9.2-0.9.7 that rebuild
+ * crashes (`Cannot set properties of undefined (setting 'ordinal')` in `updateList`)
+ * when a nested list's new items are not shown yet.
+ */
+export function codeFenceRenderer(ctx: RenderContext, theme: Theme): CodeFenceRenderer {
+  const render = (block: MarkdownBlock, context: RenderNodeContext): Renderable | undefined =>
+    block.kind === "code" ? codeFence(ctx, theme, context) : undefined;
+  return Object.assign(render, { codeBlockOnly: true as const });
 }
